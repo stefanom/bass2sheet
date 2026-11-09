@@ -1,0 +1,227 @@
+"""Quality gates: every run measures its own result, and a verdict decides whether the sheet can be trusted.
+
+There is no reference transcription, so each gate is a proxy; none is trusted alone. They cover the stem
+(is there bass, how much drum bleed), the transcription against the stem (coverage, notes cut short), the
+transcription rendered back to audio against the stem (gaps, pitch), octave sanity, an independent model
+(Basic Pitch) on the same stem, and the rhythm grid. Bars where the checks disagree go on an ear-check list.
+"""
+
+from dataclasses import asdict, dataclass
+
+import librosa
+import mir_eval
+import numpy as np
+import pretty_midi
+
+from .common import HOP, SR, clock
+
+CHECK_SEVERITY = 3  # bars at or above this severity get a red "check" in the PDF
+
+
+@dataclass
+class Gate:
+    name: str
+    label: str
+    value: float | None
+    warn: float
+    fail: float
+    higher_is_better: bool
+    meaning: str
+    status: str = "pass"  # pass | warn | fail | skipped
+    note: str = ""
+
+    def judge(self):
+        if self.value is None:
+            self.status = "skipped"
+        else:
+            bad = (lambda v, t: v < t) if self.higher_is_better else (lambda v, t: v > t)
+            self.status = "fail" if bad(self.value, self.fail) else "warn" if bad(self.value, self.warn) else "pass"
+        return self
+
+
+def _harmonic_pitch(C, lo=24, hi=64):
+    """Per frame, the MIDI note whose harmonics 1-4 carry the most energy (robust to weak fundamentals)."""
+    A = np.sqrt(C)
+    return np.stack([A[q - 21] + A[q - 9] + 0.8 * A[q - 2] + 0.6 * A[q + 3] for q in range(lo, hi + 1)]).argmax(0) + lo
+
+
+def _cqt(y):
+    return np.abs(librosa.cqt(y, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12))
+
+
+def stem_gates(stems, mix):
+    """Cheap checks on the separated bass before spending minutes on pitch tracking."""
+    bass = stems["bass"].mean(0)
+    level = 20 * np.log10((np.sqrt(np.mean(bass ** 2)) + 1e-12) / (np.sqrt(np.mean(mix ** 2)) + 1e-12))
+    sr = 22050
+    b = librosa.resample(bass, orig_sr=SR, target_sr=sr)
+    d = librosa.resample(stems["drums"].mean(0), orig_sr=SR, target_sr=sr)
+    S = np.abs(librosa.stft(b, n_fft=2048, hop_length=220))
+    f = librosa.fft_frequencies(sr=sr, n_fft=2048)
+    hi = librosa.onset.onset_strength(S=librosa.amplitude_to_db(S[(f > 500) & (f < 4000)] + 1e-9), sr=sr, hop_length=220)
+    de = librosa.onset.onset_strength(y=d, sr=sr, hop_length=220)
+    n = min(len(hi), len(de))
+    bleed = float(np.corrcoef(hi[:n], de[:n])[0, 1]) if n > 10 and hi[:n].std() > 0 and de[:n].std() > 0 else 0.0
+    return [
+        Gate("bass_level", "Bass stem level vs the mix", float(level), -25.0, -35.0, True,
+             "dB; very low means the separator found little or no bass").judge(),
+        Gate("drum_bleed", "Drum bleed in the bass stem", bleed, 0.15, 0.30, False,
+             "correlation of the stem's 500-4000 Hz onsets with the drum stem's; high means kick/snare leak into the bass").judge(),
+    ]
+
+
+def octave_doubts(C, notes):
+    """Notes whose written octave the spectrum contradicts: energy an octave below or at a fifth above (the 3rd
+    harmonic of the octave below) means too high; a fundamental 25 dB under its octave means too low."""
+    out = []
+    for nt in notes:
+        a, b = int(nt["start"] * 100) + 2, int(min(nt["end"], nt["start"] + 0.3) * 100)
+        if b - a < 6:
+            continue
+        e = lambda q: C[q - 21, a:b].mean() + 1e-9 if 0 <= q - 21 < C.shape[0] else 1e-9
+        db = lambda x, y: 20 * np.log10(x / y)
+        p = nt["pitch"]
+        strongest = max(e(p), e(p + 12))
+        if p - 12 >= 28 and (db(e(p - 12), strongest) > -10 or db(e(p + 7), strongest) > -6):
+            out.append((nt, "may be an octave too high"))
+        elif p + 12 < 21 + C.shape[0] and db(e(p), e(p + 12)) < -25:
+            out.append((nt, "may be an octave too low"))
+    return out
+
+
+def transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, second_reason):
+    """Gates on the transcription plus the per-bar ear-check list {bar: [reasons]}."""
+    rms_db = feat["rms_db"]
+    n = len(rms_db)
+    playing = rms_db > np.percentile(rms_db, 99) - 20
+    cover = np.zeros(n, bool)
+    for nt in notes:
+        cover[int(nt["start"] * 100):int(nt["end"] * 100)] = True
+    coverage = float((cover & playing).sum() / max(1, playing.sum()))
+    cut = []
+    for a, b in zip(notes, notes[1:]):
+        ioi = b["start"] - a["start"]
+        if 0.1 < ioi < 1.5:
+            mid = slice(int(a["end"] * 100), int(b["start"] * 100))
+            still = playing[mid].mean() if mid.stop > mid.start else 0
+            cut.append((a["end"] - a["start"]) / ioi < 0.8 and still > 0.5)
+    cut_short = float(np.mean(cut)) if cut else 0.0
+
+    # the transcription rendered back to audio, against the stem
+    C_real = feat["cqt"]
+    s_db = librosa.amplitude_to_db(librosa.feature.rms(y=synth_bass, frame_length=2048, hop_length=HOP)[0] + 1e-9)[:n]
+    s_on = np.zeros(n, bool)
+    s_on[:len(s_db)] = s_db > np.percentile(s_db, 99) - 30
+    r_semi = _harmonic_pitch(C_real)[:n]
+    s_semi = _harmonic_pitch(_cqt(synth_bass))[:n]
+    m = min(len(r_semi), len(s_semi), n)
+    both = (playing & s_on)[:m]
+    same_name = both & ((r_semi[:m] - s_semi[:m]) % 12 == 0)
+    gaps = float((playing & ~s_on).sum() / max(1, playing.sum()))
+    pitch_match = float(same_name.sum() / max(1, both.sum()))
+    doubts = octave_doubts(C_real, notes)
+
+    # second model on the same stem
+    sec_pitch = sec_onset = None
+    fb = None
+    if second:
+        fa, fb = np.full(n, -1), np.full(n, -1)
+        for arr, src in ((fa, [(x["start"], x["end"], x["pitch"]) for x in notes]), (fb, [(s, e, p) for s, e, p, _ in second])):
+            for s, e, p in src:
+                arr[int(s * 100):int(e * 100)] = p
+        bb = (fa >= 0) & (fb >= 0)
+        sec_pitch = float(np.mean(fa[bb] == fb[bb])) if bb.any() else 0.0
+        ia = np.array([[x["start"], x["end"]] for x in notes])
+        pa = np.array([pretty_midi.note_number_to_hz(x["pitch"] % 12 + 48) for x in notes])
+        ib = np.array([[s, e] for s, e, _, _ in second])
+        pb = np.array([pretty_midi.note_number_to_hz(p % 12 + 48) for _, _, p, _ in second])
+        _, _, sec_onset, _ = mir_eval.transcription.precision_recall_f1_overlap(ia, pa, ib, pb, onset_tolerance=0.05,
+                                                                               offset_ratio=None)
+        sec_onset = float(sec_onset)
+
+    offsets = [abs(nt["start"] - grid[nt["grid_start"] + origin]) for nt in notes]
+    eighths = float(np.mean([nt["sixteenth"] in (1, 3) for nt in notes]))
+    uncertain = float(np.mean([bool(nt["flag"]) for nt in notes]))
+    gates = [
+        Gate("coverage", "Sounding bass covered by notes", coverage, 0.95, 0.85, True,
+             "share of the time the stem clearly sounds that has a transcribed note").judge(),
+        Gate("cut_short", "Notes cut short while the bass rings", cut_short, 0.05, 0.15, False,
+             "share of notes followed by a MIDI gap while the stem still sounds (heard as choppy)").judge(),
+        Gate("audio_gaps", "Synth silent while the bass sounds", gaps, 0.05, 0.15, False,
+             "the transcription rendered to audio, compared with the stem").judge(),
+        Gate("audio_pitch", "Same note name as the recording", pitch_match, 0.85, 0.70, True,
+             "where both sound; pitch from harmonic summation, so the synth's timbre doesn't matter").judge(),
+        Gate("octave_doubts", "Notes with a doubtful octave", len(doubts) / max(1, len(notes)), 0.0, 0.05, False,
+             "share of notes whose octave the spectrum contradicts").judge(),
+        Gate("second_model_pitch", "Same pitch as Basic Pitch", sec_pitch, 0.80, 0.60, True,
+             "independent model on the same stem, where both sound").judge(),
+        Gate("second_model_onsets", "Note starts shared with Basic Pitch", sec_onset, 0.60, 0.40, True,
+             "onset F-measure within 50 ms, same note name").judge(),
+        Gate("grid_offset_ms", "Median distance of note starts from the 16th grid", float(np.median(offsets) * 1000),
+             25.0, 40.0, False, "ms; large means the beat grid or tempo is off").judge(),
+        Gate("grid_eighths", "Notes on 8th-note positions", eighths, 0.75, 0.55, True,
+             "rock bass sits mostly on beats and 'ands'; low suggests a wrong pulse level, a shifted grid or swing").judge(),
+        Gate("uncertain_notes", "Notes flagged uncertain", uncertain, 0.10, 0.25, False,
+             "pitch trackers disagreed, or the octave was corrected").judge(),
+    ]
+    if second is None:
+        for g in gates:
+            if g.name.startswith("second_model"):
+                g.note = second_reason or "not run"
+
+    # ear-check list: (category, points, reason) per bar; a bar's severity sums the worst points per category
+    checks = {}
+    add = lambda bar, cat, pts, why: checks.setdefault(bar, []).append((cat, pts, why))
+    bars = sorted({nt["bar"] for nt in notes})
+    for bar in range(min(bars + [1]), max(bars + [1]) + 1):
+        i0 = origin + 16 * (bar - 1)
+        if i0 < 0 or i0 + 16 >= len(grid):
+            continue
+        a, b = int(grid[i0] * 100), min(n, int(grid[i0 + 16] * 100))
+        if b - a < 20 or playing[a:b].mean() < 0.25:
+            continue
+        cov = (cover[a:b] & playing[a:b]).sum() / max(1, playing[a:b].sum())
+        if cov < 0.8:
+            add(bar, "missing", 2, f"notes missing: {cov:.0%} of the sounding bass is covered")
+        bm = both[a:min(b, m)]
+        if bm.sum() >= 20:
+            pm = same_name[a:min(b, m)].sum() / bm.sum()
+            if pm < 0.7:
+                add(bar, "audio_pitch", 2, f"rendered notes match the recording's pitch only {pm:.0%} of the time")
+        if fb is not None:
+            sel = (fa[a:b] >= 0) & (fb[a:b] >= 0)
+            if sel.sum() >= 20:
+                ag = np.mean(fa[a:b][sel] == fb[a:b][sel])
+                if ag < 0.7:
+                    add(bar, "second_model", 2 if ag < 0.5 else 1, f"Basic Pitch hears different notes ({ag:.0%} agreement)")
+    for nt in notes:
+        pos = f"{nt['beat']}.{nt['sixteenth']}"
+        if nt["flag"] == "octave":
+            add(nt["bar"], "octave_ambiguous", 1, f"octave was ambiguous at {pos} (decided from the spectrum)")
+        elif nt["flag"]:
+            add(nt["bar"], "uncertain", 1, f"uncertain pitch at {pos} (pitch trackers disagree)")
+    for nt, why in doubts:
+        add(nt["bar"], "octave_doubt", 2, f"note at {nt['beat']}.{nt['sixteenth']} {why}")
+    severity = {bar: sum(max(p for c, p, _ in items if c == cat) for cat in {c for c, _, _ in items})
+                for bar, items in checks.items()}
+    n_bars = max(1, len({nt["bar"] for nt in notes}))
+    gates.append(Gate("check_bars", "Bars that need an ear check", sum(s >= CHECK_SEVERITY for s in severity.values()) / n_bars,
+                      0.15, 0.30, False, f"share of bars with notes where independent checks disagree (severity ≥ {CHECK_SEVERITY})").judge())
+    checks = {bar: dict(severity=severity[bar], reasons=[w for _, _, w in items]) for bar, items in checks.items()}
+    return gates, checks
+
+
+def verdict(gates):
+    statuses = [g.status for g in gates]
+    return "FAIL" if "fail" in statuses else "WARN" if "warn" in statuses else "PASS"
+
+
+def gates_json(gates):
+    return [asdict(g) for g in gates]
+
+
+def check_list(checks, grid, origin):
+    """Ear-check bars, most severe first."""
+    rows = [dict(bar=b, time=clock(grid[min(origin + 16 * (b - 1), len(grid) - 1)]), severity=c["severity"],
+                 reasons=list(dict.fromkeys(c["reasons"]))) for b, c in checks.items()]
+    return sorted(rows, key=lambda r: (-r["severity"], r["bar"]))

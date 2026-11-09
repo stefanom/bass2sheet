@@ -1,0 +1,120 @@
+"""Turn per-frame pitch into notes: hysteresis voicing, pluck-only splits of repeated pitches, legato ends,
+and octave sanity checks against the stem's spectrum."""
+
+from dataclasses import asdict, dataclass
+
+import librosa
+import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
+
+from .common import HOP, HOP_S, SR
+
+
+@dataclass
+class SegParams:
+    enter_per: float = 0.45  # CREPE periodicity that counts as clearly pitched (pitch estimate, note starts)
+    stay_per: float = 0.15  # a sounding note ends only after periodicity stays below this ...
+    unpitched_frames: int = 20  # ... for 200 ms (each pluck briefly drops periodicity)
+    decay_db: float = 15.0  # ... or once it decays this far below its own peak
+    attack_db: float = 3.0  # a repeated pitch is a new note only if the low-band energy jumps this much
+    merge_gap_frames: int = 10  # same-pitch notes closer than 100 ms without a new pluck are one note
+    rise_before: int = 2  # pluck rise: peak in the next rise_after frames minus trough in the last rise_before
+    rise_after: int = 3
+    attack_look: int = 1  # look for that rise within this many frames of a note start
+    octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
+    min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
+
+    def as_dict(self):
+        return asdict(self)
+
+
+def low_band_db(bass_mono):
+    """30-400 Hz energy per 10 ms frame, in dB."""
+    S = np.abs(librosa.stft(bass_mono, n_fft=2048, hop_length=HOP))
+    f = librosa.fft_frequencies(sr=SR, n_fft=2048)
+    return librosa.amplitude_to_db(S[(f > 30) & (f < 400)].sum(0) + 1e-9)
+
+
+def attack_rise(low_db, before, after):
+    n = len(low_db)
+    pad = np.pad(low_db, (before, after), mode="edge")
+    return sliding_window_view(pad[before:], after + 1).max(1) - sliding_window_view(pad[:n + before], before + 1).min(1)
+
+
+def segment_notes(feat, bass_mono, p=SegParams()):
+    """Notes as dicts {start, end (s), pitch (MIDI), agree, flag}; flag is None, "octave" or "uncertain"."""
+    f0_c, per_c, f0_p, rms_db, onsets = feat["f0_c"], feat["per_c"], feat["f0_p"], feat["rms_db"], feat["onsets"]
+    cqt = feat["cqt"][:60]  # A0..G#5
+    low_db = low_band_db(bass_mono)
+    n = min(len(f0_c), len(f0_p), len(rms_db), len(low_db))
+    f0_c, per_c, f0_p, rms_db, low_db = f0_c[:n], per_c[:n], f0_p[:n], rms_db[:n], low_db[:n]
+    rise = attack_rise(low_db, p.rise_before, p.rise_after)
+    floor = np.percentile(rms_db, 99) - 30
+    voiced = (rms_db > floor) & (per_c > p.enter_per)
+    midi_c = np.where(voiced, librosa.hz_to_midi(np.maximum(f0_c, 1e-6)), np.nan)
+    midi_p = np.where(np.isfinite(f0_p), librosa.hz_to_midi(np.where(np.isfinite(f0_p), f0_p, 1.0)), np.nan)
+    rounded = np.where(np.isfinite(midi_c), np.round(midi_c), -1).astype(int)
+
+    boundaries = set(int(o) for o in onsets if 0 <= o < n)
+    for t in range(1, n - 4):  # pitch changes that persist at least 40 ms
+        if rounded[t] != rounded[t - 1] and rounded[t] >= 0 and np.all(rounded[t:t + 4] == rounded[t]):
+            boundaries.add(t)
+    starts = sorted(boundaries | {0})
+    notes = []
+    for s, e in zip(starts, starts[1:] + [n]):
+        v = np.isfinite(midi_c[s:e])
+        if v.sum() < p.min_voiced_frames:
+            continue
+        idx = np.nonzero(v)[0] + s
+        pitch = int(round(np.median(midi_c[idx])))
+        alt = midi_p[idx]
+        alt = alt[np.isfinite(alt)]
+        p_med = int(round(np.median(alt))) if len(alt) else None
+        agree = float(np.mean(np.abs(alt - pitch) <= 0.5)) if len(alt) else 0.0
+        flag = None
+        if p_med is not None and abs(p_med - pitch) == 12:  # the trackers disagree by an octave
+            low, high = min(p_med, pitch), max(p_med, pitch)
+            frames = slice(idx[0], idx[-1] + 1)
+            e_low = cqt[low - 21, frames].mean() if 0 <= low - 21 < 60 else 0
+            e_high = cqt[high - 21, frames].mean() if 0 <= high - 21 < 60 else 0
+            pitch = low if low >= 28 and e_low >= 0.3 * e_high else high
+            flag = "octave"
+        elif agree < 0.5:
+            pc = np.array([cqt[k::12, idx].sum(0) for k in range(12)])
+            if np.mean((pc.argmax(0) + 9) % 12 == pitch % 12) < 0.6:  # CQT bin 0 is A
+                flag = "uncertain"
+        core = idx[:30]  # fundamental far below its own octave: CREPE locked an octave low
+        if 21 <= pitch and pitch - 9 < cqt.shape[0] and 20 * np.log10(
+                (cqt[pitch - 9, core].mean() + 1e-9) / (cqt[pitch - 21, core].mean() + 1e-9)) > p.octave_up_db:
+            pitch += 12
+            flag = "octave"
+        start = s if idx[0] - s <= 8 else idx[0]
+        notes.append(dict(s=start, last=idx[-1] + 1, pitch=pitch, agree=agree, flag=flag))
+    # hold each note while it still sounds: up to the next note, a decay_db drop, or a long unpitched stretch
+    unpitched = per_c < p.stay_per
+    for i, nt in enumerate(notes):
+        limit = notes[i + 1]["s"] if i + 1 < len(notes) else n
+        stop = max(floor, rms_db[nt["s"]:nt["last"]].max() - p.decay_db)
+        t, run = nt["last"], 0
+        while t < limit and rms_db[t] > stop:
+            run = run + 1 if unpitched[t] else 0
+            if run >= p.unpitched_frames:
+                t -= p.unpitched_frames - 1
+                break
+            t += 1
+        nt["e"] = max(t, nt["last"])
+    # a repeated pitch without a new pluck continues the previous note
+    merged = []
+    for nt in notes:
+        prev = merged[-1] if merged else None
+        if prev and nt["pitch"] == prev["pitch"] and nt["s"] - prev["e"] <= p.merge_gap_frames \
+                and rise[max(0, nt["s"] - p.attack_look):nt["s"] + p.attack_look + 1].max() < p.attack_db:
+            prev["e"] = nt["e"]
+            prev["agree"] = min(prev["agree"], nt["agree"])
+            prev["flag"] = prev["flag"] or nt["flag"]
+        else:
+            merged.append(dict(nt))
+    for nt in merged:
+        nt["start"], nt["end"] = nt.pop("s") * HOP_S, nt.pop("e") * HOP_S
+        del nt["last"]
+    return merged, midi_c, midi_p
