@@ -5,13 +5,21 @@ import shutil
 import subprocess
 from xml.sax.saxutils import escape
 
-from .common import SHARPS, FLATS, log
+from .common import FLATS, SHARPS, log
 
 TRIADS = {"": (0, 4, 7), "m": (0, 3, 7)}
 STRINGS = [28, 33, 38, 43]  # E1 A1 D2 G2, sounding MIDI
 MAX_FRET = 20
-TYPES = {16: ("whole", 0), 12: ("half", 1), 8: ("half", 0), 6: ("quarter", 1), 4: ("quarter", 0), 3: ("eighth", 1),
-         2: ("eighth", 0), 1: ("16th", 0)}
+TYPES = {
+    16: ("whole", 0),
+    12: ("half", 1),
+    8: ("half", 0),
+    6: ("quarter", 1),
+    4: ("quarter", 0),
+    3: ("eighth", 1),
+    2: ("eighth", 0),
+    1: ("16th", 0),
+}
 MSCORE_CANDIDATES = ["mscore", "mscore4", "musescore", "/Applications/MuseScore 4.app/Contents/MacOS/mscore"]
 STYLE = """<?xml version="1.0" encoding="UTF-8"?>
 <museScore version="4.70"><Style>
@@ -41,8 +49,16 @@ def note_pieces(p, e):
         for d in (16, 12, 8, 6, 4, 3, 2, 1):
             if p + d > e:
                 continue
-            ok = {16: p == 0, 12: p == 0, 8: p in (0, 8), 6: p in (0, 2, 8, 10), 4: p % 4 == 0 or p in (2, 10),
-                  3: p % 4 in (0, 1), 2: p % 2 == 0 or p % 4 == 1, 1: True}[d]
+            ok = {
+                16: p == 0,
+                12: p == 0,
+                8: p in (0, 8),
+                6: p in (0, 2, 8, 10),
+                4: p % 4 == 0 or p in (2, 10),
+                3: p % 4 in (0, 1),
+                2: p % 2 == 0 or p % 4 == 1,
+                1: True,
+            }[d]
             if ok:
                 out.append((p, d))
                 p += d
@@ -68,7 +84,9 @@ def frets(pitches):
     position (open strings leave it in place); stretches beyond 3 frets cost more, frets 0-4 are preferred."""
     if not pitches:
         return []
-    opts = [[(s, m - o) for s, o in enumerate(STRINGS) if 0 <= m - o <= MAX_FRET] or [(0, max(0, m - 28))] for m in pitches]
+    opts = [
+        [(s, m - o) for s, o in enumerate(STRINGS) if 0 <= m - o <= MAX_FRET] or [(0, max(0, m - 28))] for m in pitches
+    ]
 
     def step(hand, s0, s, f):
         reach = 0.0 if f == 0 else 0.1 * abs(f - hand) + 1.0 * max(0, abs(f - hand) - 3)
@@ -101,11 +119,16 @@ def pitch_xml(midi, name):
     step, acc = name[0], name[1:]
     alter = {"": 0, "#": 1, "b": -1}[acc]
     octave = (midi + 12 - alter) // 12 - 1
-    return f"<pitch><step>{step}</step>" + (f"<alter>{alter}</alter>" if alter else "") + f"<octave>{octave}</octave></pitch>"
+    return (
+        f"<pitch><step>{step}</step>"
+        + (f"<alter>{alter}</alter>" if alter else "")
+        + f"<octave>{octave}</octave></pitch>"
+    )
 
 
-def musicxml(notes, chords, key, tempo, first_downbeat, title, artist, check_bars, draft, phrase_start=9,
-             bars_per_line=4):
+def musicxml(
+    notes, chords, key, tempo, first_downbeat, title, artist, check_bars, draft, phrase_start=9, bars_per_line=4
+):
     """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check")."""
     key_name, key_root, key_major = key
     chord_of = {c["bar"]: c for c in chords}
@@ -172,12 +195,16 @@ def musicxml(notes, chords, key, tempo, first_downbeat, title, artist, check_bar
         r = '<rest measure="yes"/>' if whole_bar else "<rest/>"
         t = "" if whole_bar else f"<type>{typ}</type>" + "<dot/>" * dots
         hide = "" if staff == 1 else ' print-object="no"'  # the staff above carries the rhythm
-        return f"<note{hide}>{r}<duration>{d}</duration><voice>{1 if staff == 1 else 5}</voice>{t}<staff>{staff}</staff></note>"
+        voice = 1 if staff == 1 else 5
+        return f"<note{hide}>{r}<duration>{d}</duration><voice>{voice}</voice>{t}<staff>{staff}</staff></note>"
 
     words = lambda text, size=7, style="italic", color=None: (
         '<direction placement="above"><direction-type>'
-        f'<words font-size="{size}" font-style="{style}"' + (f' color="{color}"' if color else "") + f">{escape(text)}</words>"
-        "</direction-type><staff>1</staff></direction>")
+        f'<words font-size="{size}" font-style="{style}"'
+        + (f' color="{color}"' if color else "")
+        + f">{escape(text)}</words>"
+        "</direction-type><staff>1</staff></direction>"
+    )
     M, prev_chord = [], None
     for bar in range(first_bar, last_bar + 1):
         x = f'<measure number="{bar}">'
@@ -185,19 +212,27 @@ def musicxml(notes, chords, key, tempo, first_downbeat, title, artist, check_bar
         if line_start and bar != first_bar:
             x += '<print new-system="yes"/>'
         if bar == first_bar:
-            x += ("<attributes><divisions>4</divisions>"
-                  f"<key><fifths>{fifths}</fifths><mode>{'major' if key_major else 'minor'}</mode></key>"
-                  "<time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves>"
-                  '<clef number="1"><sign>F</sign><line>4</line></clef><clef number="2"><sign>TAB</sign><line>5</line></clef>'
-                  '<staff-details number="2"><staff-lines>4</staff-lines>'
-                  + "".join(f'<staff-tuning line="{i + 1}"><tuning-step>{SHARPS[m % 12][0]}</tuning-step>'
-                            f"<tuning-octave>{m // 12}</tuning-octave></staff-tuning>" for i, m in enumerate(STRINGS))
-                  + "</staff-details>"
-                  "<transpose><diatonic>0</diatonic><chromatic>0</chromatic><octave-change>-1</octave-change></transpose>"
-                  "</attributes>")
-            x += ('<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit>'
-                  f"<per-minute>{tempo:.0f}</per-minute></metronome></direction-type><staff>1</staff>"
-                  f'<sound tempo="{tempo:.0f}"/></direction>')
+            x += (
+                "<attributes><divisions>4</divisions>"
+                f"<key><fifths>{fifths}</fifths><mode>{'major' if key_major else 'minor'}</mode></key>"
+                "<time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves>"
+                '<clef number="1"><sign>F</sign><line>4</line></clef>'
+                '<clef number="2"><sign>TAB</sign><line>5</line></clef>'
+                '<staff-details number="2"><staff-lines>4</staff-lines>'
+                + "".join(
+                    f'<staff-tuning line="{i + 1}"><tuning-step>{SHARPS[m % 12][0]}</tuning-step>'
+                    f"<tuning-octave>{m // 12}</tuning-octave></staff-tuning>"
+                    for i, m in enumerate(STRINGS)
+                )
+                + "</staff-details>"
+                "<transpose><diatonic>0</diatonic><chromatic>0</chromatic><octave-change>-1</octave-change></transpose>"
+                "</attributes>"
+            )
+            x += (
+                '<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit>'
+                f"<per-minute>{tempo:.0f}</per-minute></metronome></direction-type><staff>1</staff>"
+                f'<sound tempo="{tempo:.0f}"/></direction>'
+            )
         if line_start:
             x += words(mmss(first_downbeat + (bar - 1) * bar_s))
         if bar in check_bars:
@@ -206,8 +241,11 @@ def musicxml(notes, chords, key, tempo, first_downbeat, title, artist, check_bar
         if c and bar in by_bar and c["chord"] != prev_chord:
             root = c["names"][c["root"]]
             alter = {"": 0, "#": 1, "b": -1}[root[1:]]
-            x += (f"<harmony><root><root-step>{root[0]}</root-step>" + (f"<root-alter>{alter}</root-alter>" if alter else "")
-                  + f"</root><kind>{'major' if c['quality'] == '' else 'minor'}</kind><staff>1</staff></harmony>")
+            x += (
+                f"<harmony><root><root-step>{root[0]}</root-step>"
+                + (f"<root-alter>{alter}</root-alter>" if alter else "")
+                + f"</root><kind>{'major' if c['quality'] == '' else 'minor'}</kind><staff>1</staff></harmony>"
+            )
             prev_chord = c["chord"]
         elif bar not in by_bar:
             prev_chord = None
@@ -238,21 +276,32 @@ def musicxml(notes, chords, key, tempo, first_downbeat, title, artist, check_bar
             x += '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
         M.append(x + "</measure>")
 
-    sub = ("DRAFT: failed quality gates, see report. " if draft else "") + "Bass: machine transcription, check it by ear"
-    foot = " · ".join(filter(None, ["Chord symbols approximate" if chords else "",
-                                    "(notes) uncertain" if flagged else "",
-                                    "red 'check': verify by ear (see report)" if check_bars else "",
-                                    "times: where each line starts in the recording"]))
-    return ('<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
-            '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" '
-            '"http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0">'
-            f"<movement-title>{escape(title)}</movement-title>"
-            f'<identification><creator type="composer">{escape(artist)}</creator>'
-            f'<creator type="lyricist">{escape(sub)}</creator><rights>{escape(foot)}</rights></identification>'
-            '<part-list><score-part id="P1"><part-name>Bass</part-name>'
-            '<score-instrument id="P1-I1"><instrument-name>Electric Bass</instrument-name></score-instrument>'
-            '<midi-instrument id="P1-I1"><midi-program>34</midi-program></midi-instrument></score-part></part-list>'
-            '<part id="P1">' + "".join(M) + "</part></score-partwise>\n")
+    sub = (
+        "DRAFT: failed quality gates, see report. " if draft else ""
+    ) + "Bass: machine transcription, check it by ear"
+    foot = " · ".join(
+        filter(
+            None,
+            [
+                "Chord symbols approximate" if chords else "",
+                "(notes) uncertain" if flagged else "",
+                "red 'check': verify by ear (see report)" if check_bars else "",
+                "times: where each line starts in the recording",
+            ],
+        )
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+        '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" '
+        '"http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0">'
+        f"<movement-title>{escape(title)}</movement-title>"
+        f'<identification><creator type="composer">{escape(artist)}</creator>'
+        f'<creator type="lyricist">{escape(sub)}</creator><rights>{escape(foot)}</rights></identification>'
+        '<part-list><score-part id="P1"><part-name>Bass</part-name>'
+        '<score-instrument id="P1-I1"><instrument-name>Electric Bass</instrument-name></score-instrument>'
+        '<midi-instrument id="P1-I1"><midi-program>34</midi-program></midi-instrument></score-part></part-list>'
+        '<part id="P1">' + "".join(M) + "</part></score-partwise>\n"
+    )
 
 
 def engrave(xml_path, pdf_path, mscore, timeout=300):
@@ -261,8 +310,9 @@ def engrave(xml_path, pdf_path, mscore, timeout=300):
     with open(style, "w") as f:
         f.write(STYLE)
     try:
-        r = subprocess.run([mscore, "-S", style, "-o", pdf_path, xml_path], capture_output=True, text=True,
-                           timeout=timeout)
+        r = subprocess.run(
+            [mscore, "-S", style, "-o", pdf_path, xml_path], capture_output=True, text=True, timeout=timeout
+        )
     except subprocess.TimeoutExpired:
         return f"MuseScore timed out after {timeout} s"
     finally:

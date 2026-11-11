@@ -20,7 +20,7 @@ def _place(buf, start_s, sound):
     i = int(round(start_s * SR))
     n = min(len(sound), len(buf) - i)
     if n > 0:
-        buf[i:i + n] += sound[:n]
+        buf[i : i + n] += sound[:n]
 
 
 def _kick():
@@ -74,8 +74,15 @@ def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=
     mix = sum(stems.values())
     peak = float(np.abs(mix).max())
     scale = 0.9 / peak
-    return dict(mix=mix * scale, stems={k: v * scale for k, v in stems.items()}, notes=notes, beats=np.array(beats),
-                downbeats=np.array(downbeats), tempo=tempo, sr=SR)
+    return dict(
+        mix=mix * scale,
+        stems={k: v * scale for k, v in stems.items()},
+        notes=notes,
+        beats=np.array(beats),
+        downbeats=np.array(downbeats),
+        tempo=tempo,
+        sr=SR,
+    )
 
 
 def write_song(song, directory):

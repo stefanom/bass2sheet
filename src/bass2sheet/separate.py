@@ -1,10 +1,10 @@
 """Source separation: BS-RoFormer SW (primary) or Demucs htdemucs_ft (fallback), cached by audio hash."""
 
+import logging
 import os
 import re
 import shutil
 import tempfile
-import logging
 
 import numpy as np
 import soundfile as sf
@@ -40,8 +40,12 @@ def _roformer(mix_path, n, cache_dir):
     _ensure_ffmpeg(cache_dir)
     out_dir = tempfile.mkdtemp(prefix="sep-", dir=cache_dir)
     try:
-        sep = Separator(output_dir=out_dir, model_file_dir=os.path.join(cache_dir, "models"), output_format="WAV",
-                        log_level=logging.WARNING)
+        sep = Separator(
+            output_dir=out_dir,
+            model_file_dir=os.path.join(cache_dir, "models"),
+            output_format="WAV",
+            log_level=logging.WARNING,
+        )
         sep.load_model(model_filename=ROFORMER_MODEL)
         files = sep.separate(mix_path)
         stems = {}
@@ -77,15 +81,20 @@ def _demucs(wav, device):
     ref = x.mean(0)
     mean, std = ref.mean(), ref.std()
     with torch.no_grad():
-        out = apply_model(model, ((x - mean) / std)[None], device=device, shifts=1, split=True, overlap=0.25,
-                          progress=False)[0]
+        out = apply_model(
+            model, ((x - mean) / std)[None], device=device, shifts=1, split=True, overlap=0.25, progress=False
+        )[0]
     out = out * std + mean
     s = {name: out[k].cpu().numpy().astype(np.float32) for k, name in enumerate(model.sources)}
     return {"bass": s["bass"], "drums": s["drums"], "harmony": s["other"], "vocals": s["vocals"]}
 
 
-STEM_FILES = {"bass": ("bass",), "drums": ("drums",), "harmony": ("harmony", "other", "guitar", "piano"),
-              "vocals": ("vocals",)}
+STEM_FILES = {
+    "bass": ("bass",),
+    "drums": ("drums",),
+    "harmony": ("harmony", "other", "guitar", "piano"),
+    "vocals": ("vocals",),
+}
 
 
 def load_stems(stems_dir, n):
@@ -94,7 +103,9 @@ def load_stems(stems_dir, n):
     from .audio import decode
 
     def find(name):
-        hits = sorted(p for p in os.listdir(stems_dir) if os.path.splitext(p)[0].lower() == name and not p.startswith("."))
+        hits = sorted(
+            p for p in os.listdir(stems_dir) if os.path.splitext(p)[0].lower() == name and not p.startswith(".")
+        )
         return os.path.join(stems_dir, hits[0]) if hits else None
 
     zeros = np.zeros((2, n), np.float32)

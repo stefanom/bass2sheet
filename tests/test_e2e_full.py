@@ -12,8 +12,10 @@ import pytest
 from bass2sheet import evaluate, pipeline
 from bass2sheet.second_opinion import find_python
 
-pytestmark = [pytest.mark.full,
-              pytest.mark.skipif(os.environ.get("BASS2SHEET_FULL_E2E") != "1", reason="set BASS2SHEET_FULL_E2E=1 to run")]
+pytestmark = [
+    pytest.mark.full,
+    pytest.mark.skipif(os.environ.get("BASS2SHEET_FULL_E2E") != "1", reason="set BASS2SHEET_FULL_E2E=1 to run"),
+]
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "..", "eval", "baselines", "babyslakh.json")
 QUICK_TRACKS = "Track00002,Track00008,Track00010,Track00016"
@@ -40,9 +42,22 @@ def test_full_pipeline_from_the_mix(separator, song, song_files, tmp_path):
         assert {g["name"]: g["status"] for g in rep["gates"]}["second_model_pitch"] != "skipped"
 
 
-@pytest.mark.skipif(not os.environ.get("BASS2SHEET_EVAL_DATA"), reason="set BASS2SHEET_EVAL_DATA to a BabySlakh directory")
+@pytest.mark.skipif(
+    not os.environ.get("BASS2SHEET_EVAL_DATA"), reason="set BASS2SHEET_EVAL_DATA to a BabySlakh directory"
+)
 @pytest.mark.skipif(not os.path.exists(BASELINE), reason="no committed baseline")
 def test_no_regression_on_babyslakh(tmp_path):
-    code = evaluate.main([os.environ["BASS2SHEET_EVAL_DATA"], "--out", str(tmp_path / "run"), "--conditions", "mix",
-                          "--tracks", QUICK_TRACKS, "--baseline", BASELINE])
+    code = evaluate.main(
+        [
+            os.environ["BASS2SHEET_EVAL_DATA"],
+            "--out",
+            str(tmp_path / "run"),
+            "--conditions",
+            "mix",
+            "--tracks",
+            QUICK_TRACKS,
+            "--baseline",
+            BASELINE,
+        ]
+    )
     assert code == 0

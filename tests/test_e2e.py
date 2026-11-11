@@ -22,8 +22,18 @@ CREPE = os.environ.get("BASS2SHEET_TEST_CREPE", "tiny")
 def result(song, song_files, cache_dir, tmp_path_factory):
     mix, stems = song_files
     out = str(tmp_path_factory.mktemp("out"))
-    code = pipeline.run(mix, out, title="Synthetic Song", artist="bass2sheet tests", stems_dir=stems, second_mode="off",
-                        crepe_model=CREPE, cache_dir=cache_dir, device="cpu", pdf=False)
+    code = pipeline.run(
+        mix,
+        out,
+        title="Synthetic Song",
+        artist="bass2sheet tests",
+        stems_dir=stems,
+        second_mode="off",
+        crepe_model=CREPE,
+        cache_dir=cache_dir,
+        device="cpu",
+        pdf=False,
+    )
     data = json.load(open(os.path.join(out, "notes.json")))
     rep = json.load(open(os.path.join(out, "report.json")))
     est = [(n["start"], n["end"], n["pitch"]) for n in data["notes"]]
@@ -53,8 +63,18 @@ def test_rhythm_grid_matches(result, song):
 
 def test_outputs_are_complete_and_valid(result, song):
     out = result["out"]
-    for name in ("bass.musicxml", "bass.mid", "bass_as_played.mid", "notes.json", "report.html", "report.json",
-                 "audio/bass_stem.wav", "audio/synth_bass.wav", "audio/song_resynth.wav", "audio/bass_ab_lr.wav"):
+    for name in (
+        "bass.musicxml",
+        "bass.mid",
+        "bass_as_played.mid",
+        "notes.json",
+        "report.html",
+        "report.json",
+        "audio/bass_stem.wav",
+        "audio/synth_bass.wav",
+        "audio/song_resynth.wav",
+        "audio/bass_ab_lr.wav",
+    ):
         assert os.path.getsize(os.path.join(out, name)) > 0, name
     doc = xml.dom.minidom.parse(os.path.join(out, "bass.musicxml"))
     assert doc.getElementsByTagName("movement-title")[0].firstChild.data == "Synthetic Song"
@@ -62,7 +82,9 @@ def test_outputs_are_complete_and_valid(result, song):
         total = {"1": 0, "2": 0}
         for n in measure.getElementsByTagName("note"):
             if not n.getElementsByTagName("grace"):
-                total[n.getElementsByTagName("staff")[0].firstChild.data] += int(n.getElementsByTagName("duration")[0].firstChild.data)
+                total[n.getElementsByTagName("staff")[0].firstChild.data] += int(
+                    n.getElementsByTagName("duration")[0].firstChild.data
+                )
         assert total == {"1": 16, "2": 16}
     played = pretty_midi.PrettyMIDI(os.path.join(out, "bass_as_played.mid")).instruments[0].notes
     assert len(played) == len(result["data"]["notes"])
@@ -84,8 +106,27 @@ def test_pdf_is_engraved(result, tmp_path):
 def test_cli_runs_end_to_end_from_the_cache(result, song_files, cache_dir, tmp_path):
     mix, stems = song_files
     out = str(tmp_path / "cli-out")
-    code = cli.main([mix, "-o", out, "--stems", stems, "--second-opinion", "off", "--crepe-model", CREPE,
-                     "--cache-dir", cache_dir, "--device", "cpu", "--no-audio", "--no-pdf", "--title", "CLI run"])
+    code = cli.main(
+        [
+            mix,
+            "-o",
+            out,
+            "--stems",
+            stems,
+            "--second-opinion",
+            "off",
+            "--crepe-model",
+            CREPE,
+            "--cache-dir",
+            cache_dir,
+            "--device",
+            "cpu",
+            "--no-audio",
+            "--no-pdf",
+            "--title",
+            "CLI run",
+        ]
+    )
     assert code == 0
     assert json.load(open(os.path.join(out, "notes.json")))["notes"] == result["data"]["notes"]  # deterministic
     assert not os.path.exists(os.path.join(out, "audio"))
@@ -103,8 +144,26 @@ def test_drums_in_place_of_bass_do_not_pass(song, song_files, cache_dir, tmp_pat
     """Garbage in the bass stem must end in an error or a FAIL verdict, never a sheet that claims to be fine."""
     stems = _stems_with(tmp_path, song, bass=song["stems"]["drums"])
     out = str(tmp_path / "out")
-    code = cli.main([song_files[0], "-o", out, "--stems", stems, "--second-opinion", "off", "--crepe-model", CREPE,
-                     "--cache-dir", cache_dir, "--device", "cpu", "--no-audio", "--no-pdf", "--strict"])
+    code = cli.main(
+        [
+            song_files[0],
+            "-o",
+            out,
+            "--stems",
+            stems,
+            "--second-opinion",
+            "off",
+            "--crepe-model",
+            CREPE,
+            "--cache-dir",
+            cache_dir,
+            "--device",
+            "cpu",
+            "--no-audio",
+            "--no-pdf",
+            "--strict",
+        ]
+    )
     assert code in (1, 2)
     assert not os.path.exists(os.path.join(out, "bass.musicxml"))  # strict mode writes no sheet on FAIL
     if code == 2:
@@ -113,8 +172,21 @@ def test_drums_in_place_of_bass_do_not_pass(song, song_files, cache_dir, tmp_pat
 
 def test_silent_bass_is_an_error(song, song_files, cache_dir, tmp_path, capsys):
     stems = _stems_with(tmp_path, song, bass=np.zeros_like(song["stems"]["bass"]))
-    code = cli.main([song_files[0], "-o", str(tmp_path / "out"), "--stems", stems, "--second-opinion", "off",
-                     "--cache-dir", cache_dir, "--device", "cpu"])
+    code = cli.main(
+        [
+            song_files[0],
+            "-o",
+            str(tmp_path / "out"),
+            "--stems",
+            stems,
+            "--second-opinion",
+            "off",
+            "--cache-dir",
+            cache_dir,
+            "--device",
+            "cpu",
+        ]
+    )
     assert code == 1 and "no bass found" in capsys.readouterr().err
 
 

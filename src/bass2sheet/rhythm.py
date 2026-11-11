@@ -3,7 +3,7 @@
 import librosa
 import numpy as np
 
-from .common import NOTE_NAMES, SR, spelling
+from .common import SR, spelling
 
 
 def beats_and_downbeats(drums, bass, harmony):
@@ -22,8 +22,9 @@ def beats_and_downbeats(drums, bass, harmony):
         raise ValueError("fewer than 16 beats tracked")
     S = np.abs(librosa.stft(d, n_fft=2048, hop_length=256))
     freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
-    band = lambda lo, hi: librosa.onset.onset_strength(S=librosa.amplitude_to_db(S[(freqs >= lo) & (freqs < hi)]),
-                                                      sr=sr, hop_length=256)
+    band = lambda lo, hi: librosa.onset.onset_strength(
+        S=librosa.amplitude_to_db(S[(freqs >= lo) & (freqs < hi)]), sr=sr, hop_length=256
+    )
     t_env = librosa.times_like(band(150, 400), sr=sr, hop_length=256)
     at = lambda e: np.interp(pulses, t_env, e)
     sn, kick = at(band(150, 400)), at(band(30, 120))
@@ -34,19 +35,26 @@ def beats_and_downbeats(drums, bass, harmony):
     for y in (o, b):
         c = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=512)
         tc = librosa.times_like(c, sr=sr, hop_length=512)
-        sync = np.array([c[:, (tc >= p0) & (tc < p1)].mean(1) if ((tc >= p0) & (tc < p1)).any() else np.zeros(12)
-                         for p0, p1 in zip(pulses[:-1], list(pulses[1:]))] + [np.zeros(12)])
+        sync = np.array(
+            [
+                c[:, (tc >= p0) & (tc < p1)].mean(1) if ((tc >= p0) & (tc < p1)).any() else np.zeros(12)
+                for p0, p1 in zip(pulses[:-1], list(pulses[1:]))
+            ]
+            + [np.zeros(12)]
+        )
         sync /= np.linalg.norm(sync, axis=1, keepdims=True) + 1e-9
         change[1:] += 1 - (sync[1:] * sync[:-1]).sum(1)
     bar = 4 * per_quarter
     if per_quarter == 1:
         candidates = [p for p in range(bar) if p % 2 == parity(kick)]
     else:  # snare on 2 and 4 = pulses p+2 and p+6
-        backbeat = lambda p: sn[(p + 2) % bar::bar].mean() + sn[(p + 6) % bar::bar].mean()
+        backbeat = lambda p: sn[(p + 2) % bar :: bar].mean() + sn[(p + 6) % bar :: bar].mean()
         candidates = [p for p in range(bar) if backbeat(p) >= 0.9 * max(backbeat(q) for q in range(bar))]
     norm = lambda v: v / (v.mean() + 1e-9)
-    score = {p: norm(change)[p::bar].mean() + 0.5 * norm(kick)[p::bar].mean() + 0.5 * norm(bass_on)[p::bar].mean()
-             for p in candidates}
+    score = {
+        p: norm(change)[p::bar].mean() + 0.5 * norm(kick)[p::bar].mean() + 0.5 * norm(bass_on)[p::bar].mean()
+        for p in candidates
+    }
     phase = max(score, key=score.get)
     return tempo / per_quarter, pulses, per_quarter, phase
 
@@ -117,8 +125,16 @@ def chords_per_bar(harmony, notes, grid, origin):
                 if best is None or score > best[0]:
                     best = (score, root, q)
         names = spelling(best[1], best[2] == "")
-        out.append(dict(bar=k + 1, root=best[1], quality=best[2], score=float(best[0]), names=names,
-                        chord=names[best[1]] + best[2]))
+        out.append(
+            dict(
+                bar=k + 1,
+                root=best[1],
+                quality=best[2],
+                score=float(best[0]),
+                names=names,
+                chord=names[best[1]] + best[2],
+            )
+        )
     return out, chroma
 
 

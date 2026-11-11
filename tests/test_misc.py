@@ -4,25 +4,28 @@ import os
 import numpy as np
 import pretty_midi
 import pytest
+from conftest import note
 
 from bass2sheet import cli, common, pipeline, render, report
 from bass2sheet.second_opinion import monophonic
-from conftest import note
 
 
 def test_monophonic_keeps_one_note_at_a_time():
     notes = [(0.0, 1.0, 40, 0.5), (0.5, 1.5, 47, 0.9), (0.6, 0.9, 52, 0.2), (2.0, 2.01, 40, 0.5)]
     out = monophonic(notes)
     assert out == [(0.0, 0.5, 40, 0.5), (0.5, 1.5, 47, 0.9)]  # louder note cuts in; the quiet inner and the blip go
-    for (s0, e0, *_), (s1, *_rest) in zip(out, out[1:]):
+    for (_, e0, *_), (s1, *_rest) in zip(out, out[1:]):
         assert e0 <= s1
 
 
-@pytest.mark.parametrize("path,expected", [
-    ("/x/Wilco - How To Fight Loneliness [7CAYFIpi89k].mp4", ("How To Fight Loneliness", "Wilco")),
-    ("song.wav", ("song", "")),
-    ("A - B - C.mp3", ("B - C", "A")),
-])
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("/x/Wilco - How To Fight Loneliness [7CAYFIpi89k].mp4", ("How To Fight Loneliness", "Wilco")),
+        ("song.wav", ("song", "")),
+        ("A - B - C.mp3", ("B - C", "A")),
+    ],
+)
 def test_guess_title(path, expected):
     assert pipeline.guess_title(path) == expected
 
@@ -44,7 +47,10 @@ def test_atomic_writes_use_normal_permissions(tmp_path):
 
 
 def test_write_midi_as_played_and_steady(tmp_path):
-    notes = [note(1.02, 1.5, 40, grid_start=0, grid_len=4), note(1.51, 2.0, 43, grid_start=4, grid_len=4, flag="uncertain")]
+    notes = [
+        note(1.02, 1.5, 40, grid_start=0, grid_len=4),
+        note(1.51, 2.0, 43, grid_start=4, grid_len=4, flag="uncertain"),
+    ]
     render.write_midi(notes, 120.0, str(tmp_path / "a.mid"), steady=False)
     render.write_midi(notes, 120.0, str(tmp_path / "s.mid"), steady=True)
     played = pretty_midi.PrettyMIDI(str(tmp_path / "a.mid")).instruments[0].notes
@@ -62,13 +68,32 @@ def test_pluck_sounds_at_the_written_pitch():
 
 
 def test_report_renders_verdict_gates_and_checks(tmp_path):
-    gate = dict(name="coverage", label="Sounding bass covered by notes", value=0.91, warn=0.95, fail=0.85,
-                higher_is_better=True, meaning="m", status="warn", note="")
-    data = dict(version="0", title="T <x>", artist="A", input="in.wav", verdict="WARN", gates=[gate],
-                ear_checks=[dict(bar=5, time="0:09.0", severity=4, reasons=["notes missing: 60%"])],
-                attempts=[dict(method="roformer", outcome="transcribed: WARN")], warnings=["w"], files={"bass.pdf": "score"},
-                check_severity=3, timings=dict(total=12.0),
-                summary=dict(duration="0:26.0", notes=72, bars=12, tempo=120.0, key="E minor", separator="roformer"))
+    gate = dict(
+        name="coverage",
+        label="Sounding bass covered by notes",
+        value=0.91,
+        warn=0.95,
+        fail=0.85,
+        higher_is_better=True,
+        meaning="m",
+        status="warn",
+        note="",
+    )
+    data = dict(
+        version="0",
+        title="T <x>",
+        artist="A",
+        input="in.wav",
+        verdict="WARN",
+        gates=[gate],
+        ear_checks=[dict(bar=5, time="0:09.0", severity=4, reasons=["notes missing: 60%"])],
+        attempts=[dict(method="roformer", outcome="transcribed: WARN")],
+        warnings=["w"],
+        files={"bass.pdf": "score"},
+        check_severity=3,
+        timings=dict(total=12.0),
+        summary=dict(duration="0:26.0", notes=72, bars=12, tempo=120.0, key="E minor", separator="roformer"),
+    )
     report.write(str(tmp_path / "r.html"), str(tmp_path / "r.json"), data)
     html = (tmp_path / "r.html").read_text()
     assert "WARN" in html and "T &lt;x&gt;" in html and "91%" in html and "notes missing: 60%" in html

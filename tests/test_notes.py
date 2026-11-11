@@ -12,7 +12,7 @@ def _stem(spec, seconds):
     for start, dur, pitch in spec:
         w = 0.5 * pluck(librosa.midi_to_hz(pitch), dur, 100)
         i = int(start * SR)
-        y[i:i + len(w)] += w[:len(y) - i]
+        y[i : i + len(w)] += w[: len(y) - i]
     return y.astype(np.float32)
 
 
@@ -39,7 +39,7 @@ def test_segment_notes_recovers_plucked_notes():
     y = _stem(SPEC, 4.5)
     out, _, _ = N.segment_notes(_features(y, SPEC), y)
     assert [n["pitch"] for n in out] == [p for _, _, p in SPEC]
-    for n, (start, dur, _) in zip(out, SPEC):
+    for n, (start, _, _) in zip(out, SPEC):
         assert abs(n["start"] - start) < 0.012, (n["start"], start)
         assert n["end"] > n["start"] and n["flag"] is None and n["plucked"]
 

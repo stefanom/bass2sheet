@@ -13,9 +13,12 @@ ENV_VAR = "BASS2SHEET_BASIC_PITCH_PYTHON"
 
 
 def find_python(explicit=None):
-    candidates = [explicit, os.environ.get(ENV_VAR),
-                  str(Path(__file__).resolve().parents[3] / ".venv-bp" / "bin" / "python"),
-                  str(Path.home() / ".cache" / "bass2sheet" / "venv-bp" / "bin" / "python")]
+    candidates = [
+        explicit,
+        os.environ.get(ENV_VAR),
+        str(Path(__file__).resolve().parents[3] / ".venv-bp" / "bin" / "python"),
+        str(Path.home() / ".cache" / "bass2sheet" / "venv-bp" / "bin" / "python"),
+    ]
     return next((c for c in candidates if c and os.path.exists(c)), None)
 
 
@@ -25,14 +28,19 @@ def basic_pitch_notes(bass, stem_id, cache_dir, python=None, timeout=1800):
     if not os.path.exists(out_csv):
         py = find_python(python)
         if not py:
-            return None, (f"Basic Pitch not found: set {ENV_VAR} to a Python with basic-pitch and onnxruntime "
-                          "(see README)")
+            return None, (
+                f"Basic Pitch not found: set {ENV_VAR} to a Python with basic-pitch and onnxruntime (see README)"
+            )
         wav = os.path.join(cache_dir, f"bass-{stem_id[:16]}.wav")
         sf.write(wav, bass.T, SR, subtype="FLOAT")
         log.info("second opinion: Basic Pitch")
         try:
-            r = subprocess.run([py, str(Path(__file__).with_name("bp_runner.py")), wav, out_csv], capture_output=True,
-                               text=True, timeout=timeout)
+            r = subprocess.run(
+                [py, str(Path(__file__).with_name("bp_runner.py")), wav, out_csv],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
             return None, f"Basic Pitch timed out after {timeout} s"
         finally:
@@ -41,7 +49,9 @@ def basic_pitch_notes(bass, stem_id, cache_dir, python=None, timeout=1800):
             last = (r.stderr or "").strip().splitlines()
             return None, "Basic Pitch failed" + (f": {last[-1]}" if last else "")
     with open(out_csv) as f:
-        notes = [(float(x["start"]), float(x["end"]), int(x["pitch"]), float(x["amplitude"])) for x in csv.DictReader(f)]
+        notes = [
+            (float(x["start"]), float(x["end"]), int(x["pitch"]), float(x["amplitude"])) for x in csv.DictReader(f)
+        ]
     return monophonic(notes), None
 
 

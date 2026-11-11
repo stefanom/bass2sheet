@@ -19,7 +19,7 @@ def test_load_stems_sums_harmony_parts_and_fits_length(tmp_path):
     assert set(stems) == {"bass", "drums", "harmony", "vocals"}
     assert all(v.shape == (2, SR) for v in stems.values())
     assert np.allclose(stems["harmony"], 0.03) and np.allclose(stems["vocals"], 0)
-    assert np.allclose(stems["drums"][:, : SR // 2], 0.2) and np.allclose(stems["drums"][:, SR // 2 + 10:], 0)
+    assert np.allclose(stems["drums"][:, : SR // 2], 0.2) and np.allclose(stems["drums"][:, SR // 2 + 10 :], 0)
 
 
 def test_load_stems_requires_bass_and_drums(tmp_path):

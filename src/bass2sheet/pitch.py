@@ -8,7 +8,6 @@ import torch
 
 from .common import FMAX, FMIN, HOP, HOP_S, SR, atomic_savez, log, sha1_array
 
-
 CREPE_MODELS = ("full", "tiny")
 
 
@@ -18,9 +17,18 @@ def track_crepe(mono, device="cpu", model="full"):
     y16 = librosa.resample(mono, orig_sr=SR, target_sr=16000)
     audio = torch.from_numpy(y16)[None]
     # CREPE's lowest bin is about 32 Hz; a lower fmin masks every bin (output: flat 31.7 Hz, NaN periodicity)
-    pitch, periodicity = torchcrepe.predict(audio, 16000, hop_length=160, fmin=33.0, fmax=FMAX, model=model,
-                                            decoder=torchcrepe.decode.viterbi, return_periodicity=True,
-                                            batch_size=2048, device=device)
+    pitch, periodicity = torchcrepe.predict(
+        audio,
+        16000,
+        hop_length=160,
+        fmin=33.0,
+        fmax=FMAX,
+        model=model,
+        decoder=torchcrepe.decode.viterbi,
+        return_periodicity=True,
+        batch_size=2048,
+        device=device,
+    )
     periodicity = torchcrepe.filter.median(periodicity, 3)
     return pitch[0].cpu().numpy(), periodicity[0].cpu().numpy()
 
@@ -59,6 +67,7 @@ def features(bass_mono, cache_dir, device="cpu", crepe_model="full"):
     rms_db = librosa.amplitude_to_db(librosa.feature.rms(y=bass_mono, frame_length=2048, hop_length=HOP)[0] + 1e-9)
     env = librosa.onset.onset_strength(y=bass_mono, sr=SR, hop_length=HOP, fmax=1000)
     onsets = librosa.onset.onset_detect(onset_envelope=env, sr=SR, hop_length=HOP, backtrack=True)
-    cqt = np.abs(librosa.cqt(bass_mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72,
-                             bins_per_octave=12))  # bin k = MIDI 21 + k
+    cqt = np.abs(
+        librosa.cqt(bass_mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12)
+    )  # bin k = MIDI 21 + k
     return dict(f0_c=f0_c, per_c=per_c, f0_p=f0_p, rms_db=rms_db, onsets=onsets, cqt=cqt, stem_id=stem_id)

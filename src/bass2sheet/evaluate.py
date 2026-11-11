@@ -1,15 +1,21 @@
-"""Evaluate bass2sheet against ground truth: run the tool on each track of a dataset and score its notes and its
-rhythm grid against the dataset's bass MIDI.
+"""Evaluate bass2sheet against ground truth: run the tool on each track of a dataset and score what it wrote
+against the dataset's bass annotation.
 
-    bass2sheet-eval DATASET_DIR --out RUN_DIR [--conditions mix,stem] [--tracks ID,ID] [--limit N] [--force]
+    bass2sheet-eval DATASET_DIR --out RUN_DIR [--conditions mix,stem] [--tracks ID,ID] [--sample N] [--force]
+                    [--annotations DIR] [--baseline FILE] [--write-baseline FILE]
 
-Datasets: Slakh2100 layout (TrackXXXXX/{mix.*, metadata.yaml, all_src.mid, MIDI/Sxx.mid, stems/Sxx.*}); BabySlakh
-and Slakh2100-redux both use it.
+Datasets (detected from the directory):
+  Slakh2100 layout   TrackXXXXX/{mix.*, metadata.yaml, all_src.mid, MIDI/Sxx.mid, stems/Sxx.*}; BabySlakh and
+                     Slakh2100-redux. Exact notes, and a beat grid from the MIDI.
+  MDB-bass-synth     audio_mix/, audio_bass/, annotation_bass/. Real mixes with a resynthesized bass and its exact
+                     f0 curve: no note list, so the scores are frame-level (mir_eval.melody).
+  RWC Popular        a directory of RWC_Pxxx.wav plus --annotations <rwc-annotations checkout>. Real recordings
+                     with MIDI aligned at the beat level, and beat annotations. No clean stem.
 
 Conditions:
   mix   the full mix in, as a user would run it
   stem  the same, but with the dataset's clean bass stem in place of the separated bass: the difference from
-        `mix` is what separation costs
+        `mix` is what separation costs (datasets with a clean stem only)
 
 Runs are resumable: a track/condition that already has notes.json is scored without being re-run.
 """
@@ -32,6 +38,7 @@ ONSET_TOL = 0.05
 
 # ---------------------------------------------------------------- datasets
 
+
 def slakh_tracks(root):
     """Tracks of a Slakh-layout dataset that have a rendered bass stem."""
     import yaml
@@ -50,12 +57,101 @@ def slakh_tracks(root):
             if st.get("inst_class") == "Bass" and not st.get("is_drum"):
                 audio, midi = find(os.path.join(d, "stems", sid)), os.path.join(d, "MIDI", sid + ".mid")
                 if audio and os.path.exists(midi):
-                    bass.append(dict(id=sid, audio=audio, midi=midi, patch=st.get("plugin_name") or st.get("midi_program_name"),
-                                     program=st.get("program_num")))
+                    bass.append(
+                        dict(
+                            id=sid,
+                            audio=audio,
+                            midi=midi,
+                            patch=st.get("plugin_name") or st.get("midi_program_name"),
+                            program=st.get("program_num"),
+                        )
+                    )
         mix = find(os.path.join(d, "mix"))
         if bass and mix:
             out.append(dict(id=os.path.basename(d), dir=d, mix=mix, bass=bass, all_midi=os.path.join(d, "all_src.mid")))
     return out
+
+
+def mdb_tracks(root):
+    """MDB-bass-synth: one mix, one resynthesized bass stem and one f0 annotation per song."""
+    out = []
+    for mix in sorted(glob.glob(os.path.join(root, "audio_mix", "*_MIX_basssynth.wav"))):
+        name = os.path.basename(mix)[: -len("_MIX_basssynth.wav")]
+        ann = sorted(glob.glob(os.path.join(root, "annotation_bass", name + "_STEM_*.RESYN.csv")))
+        if len(ann) != 1:
+            continue
+        stem = os.path.join(root, "audio_bass", os.path.basename(ann[0])[:-4] + ".wav")
+        if os.path.exists(stem):
+            out.append(
+                dict(
+                    id=name,
+                    kind="mdb",
+                    mix=mix,
+                    f0_csv=ann[0],
+                    bass=[dict(id="bass", audio=stem, patch="resynthesized")],
+                )
+            )
+    return out
+
+
+def rwc_tracks(audio_root, annotations):
+    """RWC Popular: RWC_Pxxx.wav with the aligned MIDI and beats of the rwc-annotations repository. Only songs
+    whose MIDI has exactly one bass track are used (found by track name or a General MIDI bass program)."""
+    import csv
+
+    import pretty_midi
+
+    pre = os.path.join(annotations, "01_annotations_preprocessed")
+    meta = {}
+    with open(os.path.join(annotations, "metadata.csv"), newline="") as f:
+        for r in csv.DictReader(f, delimiter=";"):
+            meta[r["RWCID"]] = r
+    wavs = {
+        os.path.splitext(os.path.basename(p))[0]: p
+        for p in glob.glob(os.path.join(audio_root, "**", "RWC_P*.wav"), recursive=True)
+    }
+    out = []
+    for rid, wav in sorted(wavs.items()):
+        midi = os.path.join(pre, "MIDI_aligned", "RWC-P", rid + ".mid")
+        beats = os.path.join(pre, "beats", "RWC-P", rid + ".csv")
+        if not (os.path.exists(midi) and rid in meta):
+            continue
+        pm = pretty_midi.PrettyMIDI(midi)
+        bass = [
+            k
+            for k, i in enumerate(pm.instruments)
+            if not i.is_drum and i.notes and ("bass" in (i.name or "").lower() or 32 <= i.program <= 39)
+        ]
+        if len(bass) != 1:
+            continue
+        m = meta[rid]
+        out.append(
+            dict(
+                id=rid,
+                kind="rwc",
+                mix=wav,
+                midi=midi,
+                midi_track=bass[0],
+                beats_csv=beats if os.path.exists(beats) else None,
+                span=(float(m["audio_start"]), float(m["audio_end"])),
+                bass=[dict(id="bass", audio=None, patch=(pm.instruments[bass[0]].name or "").strip())],
+            )
+        )
+    return out
+
+
+def load_dataset(root, annotations=None):
+    """(kind, tracks) for a dataset directory."""
+    if os.path.isdir(os.path.join(root, "audio_mix")) and os.path.isdir(os.path.join(root, "annotation_bass")):
+        return "mdb", mdb_tracks(root)
+    if glob.glob(os.path.join(root, "Track*", "metadata.yaml")):
+        return "slakh", slakh_tracks(root)
+    if annotations:
+        return "rwc", rwc_tracks(root, annotations)
+    raise Bass2SheetError(
+        f"{root!r} is not a dataset bass2sheet-eval knows (Slakh layout, MDB-bass-synth, or RWC "
+        "Popular audio with --annotations)"
+    )
 
 
 def octave_shift(audio_path, notes):
@@ -86,8 +182,42 @@ def octave_shift(audio_path, notes):
 
 
 def reference(track, cache=None):
-    """Reference bass notes [(start, end, sounding pitch)], the reference beat grid, and the octave shift applied
-    per bass stem. `cache` is a JSON path that stores the measured shifts."""
+    """The ground truth of a track as dict(notes, grid, f0, shifts):
+    notes  [(start, end, sounding pitch)] or None when the dataset has no note list
+    grid   dict(beats, first_downbeat_beat, four_four) or None
+    f0     (times, Hz with 0 = unvoiced) or None
+    shifts octave corrections applied to the MIDI per bass stem, {stem: [semitones, agreement]}; `cache` is a
+           JSON path that stores them."""
+    kind = track.get("kind", "slakh")
+    if kind == "mdb":
+        d = np.loadtxt(track["f0_csv"], delimiter=",")
+        return dict(notes=None, grid=None, f0=(d[:, 0], d[:, 1]), shifts={})
+    if kind == "rwc":
+        return _rwc_reference(track)
+    return _slakh_reference(track, cache)
+
+
+def _rwc_reference(track):
+    import pretty_midi
+
+    pm = pretty_midi.PrettyMIDI(track["midi"])
+    t0, t1 = track["span"]
+    notes = sorted(
+        (n.start, n.end, n.pitch)
+        for n in pm.instruments[track["midi_track"]].notes
+        if n.end - n.start >= 0.01 and t0 <= n.start <= t1
+    )
+    grid = None
+    if track["beats_csv"]:
+        rows = [line.strip().split(";") for line in open(track["beats_csv"]) if line.strip() and line[0].isdigit()]
+        beats = np.array([float(r[0]) for r in rows])
+        nums = [int(float(r[1])) for r in rows]
+        if len(beats) > 8 and 1 in nums:
+            grid = dict(beats=beats, first_downbeat_beat=nums.index(1), four_four=max(nums) == 4)
+    return dict(notes=notes, grid=grid, f0=None, shifts={})
+
+
+def _slakh_reference(track, cache=None):
     import pretty_midi
 
     shifts = {}
@@ -96,8 +226,13 @@ def reference(track, cache=None):
     notes = []
     for b in track["bass"]:
         pm = pretty_midi.PrettyMIDI(b["midi"])
-        raw = sorted((n.start, n.end, n.pitch) for inst in pm.instruments if not inst.is_drum for n in inst.notes
-                     if n.end - n.start >= 0.01)
+        raw = sorted(
+            (n.start, n.end, n.pitch)
+            for inst in pm.instruments
+            if not inst.is_drum
+            for n in inst.notes
+            if n.end - n.start >= 0.01
+        )
         if b["id"] not in shifts:
             shifts[b["id"]] = list(octave_shift(b["audio"], raw))
         notes += [(s, e, p + shifts[b["id"]][0]) for s, e, p in raw]
@@ -111,11 +246,14 @@ def reference(track, cache=None):
         four_four = all(t.numerator == 4 and t.denominator == 4 for t in ts) if ts else True
         beats, downbeats = pm.get_beats(), pm.get_downbeats()
         if len(beats) > 8 and len(downbeats):
-            grid = dict(beats=beats, first_downbeat_beat=int(np.argmin(np.abs(beats - downbeats[0]))), four_four=four_four)
-    return notes, grid, shifts
+            grid = dict(
+                beats=beats, first_downbeat_beat=int(np.argmin(np.abs(beats - downbeats[0]))), four_four=four_four
+            )
+    return dict(notes=notes, grid=grid, f0=None, shifts=shifts)
 
 
 # ---------------------------------------------------------------- metrics
+
 
 def _arrays(notes, fold=False):
     import pretty_midi
@@ -215,10 +353,25 @@ def score(ref, est, est_grid=None, ref_grid=None, check_bars=()):
     pairs = T.match_note_onsets(ri, ei, onset_tolerance=ONSET_TOL)
     if pairs:
         d = np.array([est[j][2] - ref[i][2] for i, j in pairs])
-        m.update(pitch_same=float(np.mean(d == 0)), pitch_octave_up=float(np.mean(d == 12)),
-                 pitch_octave_down=float(np.mean(d == -12)), pitch_other=float(np.mean((d != 0) & (np.abs(d) != 12))))
+        m.update(
+            pitch_same=float(np.mean(d == 0)),
+            pitch_octave_up=float(np.mean(d == 12)),
+            pitch_octave_down=float(np.mean(d == -12)),
+            pitch_other=float(np.mean((d != 0) & (np.abs(d) != 12))),
+        )
         dur = np.array([(est[j][1] - est[j][0]) / max(1e-3, ref[i][1] - ref[i][0]) for i, j in pairs])
         m["duration_ratio"] = float(np.median(dur))
+        # the commonest whole-octave difference: a reference transcribed by ear may use another octave convention
+        octs = {k: int(np.sum(d == k)) for k in (-24, -12, 0, 12, 24)}
+        mode = max(octs, key=octs.get)
+        m.update(octave_mode=mode, octave_mode_share=octs[mode] / len(d))
+        if mode:
+            shifted = [(a, b, p - mode) for a, b, p in est]
+            m["f_octave_aligned"] = T.precision_recall_f1_overlap(
+                ri, rp, ei, _arrays(shifted)[1], onset_tolerance=ONSET_TOL, offset_ratio=None
+            )[2]
+        else:
+            m["f_octave_aligned"] = F
     wide = T.match_note_onsets(ri, ei, onset_tolerance=0.1)
     if wide:
         b = np.array([est[j][0] - ref[i][0] for i, j in wide]) * 1000
@@ -253,15 +406,56 @@ def score(ref, est, est_grid=None, ref_grid=None, check_bars=()):
     return m
 
 
+def score_f0(ref_t, ref_hz, est):
+    """Frame-level scores against an f0 curve (mir_eval.melody), with our notes held at their pitch.
+
+    Standard measures at 50 cents: voicing recall and false alarm, raw pitch accuracy (RPA), raw chroma accuracy
+    (RCA), overall accuracy (OA). Our notes are whole semitones while a played bass drifts and slides, so `note_acc`
+    also gives the share of voiced frames where we have the nearest semitone, and `octave_err` the share where we
+    are exactly an octave or two off."""
+    import mir_eval
+    import pretty_midi
+
+    est_hz = np.zeros(len(ref_t))
+    est_midi = np.full(len(ref_t), -1)
+    for s, e, p in est:
+        sel = (ref_t >= s) & (ref_t < e)
+        est_hz[sel], est_midi[sel] = pretty_midi.note_number_to_hz(p), p
+    M = mir_eval.melody
+    rv, rc, ev_, ec = M.to_cent_voicing(ref_t, ref_hz, ref_t, est_hz)
+    vr, vfa = M.voicing_measures(rv, ev_)
+    voiced = ref_hz > 0
+    ref_midi = np.round(69 + 12 * np.log2(np.maximum(ref_hz, 1e-6) / 440)).astype(int)
+    both = voiced & (est_midi >= 0)
+    d = (est_midi - ref_midi)[both]
+    return dict(
+        oa=float(M.overall_accuracy(rv, rc, ev_, ec)),
+        rpa=float(M.raw_pitch_accuracy(rv, rc, ev_, ec)),
+        rca=float(M.raw_chroma_accuracy(rv, rc, ev_, ec)),
+        voicing_recall=float(vr),
+        voicing_false_alarm=float(vfa),
+        note_acc=float(np.sum(d == 0) / max(1, voiced.sum())),
+        octave_err=float(np.sum((d != 0) & (d % 12 == 0)) / max(1, voiced.sum())),
+        ref_voiced_share=float(voiced.mean()),
+        est_notes=len(est),
+    )
+
+
 # ---------------------------------------------------------------- runner
+
 
 def run_one(track, cond, out_dir, force, cache_dir):
     """Run the tool for one track and condition (unless already done) and score it."""
     from . import pipeline
 
     notes_path, report_path = os.path.join(out_dir, "notes.json"), os.path.join(out_dir, "report.json")
-    row = dict(track=track["id"], condition=cond, patch=", ".join(str(b["patch"]) for b in track["bass"]),
-               bass_stems=len(track["bass"]))
+    row = dict(
+        track=track["id"],
+        condition=cond,
+        kind=track.get("kind", "slakh"),
+        patch=", ".join(str(b["patch"]) for b in track["bass"]),
+        bass_stems=len(track["bass"]),
+    )
     err_path = os.path.join(out_dir, "error.txt")
     os.makedirs(out_dir, exist_ok=True)
     if force or not (os.path.exists(notes_path) and os.path.exists(report_path) or os.path.exists(err_path)):
@@ -280,37 +474,99 @@ def run_one(track, cond, out_dir, force, cache_dir):
                 sf.write(stem, sum(y[:n] for y, _ in parts), parts[0][1], subtype="FLOAT")
         t0 = time.time()
         try:
-            pipeline.run(track["mix"], out_dir, title=track["id"], artist="", renders=False, pdf=False, bass_stem=stem,
-                         cache_dir=cache_dir)
+            pipeline.run(
+                track["mix"],
+                out_dir,
+                title=track["id"],
+                artist="",
+                renders=False,
+                pdf=False,
+                bass_stem=stem,
+                cache_dir=cache_dir,
+            )
         except Bass2SheetError as e:
             atomic_write_text(err_path, str(e))
         row["seconds"] = time.time() - t0
-    ref, ref_grid, shifts = reference(track, os.path.join(os.path.dirname(out_dir), "reference_octave.json"))
-    row["ref_octave_shift"] = {k: v[0] for k, v in shifts.items()}
-    row["ref_octave_agreement"] = min(v[1] for v in shifts.values())
+    ref = reference(track, os.path.join(os.path.dirname(out_dir), "reference_octave.json"))
+    if ref["shifts"]:
+        row["ref_octave_shift"] = {k: v[0] for k, v in ref["shifts"].items()}
+        row["ref_octave_agreement"] = min(v[1] for v in ref["shifts"].values())
     if os.path.exists(err_path):
         row.update(status="error", error=open(err_path).read().strip(), verdict="ERROR")
-        row.update(score(ref, []))
-        return row
-    data, rep = json.load(open(notes_path)), json.load(open(report_path))
-    est = [(n["start"], n["end"], n["pitch"]) for n in data["notes"]]
-    est_grid = [(n["grid_start"], n["bar"]) for n in data["notes"]]
-    check_bars = {c["bar"] for c in rep["ear_checks"] if c["severity"] >= rep["check_severity"]}
-    row.update(status="ok", verdict=rep["verdict"], separator=rep["summary"]["separator"], est_tempo=data["tempo_bpm"],
-               gates={g["name"]: g["value"] for g in rep["gates"]},
-               gate_status={g["name"]: g["status"] for g in rep["gates"]})
-    row.update(score(ref, est, est_grid, ref_grid, check_bars))
-    if row.get("ref_tempo"):
-        row["tempo_ratio"] = data["tempo_bpm"] / row["ref_tempo"]
+        row.update(score(ref["notes"], []) if ref["notes"] is not None else score_f0(*ref["f0"], []))
+    else:
+        data, rep = json.load(open(notes_path)), json.load(open(report_path))
+        est = [(n["start"], n["end"], n["pitch"]) for n in data["notes"]]
+        est_grid = [(n["grid_start"], n["bar"]) for n in data["notes"]]
+        check_bars = {c["bar"] for c in rep["ear_checks"] if c["severity"] >= rep["check_severity"]}
+        row.update(
+            status="ok",
+            verdict=rep["verdict"],
+            separator=rep["summary"]["separator"],
+            est_tempo=data["tempo_bpm"],
+            gates={g["name"]: g["value"] for g in rep["gates"]},
+            gate_status={g["name"]: g["status"] for g in rep["gates"]},
+        )
+        if ref["notes"] is not None:
+            row.update(score(ref["notes"], est, est_grid, ref["grid"], check_bars))
+            if row.get("ref_tempo"):
+                row["tempo_ratio"] = data["tempo_bpm"] / row["ref_tempo"]
+        else:
+            row.update(score_f0(*ref["f0"], est))
+    row["score"] = row["f"] if ref["notes"] is not None else row["oa"]  # the headline number of this dataset
     return row
 
 
 # ---------------------------------------------------------------- summary
 
-COLS = [("f", "F"), ("precision", "P"), ("recall", "R"), ("f_note_name", "F name"), ("f_with_offsets", "F+off"),
-        ("f_onset_only", "F onset"), ("pitch_octave_up", "8va↑"), ("pitch_octave_down", "8va↓"),
-        ("onset_bias_ms", "bias ms"), ("beat_position_acc", "beat pos"), ("bar_position_acc", "bar pos"),
-        ("tempo_ratio", "tempo×")]
+NOTE_COLS = [
+    ("f", "F"),
+    ("precision", "P"),
+    ("recall", "R"),
+    ("f_note_name", "F name"),
+    ("f_octave_aligned", "F 8va-fit"),
+    ("f_100ms", "F 100ms"),
+    ("f_with_offsets", "F+off"),
+    ("pitch_octave_up", "8va↑"),
+    ("pitch_octave_down", "8va↓"),
+    ("onset_bias_ms", "bias ms"),
+    ("beat_position_acc", "beat pos"),
+    ("bar_position_acc", "bar pos"),
+    ("tempo_ratio", "tempo×"),
+]
+F0_COLS = [
+    ("oa", "OA"),
+    ("rpa", "RPA"),
+    ("rca", "RCA"),
+    ("note_acc", "note acc"),
+    ("octave_err", "8va err"),
+    ("voicing_recall", "voicing recall"),
+    ("voicing_false_alarm", "voicing FA"),
+]
+EXTRA = [
+    "precision_in_check_bars",
+    "precision_in_other_bars",
+    "check_bar_share",
+    "duration_ratio",
+    "pitch_same",
+    "pitch_other",
+    "f_onset_only",
+    "score",
+]
+LEGEND = {
+    "note": "F: note F-measure, onset within 50 ms and the exact pitch. F name: the same ignoring the octave. "
+    "F 8va-fit: F "
+    "after moving our notes by the track's commonest whole-octave difference from the reference (for references "
+    "that use another octave convention). F 100ms: onsets within 100 ms. F+off: also requiring the note end within "
+    "20% of the note's length. 8va↑/↓: share of onset-matched notes an octave above/below the reference. bias ms: "
+    "median of our onset minus the reference's. beat pos / bar pos: share of correct notes on the right 16th of "
+    "the beat / of the bar. tempo×: our tempo over the reference's.",
+    "f0": "Frame-level scores against the bass's f0 curve. OA: overall accuracy (voicing and pitch within 50 cents). "
+    "RPA: "
+    "raw pitch accuracy on voiced frames. RCA: the same ignoring the octave. note acc: share of voiced frames where "
+    "we have the nearest semitone. 8va err: share where we are a whole number of octaves off. voicing recall / FA: "
+    "share of voiced frames we cover with a note / of unvoiced frames we cover.",
+}
 
 
 def _fmt(v, key):
@@ -323,82 +579,122 @@ def summarize(rows):
     """Aggregate numbers plus a Markdown report."""
     from scipy.stats import spearmanr
 
-    out = dict(conditions={}, verdicts={}, gates={})
+    f0 = any("oa" in r for r in rows)
+    cols, head = (F0_COLS, "OA") if f0 else (NOTE_COLS, "F")
+    score_of = lambda r: r.get("score", r.get("f"))
+    out = dict(conditions={}, verdicts={}, gates={}, headline=head)
     L = ["# bass2sheet evaluation", ""]
     for cond in sorted({r["condition"] for r in rows}):
         rs = [r for r in rows if r["condition"] == cond]
         agg = {}
-        for key, _ in COLS + [("precision_in_check_bars", ""), ("precision_in_other_bars", ""), ("check_bar_share", ""),
-                              ("duration_ratio", ""), ("pitch_same", ""), ("pitch_other", ""), ("f_100ms", "")]:
+        for key in [k for k, _ in cols] + EXTRA:
             vals = [r[key] for r in rs if r.get(key) is not None]
             if vals:
                 agg[key] = dict(mean=float(np.mean(vals)), median=float(np.median(vals)), min=float(np.min(vals)))
         agg["tracks"] = len(rs)
         agg["errors"] = sum(r["status"] != "ok" for r in rs)
         out["conditions"][cond] = agg
-        L += [f"## Condition: {cond} ({len(rs)} tracks, {agg['errors']} errors)", "",
-              "| track | verdict | " + " | ".join(h for _, h in COLS) + " | ref notes | est notes | bass patch |",
-              "|---|---|" + "---|" * (len(COLS) + 3)]
+        counts = "" if f0 else " ref notes |"
+        L += [
+            f"## Condition: {cond} ({len(rs)} tracks, {agg['errors']} errors)",
+            "",
+            "| track | verdict | " + " | ".join(h for _, h in cols) + f" |{counts} est notes | bass |",
+            "|---|---|" + "---|" * (len(cols) + (2 if f0 else 3)),
+        ]
         for r in sorted(rs, key=lambda r: r["track"]):
-            L.append(f"| {r['track']} | {r['verdict']} | " + " | ".join(_fmt(r.get(k), k) for k, _ in COLS)
-                     + f" | {r['ref_notes']} | {r['est_notes']} | {r['patch']} |")
-        L.append("| **mean** | | " + " | ".join(_fmt(agg.get(k, {}).get("mean"), k) for k, _ in COLS) + " | | | |")
-        L.append("| **median** | | " + " | ".join(_fmt(agg.get(k, {}).get("median"), k) for k, _ in COLS) + " | | | |")
+            n_ref = "" if f0 else f" {r['ref_notes']} |"
+            L.append(
+                f"| {r['track']} | {r['verdict']} | "
+                + " | ".join(_fmt(r.get(k), k) for k, _ in cols)
+                + f" |{n_ref} {r['est_notes']} | {r['patch']} |"
+            )
+        pad = " | |" + ("" if f0 else " |") + " |"
+        L.append("| **mean** | | " + " | ".join(_fmt(agg.get(k, {}).get("mean"), k) for k, _ in cols) + pad)
+        L.append("| **median** | | " + " | ".join(_fmt(agg.get(k, {}).get("median"), k) for k, _ in cols) + pad)
         L.append("")
-    L += ["## Where the errors are", "", "Mean share of the reference's notes (what we did with each) and of our notes (what each is).", ""]
-    for side, title in (("ref_errors", "reference notes"), ("est_errors", "our notes")):
-        keys = list(next((r[side] for r in rows if r.get(side)), {}))
-        if not keys:
-            continue
-        L += [f"| {title} | " + " | ".join(keys) + " |", "|---|" + "---|" * len(keys)]
-        for cond in sorted({r["condition"] for r in rows}):
-            rs = [r[side] for r in rows if r["condition"] == cond and r.get(side)]
-            mean = {k: float(np.mean([x[k] for x in rs])) for k in keys}
-            out["conditions"][cond][side] = mean
-            L.append(f"| {cond} | " + " | ".join(f"{mean[k]:.1%}" for k in keys) + " |")
-        L.append("")
+    if any(r.get("ref_errors") for r in rows):
+        L += [
+            "## Where the errors are",
+            "",
+            "Mean share of the reference's notes (what we did with each) and of our notes (what each is).",
+            "",
+        ]
+        for side, title in (("ref_errors", "reference notes"), ("est_errors", "our notes")):
+            keys = list(next((r[side] for r in rows if r.get(side)), {}))
+            L += [f"| {title} | " + " | ".join(keys) + " |", "|---|" + "---|" * len(keys)]
+            for cond in sorted({r["condition"] for r in rows}):
+                rs = [r[side] for r in rows if r["condition"] == cond and r.get(side)]
+                mean = {k: float(np.mean([x[k] for x in rs])) for k in keys}
+                out["conditions"][cond][side] = mean
+                L.append(f"| {cond} | " + " | ".join(f"{mean[k]:.1%}" for k in keys) + " |")
+            L.append("")
     ok = [r for r in rows if r["status"] == "ok"]
-    L += ["## Do the quality gates predict real accuracy?", "", "| verdict | runs | mean F | min F |", "|---|---|---|---|"]
+    L += [
+        "## Do the quality gates predict real accuracy?",
+        "",
+        f"| verdict | runs | mean {head} | min {head} |",
+        "|---|---|---|---|",
+    ]
     for v in ("PASS", "WARN", "FAIL", "ERROR"):
-        fs = [r["f"] for r in rows if r["verdict"] == v]
+        fs = [score_of(r) for r in rows if r["verdict"] == v]
         if fs:
             out["verdicts"][v] = dict(runs=len(fs), mean_f=float(np.mean(fs)), min_f=float(np.min(fs)))
             L.append(f"| {v} | {len(fs)} | {np.mean(fs):.2f} | {np.min(fs):.2f} |")
-    L += ["", "| gate | Spearman ρ with F | runs warn/fail | mean F when pass | mean F when warn/fail |", "|---|---|---|---|---|"]
-    for name in (ok[0]["gates"] if ok else {}):
-        pts = [(r["gates"][name], r["f"]) for r in ok if r["gates"].get(name) is not None]
-        rho = spearmanr([a for a, _ in pts], [b for _, b in pts])[0] if len(pts) >= 5 and len({a for a, _ in pts}) > 1 else None
-        bad = [r["f"] for r in ok if r["gate_status"].get(name) in ("warn", "fail")]
-        good = [r["f"] for r in ok if r["gate_status"].get(name) == "pass"]
-        out["gates"][name] = dict(rho=None if rho is None or np.isnan(rho) else float(rho), flagged=len(bad),
-                                  f_pass=float(np.mean(good)) if good else None, f_flagged=float(np.mean(bad)) if bad else None)
+    L += [
+        "",
+        f"| gate | Spearman ρ with {head} | runs warn/fail | mean {head} when pass | mean {head} when warn/fail |",
+        "|---|---|---|---|---|",
+    ]
+    for name in ok[0]["gates"] if ok else {}:
+        pts = [(r["gates"][name], score_of(r)) for r in ok if r["gates"].get(name) is not None]
+        rho = (
+            spearmanr([a for a, _ in pts], [b for _, b in pts])[0]
+            if len(pts) >= 5 and len({a for a, _ in pts}) > 1
+            else None
+        )
+        bad = [score_of(r) for r in ok if r["gate_status"].get(name) in ("warn", "fail")]
+        good = [score_of(r) for r in ok if r["gate_status"].get(name) == "pass"]
+        out["gates"][name] = dict(
+            rho=None if rho is None or np.isnan(rho) else float(rho),
+            flagged=len(bad),
+            f_pass=float(np.mean(good)) if good else None,
+            f_flagged=float(np.mean(bad)) if bad else None,
+        )
         g = out["gates"][name]
-        L.append(f"| {name} | {'–' if g['rho'] is None else format(g['rho'], '+.2f')} | {len(bad)} | "
-                 f"{'–' if g['f_pass'] is None else format(g['f_pass'], '.2f')} | "
-                 f"{'–' if g['f_flagged'] is None else format(g['f_flagged'], '.2f')} |")
-    pc = [(r["precision_in_check_bars"], r["precision_in_other_bars"]) for r in ok
-          if r.get("precision_in_check_bars") is not None and r.get("precision_in_other_bars") is not None]
+        L.append(
+            f"| {name} | {'–' if g['rho'] is None else format(g['rho'], '+.2f')} | {len(bad)} | "
+            f"{'–' if g['f_pass'] is None else format(g['f_pass'], '.2f')} | "
+            f"{'–' if g['f_flagged'] is None else format(g['f_flagged'], '.2f')} |"
+        )
+    pc = [
+        (r["precision_in_check_bars"], r["precision_in_other_bars"])
+        for r in ok
+        if r.get("precision_in_check_bars") is not None and r.get("precision_in_other_bars") is not None
+    ]
     if pc:
-        out["check_bars"] = dict(precision_in_check_bars=float(np.mean([a for a, _ in pc])),
-                                 precision_in_other_bars=float(np.mean([b for _, b in pc])), runs=len(pc))
-        L += ["", f"Notes in bars marked \"check\" are right {out['check_bars']['precision_in_check_bars']:.0%} of the time; "
-              f"notes in other bars {out['check_bars']['precision_in_other_bars']:.0%} ({len(pc)} runs with both kinds of bar)."]
-    L += ["", "F: note F-measure, onset within 50 ms and the exact pitch. F name: the same ignoring the octave. F+off: also "
-          "requiring the note end within 20% of the note's length. F onset: onsets only. 8va↑/↓: share of onset-matched "
-          "notes written an octave above/below the reference. bias ms: median of our onset minus the reference's. "
-          "beat pos / bar pos: share of correct notes on the right 16th of the beat / of the bar. tempo×: our tempo over "
-          "the reference's."]
+        out["check_bars"] = dict(
+            precision_in_check_bars=float(np.mean([a for a, _ in pc])),
+            precision_in_other_bars=float(np.mean([b for _, b in pc])),
+            runs=len(pc),
+        )
+        L += [
+            "",
+            f'Notes in bars marked "check" are right {out["check_bars"]["precision_in_check_bars"]:.0%} of the time; '
+            f"notes in other bars {out['check_bars']['precision_in_other_bars']:.0%} "
+            f"({len(pc)} runs with both kinds of bar).",
+        ]
+    L += ["", LEGEND["f0" if f0 else "note"]]
     return out, "\n".join(L) + "\n"
 
 
-BASELINE_KEYS = ("f", "f_note_name", "f_with_offsets", "bar_position_acc")
+BASELINE_KEYS = ("f", "f_note_name", "f_with_offsets", "bar_position_acc", "oa", "note_acc")
 
 
 def baseline_of(rows):
     """What a later run is compared with: per-track scores by condition."""
     out = {}
     for r in rows:
-        out.setdefault(r["condition"], {})[r["track"]] = {k: r.get(k) for k in BASELINE_KEYS}
+        out.setdefault(r["condition"], {})[r["track"]] = {k: r[k] for k in BASELINE_KEYS if r.get(k) is not None}
     return dict(conditions=out)
 
 
@@ -419,58 +715,94 @@ def check_baseline(rows, baseline, max_drop):
                 continue
             b, n = float(np.mean([p[0] for p in pairs])), float(np.mean([p[1] for p in pairs]))
             if n < b - max_drop:
-                problems.append(f"{cond}: mean {key} fell from {b:.3f} to {n:.3f} over {len(pairs)} tracks "
-                                f"(allowed drop {max_drop})")
+                problems.append(
+                    f"{cond}: mean {key} fell from {b:.3f} to {n:.3f} over {len(pairs)} tracks "
+                    f"(allowed drop {max_drop})"
+                )
     return problems
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="bass2sheet-eval", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dataset", help="Slakh-layout dataset directory")
+    ap = argparse.ArgumentParser(
+        prog="bass2sheet-eval", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("dataset", help="dataset directory (Slakh layout, MDB-bass-synth, or RWC Popular audio)")
     ap.add_argument("--out", required=True, help="run directory (per-track outputs, results.jsonl, summary.md/json)")
-    ap.add_argument("--conditions", default="mix,stem")
-    ap.add_argument("--tracks", help="comma-separated track ids (default: all with a bass stem)")
-    ap.add_argument("--limit", type=int)
+    ap.add_argument("--annotations", help="for RWC Popular: a checkout of github.com/rwc-music/rwc-annotations")
+    ap.add_argument(
+        "--conditions", default="mix,stem", help="mix, stem or both (stem only where the dataset has clean stems)"
+    )
+    ap.add_argument("--tracks", help="comma-separated track ids (default: all usable tracks)")
+    ap.add_argument("--sample", type=int, help="use this many tracks, evenly spaced through the dataset")
+    ap.add_argument("--limit", type=int, help="use the first N tracks")
     ap.add_argument("--force", action="store_true", help="re-run tracks that already have results")
-    ap.add_argument("--multi-bass", action="store_true",
-                    help="include tracks with more than one bass stem (two bass parts at once are outside the tool's scope)")
+    ap.add_argument(
+        "--multi-bass",
+        action="store_true",
+        help="include tracks with more than one bass stem (two bass parts at once are outside the tool's scope)",
+    )
     ap.add_argument("--cache-dir", default="~/.cache/bass2sheet")
     ap.add_argument("--baseline", help="JSON written by --write-baseline: exit 3 if the scores regress against it")
     ap.add_argument("--max-drop", type=float, default=0.02, help="allowed fall of a mean score against the baseline")
     ap.add_argument("--write-baseline", help="write this run's per-track scores as a baseline JSON")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(levelname)s %(message)s",
-                        datefmt="%H:%M:%S")
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     warnings.filterwarnings("ignore")
     os.environ.setdefault("TQDM_DISABLE", "1")
     for noisy in ("audio_separator", "numba", "httpx", "huggingface_hub"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
-    tracks = [t for t in slakh_tracks(args.dataset) if args.multi_bass or len(t["bass"]) == 1]
+    try:
+        kind, tracks = load_dataset(args.dataset, args.annotations)
+    except Bass2SheetError as e:
+        print(f"bass2sheet-eval: {e}", file=sys.stderr)
+        return 1
+    tracks = [t for t in tracks if args.multi_bass or len(t["bass"]) == 1]
     if args.tracks:
         want = set(args.tracks.split(","))
         tracks = [t for t in tracks if t["id"] in want]
-    tracks = tracks[:args.limit] if args.limit else tracks
+    if args.sample and args.sample < len(tracks):
+        tracks = [tracks[int(round(k))] for k in np.linspace(0, len(tracks) - 1, args.sample)]
+    tracks = tracks[: args.limit] if args.limit else tracks
     if not tracks:
-        print(f"bass2sheet-eval: no tracks with a bass stem under {args.dataset}", file=sys.stderr)
+        print(f"bass2sheet-eval: no usable tracks under {args.dataset}", file=sys.stderr)
         return 1
     os.makedirs(args.out, exist_ok=True)
-    conds = args.conditions.split(",")
+    conds = [c for c in args.conditions.split(",") if c == "mix" or tracks[0]["bass"][0]["audio"]]
     rows = []
     for k, t in enumerate(tracks):
         for cond in conds:
             row = run_one(t, cond, os.path.join(args.out, t["id"], cond), args.force, args.cache_dir)
             rows.append(row)
-            print(f"[{k + 1}/{len(tracks)}] {t['id']} {cond:4s} {row['verdict']:5s} F {row['f']:.2f}  P {row['precision']:.2f}  "
-                  f"R {row['recall']:.2f}  name-F {row.get('f_note_name', 0):.2f}  "
-                  f"{row.get('seconds', 0):.0f} s  {row.get('error', '')}", flush=True)
-            atomic_write_text(os.path.join(args.out, "results.jsonl"), "".join(json.dumps(r, default=float) + "\n" for r in rows))
+            detail = (
+                f"F {row['f']:.2f}  P {row['precision']:.2f}  R {row['recall']:.2f}  "
+                f"name-F {row.get('f_note_name', 0):.2f}"
+                if "f" in row
+                else f"OA {row['oa']:.2f}  RPA {row['rpa']:.2f}  RCA {row['rca']:.2f}  note acc {row['note_acc']:.2f}"
+            )
+            print(
+                f"[{k + 1}/{len(tracks)}] {t['id']} {cond:4s} {row['verdict']:5s} {detail}  "
+                f"{row.get('seconds', 0):.0f} s  "
+                f"{row.get('error', '')}",
+                flush=True,
+            )
+            atomic_write_text(
+                os.path.join(args.out, "results.jsonl"), "".join(json.dumps(r, default=float) + "\n" for r in rows)
+            )
     summary, md = summarize(rows)
+    summary["dataset"] = kind
     atomic_write_text(os.path.join(args.out, "summary.json"), json.dumps(summary, indent=1, default=float))
     atomic_write_text(os.path.join(args.out, "summary.md"), md)
     for cond, agg in summary["conditions"].items():
-        print(f"{cond}: mean F {agg['f']['mean']:.3f}, median {agg['f']['median']:.3f}, min {agg['f']['min']:.3f} "
-              f"({agg['tracks']} tracks, {agg['errors']} errors)")
+        a = agg["score"]
+        print(
+            f"{cond}: mean {summary['headline']} {a['mean']:.3f}, median {a['median']:.3f}, min {a['min']:.3f} "
+            f"({agg['tracks']} tracks, {agg['errors']} errors)"
+        )
     print(f"summary: {os.path.join(args.out, 'summary.md')}")
     if args.write_baseline:
         atomic_write_text(args.write_baseline, json.dumps(baseline_of(rows), indent=1, default=float))

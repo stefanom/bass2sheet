@@ -1,7 +1,7 @@
 import numpy as np
+from conftest import note
 
 from bass2sheet import rhythm
-from conftest import note
 
 
 def test_beat_grid_is_sixteenths_with_origin_on_a_downbeat():
@@ -23,7 +23,13 @@ def test_beat_grid_with_eighth_note_pulses():
 def test_quantize_places_notes_in_bars_and_merges_same_sixteenth():
     grid = np.arange(0, 20, 0.125)
     origin = 8  # bar 1 starts at 1.0 s
-    notes = [note(1.01, 1.49, 40), note(1.52, 1.54, 40), note(1.55, 1.80, 40), note(3.02, 3.9, 43), note(0.76, 0.99, 38)]
+    notes = [
+        note(1.01, 1.49, 40),
+        note(1.52, 1.54, 40),
+        note(1.55, 1.80, 40),
+        note(3.02, 3.9, 43),
+        note(0.76, 0.99, 38),
+    ]
     notes.sort(key=lambda n: n["start"])
     out = rhythm.quantize(notes, grid, origin)
     by_start = {round(n["start"], 2): n for n in out}

@@ -43,7 +43,9 @@ def low_band_db(bass_mono):
 def attack_rise(low_db, before, after):
     n = len(low_db)
     pad = np.pad(low_db, (before, after), mode="edge")
-    return sliding_window_view(pad[before:], after + 1).max(1) - sliding_window_view(pad[:n + before], before + 1).min(1)
+    return sliding_window_view(pad[before:], after + 1).max(1) - sliding_window_view(pad[: n + before], before + 1).min(
+        1
+    )
 
 
 def refine_onsets(notes, bass_mono, p):
@@ -72,15 +74,15 @@ def refine_onsets(notes, bass_mono, p):
         pk_lo = max(lo, at(ts - 0.02))
         if pk_hi <= pk_lo:
             continue
-        k_peak = pk_lo + int(np.argmax(env[pk_lo:pk_hi + 1]))
+        k_peak = pk_lo + int(np.argmax(env[pk_lo : pk_hi + 1]))
         end_trough = min(hi, k_peak)
         if end_trough <= lo:
             continue
-        k_trough = lo + int(np.argmin(env[lo:end_trough + 1]))
+        k_trough = lo + int(np.argmin(env[lo : end_trough + 1]))
         base, peak = env[k_trough], env[k_peak]
         if peak < ratio * max(base, 1e-6) or k_peak <= k_trough:
             continue
-        seg = env[k_trough:k_peak + 1]
+        seg = env[k_trough : k_peak + 1]
         k = k_trough + int(np.argmax(seg >= base + p.refine_level * (peak - base)))
         if lo <= k <= hi:
             new = k * step / SR
@@ -91,8 +93,9 @@ def refine_onsets(notes, bass_mono, p):
     return notes
 
 
-def segment_notes(feat, bass_mono, p=SegParams()):
+def segment_notes(feat, bass_mono, p=None):
     """Notes as dicts {start, end (s), pitch (MIDI), agree, flag}; flag is None, "octave" or "uncertain"."""
+    p = p or SegParams()
     f0_c, per_c, f0_p, rms_db, onsets = feat["f0_c"], feat["per_c"], feat["f0_p"], feat["rms_db"], feat["onsets"]
     cqt = feat["cqt"][:60]  # A0..G#5
     low_db = low_band_db(bass_mono)
@@ -107,7 +110,7 @@ def segment_notes(feat, bass_mono, p=SegParams()):
 
     boundaries = set(int(o) for o in onsets if 0 <= o < n)
     for t in range(1, n - 4):  # pitch changes that persist at least 40 ms
-        if rounded[t] != rounded[t - 1] and rounded[t] >= 0 and np.all(rounded[t:t + 4] == rounded[t]):
+        if rounded[t] != rounded[t - 1] and rounded[t] >= 0 and np.all(rounded[t : t + 4] == rounded[t]):
             boundaries.add(t)
     starts = sorted(boundaries | {0})
     notes = []
@@ -134,8 +137,12 @@ def segment_notes(feat, bass_mono, p=SegParams()):
             if np.mean((pc.argmax(0) + 9) % 12 == pitch % 12) < 0.6:  # CQT bin 0 is A
                 flag = "uncertain"
         core = idx[:30]  # fundamental far below its own octave: CREPE locked an octave low
-        if 21 <= pitch and pitch - 9 < cqt.shape[0] and 20 * np.log10(
-                (cqt[pitch - 9, core].mean() + 1e-9) / (cqt[pitch - 21, core].mean() + 1e-9)) > p.octave_up_db:
+        if (
+            21 <= pitch
+            and pitch - 9 < cqt.shape[0]
+            and 20 * np.log10((cqt[pitch - 9, core].mean() + 1e-9) / (cqt[pitch - 21, core].mean() + 1e-9))
+            > p.octave_up_db
+        ):
             pitch += 12
             flag = "octave"
         start = s if idx[0] - s <= 8 else idx[0]
@@ -144,7 +151,7 @@ def segment_notes(feat, bass_mono, p=SegParams()):
     unpitched = per_c < p.stay_per
     for i, nt in enumerate(notes):
         limit = notes[i + 1]["s"] if i + 1 < len(notes) else n
-        stop = max(floor, rms_db[nt["s"]:nt["last"]].max() - p.decay_db)
+        stop = max(floor, rms_db[nt["s"] : nt["last"]].max() - p.decay_db)
         t, run = nt["last"], 0
         while t < limit and rms_db[t] > stop:
             run = run + 1 if unpitched[t] else 0
@@ -157,8 +164,12 @@ def segment_notes(feat, bass_mono, p=SegParams()):
     merged = []
     for nt in notes:
         prev = merged[-1] if merged else None
-        if prev and nt["pitch"] == prev["pitch"] and nt["s"] - prev["e"] <= p.merge_gap_frames \
-                and rise[max(0, nt["s"] - p.attack_look):nt["s"] + p.attack_look + 1].max() < p.attack_db:
+        if (
+            prev
+            and nt["pitch"] == prev["pitch"]
+            and nt["s"] - prev["e"] <= p.merge_gap_frames
+            and rise[max(0, nt["s"] - p.attack_look) : nt["s"] + p.attack_look + 1].max() < p.attack_db
+        ):
             prev["e"] = nt["e"]
             prev["agree"] = min(prev["agree"], nt["agree"])
             prev["flag"] = prev["flag"] or nt["flag"]

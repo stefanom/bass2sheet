@@ -48,13 +48,39 @@ def transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_m
     else:
         second, reason = basic_pitch_notes(stems["bass"], feat["stem_id"], cache_dir, bp_python)
     gates, checks = transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, reason)
-    return dict(notes=notes, tempo=tempo, per_quarter=per_quarter, grid=grid, origin=origin, chords=chords, key=key,
-                synth=synth_bass, gates=gates, checks=checks, second_reason=reason)
+    return dict(
+        notes=notes,
+        tempo=tempo,
+        per_quarter=per_quarter,
+        grid=grid,
+        origin=origin,
+        chords=chords,
+        key=key,
+        synth=synth_bass,
+        gates=gates,
+        checks=checks,
+        second_reason=reason,
+    )
 
 
-def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=False, cache_dir=None, mscore=None,
-        renders=True, second_mode="auto", bp_python=None, device=None, bass_stem=None, pdf=True, stems_dir=None,
-        crepe_model="full"):
+def run(
+    audio_path,
+    out_dir,
+    title=None,
+    artist=None,
+    separator="auto",
+    strict=False,
+    cache_dir=None,
+    mscore=None,
+    renders=True,
+    second_mode="auto",
+    bp_python=None,
+    device=None,
+    bass_stem=None,
+    pdf=True,
+    stems_dir=None,
+    crepe_model="full",
+):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
@@ -92,8 +118,11 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
         last = i == len(methods) - 1
         t0 = time.time()
         try:
-            stems = (load_stems(stems_dir, wav.shape[1]) if stems_dir
-                     else separate(method, wav, mix_path, audio_id, cache_dir, device))
+            stems = (
+                load_stems(stems_dir, wav.shape[1])
+                if stems_dir
+                else separate(method, wav, mix_path, audio_id, cache_dir, device)
+            )
         except Exception as e:  # a missing model, a download failure, an unsupported op
             if stems_dir:  # the given stems are the only source: nothing to fall back to
                 raise
@@ -109,9 +138,15 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
             method = f"{method} + given bass stem"
         sg = stem_gates(stems, mix)
         if verdict(sg) == "FAIL":  # no bass in the stem: nothing to transcribe
-            attempts.append(dict(method=method, outcome="no bass found (" + ", ".join(
-                f"{g.label}: {g.value:.1f} dB" for g in sg if g.status == "fail") + ")" + ("" if last else
-                                                                                           "; trying the next separator")))
+            attempts.append(
+                dict(
+                    method=method,
+                    outcome="no bass found ("
+                    + ", ".join(f"{g.label}: {g.value:.1f} dB" for g in sg if g.status == "fail")
+                    + ")"
+                    + ("" if last else "; trying the next separator"),
+                )
+            )
             continue
         t0 = time.time()
         try:
@@ -130,9 +165,14 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
         if not last:
             log.warning("result with %s failed its quality gates; trying the next separator", method)
     if not candidates:
-        raise Bass2SheetError("no usable transcription: " + "; ".join(f"{a['method']}: {a['outcome']}" for a in attempts))
-    rank = lambda c: (sum(g.status == "fail" for g in c["gates"]), sum(g.status == "warn" for g in c["gates"]),
-                      -next(g.value for g in c["gates"] if g.name == "coverage"))
+        raise Bass2SheetError(
+            "no usable transcription: " + "; ".join(f"{a['method']}: {a['outcome']}" for a in attempts)
+        )
+    rank = lambda c: (
+        sum(g.status == "fail" for g in c["gates"]),
+        sum(g.status == "warn" for g in c["gates"]),
+        -next(g.value for g in c["gates"] if g.name == "coverage"),
+    )
     best = min(candidates, key=rank)
     if len(candidates) > 1:
         attempts.append(dict(method=best["method"], outcome="chosen: fewest failing, then warning gates"))
@@ -152,8 +192,17 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
         render.write_midi(notes, tempo, path("bass_as_played.mid"), steady=False)
         files["bass.mid"] = "MIDI on a steady 16th grid, bar 1 at time 0"
         files["bass_as_played.mid"] = "MIDI aligned with the recording"
-        xml = musicxml(notes, best["chords"], best["key"], tempo, float(grid[origin]), title, artist or "",
-                       {c["bar"]: c["reasons"] for c in checks if c["severity"] >= CHECK_SEVERITY}, draft=v == "FAIL")
+        xml = musicxml(
+            notes,
+            best["chords"],
+            best["key"],
+            tempo,
+            float(grid[origin]),
+            title,
+            artist or "",
+            {c["bar"]: c["reasons"] for c in checks if c["severity"] >= CHECK_SEVERITY},
+            draft=v == "FAIL",
+        )
         atomic_write_text(path("bass.musicxml"), xml)
         files["bass.musicxml"] = "the score, editable in MuseScore"
         ms = find_mscore(mscore) if pdf else None
@@ -166,31 +215,83 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
             else:
                 files["bass.pdf"] = "printable score: bass clef + tab" + (" (DRAFT)" if v == "FAIL" else "")
         else:
-            warnings.append("PDF not written: MuseScore 4 not found (install it, or pass --mscore PATH); the MusicXML "
-                            "opens in any notation program")
+            warnings.append(
+                "PDF not written: MuseScore 4 not found (install it, or pass --mscore PATH); the MusicXML "
+                "opens in any notation program"
+            )
     if renders:
         os.makedirs(path("audio"), exist_ok=True)
         sf.write(path("audio/bass_stem.wav"), best["stems"]["bass"].T, SR, subtype="PCM_16")
-        render.write_renders(best["stems"], best["synth"], {k: path(f"audio/{f}") for k, f in (
-            ("resynth", "song_resynth.wav"), ("ab", "bass_ab_lr.wav"), ("synth", "synth_bass.wav"))})
-        files.update({"audio/bass_stem.wav": "the separated bass", "audio/synth_bass.wav": "the transcription, synthesized",
-                      "audio/song_resynth.wav": "the song with the transcription in place of the real bass",
-                      "audio/bass_ab_lr.wav": "real bass left, transcription right (headphones)"})
+        render.write_renders(
+            best["stems"],
+            best["synth"],
+            {
+                k: path(f"audio/{f}")
+                for k, f in (("resynth", "song_resynth.wav"), ("ab", "bass_ab_lr.wav"), ("synth", "synth_bass.wav"))
+            },
+        )
+        files.update(
+            {
+                "audio/bass_stem.wav": "the separated bass",
+                "audio/synth_bass.wav": "the transcription, synthesized",
+                "audio/song_resynth.wav": "the song with the transcription in place of the real bass",
+                "audio/bass_ab_lr.wav": "real bass left, transcription right (headphones)",
+            }
+        )
     data_notes = [{k: (float(v) if isinstance(v, np.floating) else v) for k, v in nt.items()} for nt in notes]
-    atomic_write_text(path("notes.json"), json.dumps(dict(
-        notes=data_notes, chords=best["chords"], key=best["key"][0], tempo_bpm=tempo, first_downbeat_s=float(grid[origin]),
-        tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter", params=params.as_dict()), indent=1, default=float))
+    atomic_write_text(
+        path("notes.json"),
+        json.dumps(
+            dict(
+                notes=data_notes,
+                chords=best["chords"],
+                key=best["key"][0],
+                tempo_bpm=tempo,
+                first_downbeat_s=float(grid[origin]),
+                tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter",
+                params=params.as_dict(),
+            ),
+            indent=1,
+            default=float,
+        ),
+    )
     files["notes.json"] = "notes, chords, key, tempo, grid"
     tick("outputs", t0)
     timings["total"] = time.time() - t_start
     files["report.html"] = "this report"
-    report.write(path("report.html"), path("report.json"), dict(
-        version=__version__, title=title, artist=artist or "", input=os.path.basename(audio_path), verdict=v,
-        gates=gates_json(best["gates"]), ear_checks=checks, attempts=attempts, warnings=warnings, files=files,
-        check_severity=CHECK_SEVERITY, timings=timings, summary=dict(duration=clock(seconds), notes=len(notes), bars=max(nt["bar"] for nt in notes),
-                                      tempo=tempo, key=best["key"][0], separator=best["method"])))
-    log.info("verdict %s; %d bars to check by ear (%d marked in the PDF); report: %s", v, len(checks),
-             sum(c["severity"] >= CHECK_SEVERITY for c in checks), path("report.html"))
+    report.write(
+        path("report.html"),
+        path("report.json"),
+        dict(
+            version=__version__,
+            title=title,
+            artist=artist or "",
+            input=os.path.basename(audio_path),
+            verdict=v,
+            gates=gates_json(best["gates"]),
+            ear_checks=checks,
+            attempts=attempts,
+            warnings=warnings,
+            files=files,
+            check_severity=CHECK_SEVERITY,
+            timings=timings,
+            summary=dict(
+                duration=clock(seconds),
+                notes=len(notes),
+                bars=max(nt["bar"] for nt in notes),
+                tempo=tempo,
+                key=best["key"][0],
+                separator=best["method"],
+            ),
+        ),
+    )
+    log.info(
+        "verdict %s; %d bars to check by ear (%d marked in the PDF); report: %s",
+        v,
+        len(checks),
+        sum(c["severity"] >= CHECK_SEVERITY for c in checks),
+        path("report.html"),
+    )
     for g in best["gates"]:
         if g.status in ("warn", "fail"):
             log.warning("gate %s: %s (%s)", g.status.upper(), g.label, report.fmt(gates_json([g])[0]))

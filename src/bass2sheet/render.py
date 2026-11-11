@@ -42,7 +42,7 @@ def synth(notes, n):
         w = pluck(pretty_midi.note_number_to_hz(nt["pitch"]), nt["end"] - nt["start"], 64 if nt["flag"] else 96)
         s = int(nt["start"] * SR)
         if s < n:
-            out[s:s + len(w)] += w[:n - s]
+            out[s : s + len(w)] += w[: n - s]
     return out
 
 

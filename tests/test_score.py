@@ -43,10 +43,18 @@ def test_frets_prefer_low_positions_and_open_strings():
     assert all(f <= 5 for _, f in score.frets([40, 42, 43, 45, 47, 45, 43, 42]))
 
 
-@pytest.mark.parametrize("midi,name,expected", [
-    (28, "E", ("E", None, 2)), (30, "F#", ("F", 1, 2)), (34, "Bb", ("B", -1, 2)), (36, "C", ("C", None, 3)),
-    (47, "B", ("B", None, 3)), (48, "B#", ("B", 1, 3)), (35, "Cb", ("C", -1, 3)),
-])
+@pytest.mark.parametrize(
+    "midi,name,expected",
+    [
+        (28, "E", ("E", None, 2)),
+        (30, "F#", ("F", 1, 2)),
+        (34, "Bb", ("B", -1, 2)),
+        (36, "C", ("C", None, 3)),
+        (47, "B", ("B", None, 3)),
+        (48, "B#", ("B", 1, 3)),
+        (35, "Cb", ("C", -1, 3)),
+    ],
+)
 def test_pitch_xml_is_written_an_octave_up(midi, name, expected):
     step, alter, octave = expected
     x = score.pitch_xml(midi, name)
@@ -56,22 +64,54 @@ def test_pitch_xml_is_written_an_octave_up(midi, name, expected):
 
 def _notes():
     """Two bars: a held note across the barline, an eighth-note run, a flagged note and two notes in one 16th."""
-    raw = [(0, 4, 28), (4, 2, 28), (6, 2, 35), (8, 12, 40), (20, 2, 38), (22, 2, 36), (24, 4, 31), (28, 1, 33), (28, 3, 35)]
+    raw = [
+        (0, 4, 28),
+        (4, 2, 28),
+        (6, 2, 35),
+        (8, 12, 40),
+        (20, 2, 38),
+        (22, 2, 36),
+        (24, 4, 31),
+        (28, 1, 33),
+        (28, 3, 35),
+    ]
     out = []
     for k, (g, length, pitch) in enumerate(raw):
-        out.append(dict(start=1.0 + g * 0.125 + (0.01 if k == 8 else 0), end=1.0 + (g + length) * 0.125, pitch=pitch,
-                        grid_start=g, grid_len=length, bar=g // 16 + 1, beat=(g % 16) // 4 + 1, sixteenth=g % 4 + 1,
-                        agree=1.0, flag="octave" if pitch == 36 else None))
+        out.append(
+            dict(
+                start=1.0 + g * 0.125 + (0.01 if k == 8 else 0),
+                end=1.0 + (g + length) * 0.125,
+                pitch=pitch,
+                grid_start=g,
+                grid_len=length,
+                bar=g // 16 + 1,
+                beat=(g % 16) // 4 + 1,
+                sixteenth=g % 4 + 1,
+                agree=1.0,
+                flag="octave" if pitch == 36 else None,
+            )
+        )
     return out
 
 
-CHORDS = [dict(bar=1, root=4, quality="m", names=score.SHARPS, chord="Em"),
-          dict(bar=2, root=0, quality="", names=score.FLATS, chord="C")]
+CHORDS = [
+    dict(bar=1, root=4, quality="m", names=score.SHARPS, chord="Em"),
+    dict(bar=2, root=0, quality="", names=score.FLATS, chord="C"),
+]
 
 
 def _xml(**kw):
-    args = dict(notes=_notes(), chords=CHORDS, key=("E minor", 4, False), tempo=120.0, first_downbeat=1.0, title="T & <t>",
-                artist="A", check_bars={2: ["why"]}, draft=False)
+    args = dict(
+        notes=_notes(),
+        chords=CHORDS,
+        key=("E minor", 4, False),
+        tempo=120.0,
+        first_downbeat=1.0,
+        title="T & <t>",
+        artist="A",
+        check_bars={2: ["why"]},
+        draft=False,
+    )
     args.update(kw)
     return score.musicxml(**args)
 

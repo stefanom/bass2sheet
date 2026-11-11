@@ -4,10 +4,18 @@ import pytest
 from bass2sheet import quality as Q
 
 
-@pytest.mark.parametrize("value,higher,expected", [
-    (0.96, True, "pass"), (0.90, True, "warn"), (0.80, True, "fail"), (None, True, "skipped"),
-    (0.04, False, "pass"), (0.10, False, "warn"), (0.20, False, "fail"),
-])
+@pytest.mark.parametrize(
+    "value,higher,expected",
+    [
+        (0.96, True, "pass"),
+        (0.90, True, "warn"),
+        (0.80, True, "fail"),
+        (None, True, "skipped"),
+        (0.04, False, "pass"),
+        (0.10, False, "warn"),
+        (0.20, False, "fail"),
+    ],
+)
 def test_gate_judge(value, higher, expected):
     warn, fail = (0.95, 0.85) if higher else (0.05, 0.15)
     assert Q.Gate("g", "G", value, warn, fail, higher, "").judge().status == expected
@@ -35,7 +43,11 @@ def test_stem_gate_tells_bass_from_no_bass(song):
 
 def test_check_list_orders_by_severity_and_dedupes_reasons():
     grid = np.arange(0, 60, 0.125)
-    checks = {3: dict(severity=1, reasons=["a"]), 7: dict(severity=4, reasons=["b", "b", "c"]), 5: dict(severity=4, reasons=["d"])}
+    checks = {
+        3: dict(severity=1, reasons=["a"]),
+        7: dict(severity=4, reasons=["b", "b", "c"]),
+        5: dict(severity=4, reasons=["d"]),
+    }
     rows = Q.check_list(checks, grid, origin=8)
     assert [r["bar"] for r in rows] == [5, 7, 3]
     assert rows[1]["reasons"] == ["b", "c"]
@@ -54,20 +66,27 @@ def test_octave_doubts_reads_the_spectrum():
 
 def test_transcription_gates_on_a_perfect_and_a_broken_transcription(song):
     import librosa
+    from conftest import note
+
     from bass2sheet import render, rhythm
     from bass2sheet.common import HOP, SR
-    from conftest import note
 
     stems = song["stems"]
     mono = stems["bass"].mean(0)
-    feat = dict(rms_db=librosa.amplitude_to_db(librosa.feature.rms(y=mono, frame_length=2048, hop_length=HOP)[0] + 1e-9),
-                cqt=np.abs(librosa.cqt(mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12)))
+    feat = dict(
+        rms_db=librosa.amplitude_to_db(librosa.feature.rms(y=mono, frame_length=2048, hop_length=HOP)[0] + 1e-9),
+        cqt=np.abs(
+            librosa.cqt(mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12)
+        ),
+    )
     grid = np.arange(-1.0, 40, 0.125)
     origin = 16  # the song's first downbeat is at 1.0 s
 
     def gates_for(truth):
         notes = rhythm.quantize([note(s, e, p) for s, e, p in truth], grid, origin)
-        gates, checks = Q.transcription_gates(stems, feat, notes, grid, origin, render.synth(notes, len(mono)), None, "off")
+        gates, checks = Q.transcription_gates(
+            stems, feat, notes, grid, origin, render.synth(notes, len(mono)), None, "off"
+        )
         return {g.name: g for g in gates}, checks
 
     good, checks = gates_for(song["notes"])
