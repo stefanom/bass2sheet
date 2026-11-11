@@ -66,3 +66,26 @@ def test_beats_downbeats_and_chords_on_the_synthetic_song(song):
     names = [c["chord"] for c in chords if first <= c["bar"] < first + 4]
     assert names == ["Em", "C", "G", "D"]
     assert chroma.shape[0] == 12
+
+
+def test_grid_from_model_beats_finds_tempo_and_beat_one():
+    beats = 0.7 + 0.5 * np.arange(64)
+    downbeats = beats[2::4]  # beat 1 is the third tracked beat
+    tempo, pulses, per_quarter, phase, fit = rhythm.grid_from_model_beats(beats, downbeats)
+    assert tempo == 120.0 and per_quarter == 1 and phase == 2 and fit == 1.0 and pulses is beats
+    grid, origin = rhythm.beat_grid(pulses, per_quarter, phase, 34.0)
+    assert np.isclose((grid[origin] - beats[2]) % 2.0, 0) or np.isclose((grid[origin] - beats[2]) % 2.0, 2.0)
+
+
+def test_grid_from_model_beats_reports_a_poor_fit_for_three_four():
+    beats = 1.0 + 0.5 * np.arange(60)
+    tempo, _, _, _, fit = rhythm.grid_from_model_beats(beats, beats[::3])  # a waltz: a downbeat every three beats
+    assert tempo == 120.0 and fit < 0.4
+
+
+def test_grid_from_model_beats_needs_enough_beats_and_tolerates_no_downbeats():
+    import pytest
+
+    with pytest.raises(ValueError):
+        rhythm.grid_from_model_beats(np.arange(10) * 0.5, np.array([0.0]))
+    assert rhythm.grid_from_model_beats(np.arange(40) * 0.5, np.array([]))[3:] == (0, None)

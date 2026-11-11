@@ -2,6 +2,19 @@
 name = "bass2sheet"
 version = "0.1.0"
 description = "Song audio file -> printable bass sheet (PDF, MusicXML, MIDI) with quality gates"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Stefano Mazzocchi" }]
+keywords = ["music transcription", "bass", "sheet music", "tablature", "MusicXML", "MIDI", "source separation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio :: Analysis",
+  "Topic :: Multimedia :: Sound/Audio :: Conversion",
+]
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "numpy",
@@ -19,6 +32,7 @@ dependencies = [
   "imageio-ffmpeg",
   "setuptools<81",
   "pyyaml",
+  "beat-this",
 ]
 
 [project.scripts]

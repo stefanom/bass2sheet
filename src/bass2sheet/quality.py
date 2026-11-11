@@ -93,7 +93,9 @@ def octave_doubts(C, notes):
     return out
 
 
-def transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, second_reason):
+def transcription_gates(
+    stems, feat, notes, grid, origin, synth_bass, second, second_reason, meter_fit=None, beat_tracker=None
+):
     """Gates on the transcription plus the per-bar ear-check list {bar: [reasons]}."""
     rms_db = feat["rms_db"]
     n = len(rms_db)
@@ -222,6 +224,17 @@ def transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, se
             40.0,
             False,
             "ms; large means the beat grid or tempo is off",
+        ).judge(),
+        Gate(
+            "meter_fit",
+            "Downbeats that fit 4/4",
+            meter_fit,
+            0.85,
+            0.65,
+            True,
+            "share of the beat tracker's downbeats that fall on one beat in four; low means 3/4, 6/8 or a changing "
+            "meter, which the 4/4 score cannot show",
+            note="" if meter_fit is not None else f"not measured by the {beat_tracker or 'built-in'} beat tracker",
         ).judge(),
         Gate(
             "grid_eighths",

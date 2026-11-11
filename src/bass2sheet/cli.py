@@ -40,6 +40,12 @@ def main(argv=None):
         help="skip separation: read bass.*, drums.* and optionally harmony.*/other.* and vocals.* from this directory",
     )
     ap.add_argument(
+        "--beat-tracker",
+        choices=["auto", "beat_this", "librosa"],
+        default="auto",
+        help="auto: the Beat This! model, falling back to the built-in tracker when it is unavailable",
+    )
+    ap.add_argument(
         "--crepe-model",
         choices=["full", "tiny"],
         default="full",
@@ -96,6 +102,7 @@ def main(argv=None):
             pdf=not args.no_pdf,
             stems_dir=args.stems,
             crepe_model=args.crepe_model,
+            beat_tracker=args.beat_tracker,
         )
     except Bass2SheetError as e:
         print(f"bass2sheet: {e}", file=sys.stderr)

@@ -6,7 +6,7 @@ import librosa
 import numpy as np
 import torch
 
-from .common import FMAX, FMIN, HOP, HOP_S, SR, atomic_savez, log, sha1_array
+from .common import FMAX, FMIN, HOP, HOP_S, SR, atomic_savez, log, release_gpu_memory, sha1_array
 
 CREPE_MODELS = ("full", "tiny")
 
@@ -17,6 +17,7 @@ def track_crepe(mono, device="cpu", model="full"):
     y16 = librosa.resample(mono, orig_sr=SR, target_sr=16000)
     audio = torch.from_numpy(y16)[None]
     # CREPE's lowest bin is about 32 Hz; a lower fmin masks every bin (output: flat 31.7 Hz, NaN periodicity)
+    # the batch bounds memory: the full model needs about 1 GB per 100 frames in flight, on the GPU or the CPU
     pitch, periodicity = torchcrepe.predict(
         audio,
         16000,
@@ -26,7 +27,7 @@ def track_crepe(mono, device="cpu", model="full"):
         model=model,
         decoder=torchcrepe.decode.viterbi,
         return_periodicity=True,
-        batch_size=2048,
+        batch_size=512 if device != "cpu" else 128,
         device=device,
     )
     periodicity = torchcrepe.filter.median(periodicity, 3)
@@ -63,6 +64,7 @@ def features(bass_mono, cache_dir, device="cpu", crepe_model="full"):
                 log.warning("CREPE on %s failed (%s); using the CPU", device, e)
                 f0_c, per_c = track_crepe(bass_mono, "cpu", crepe_model)
             f0_p = pyin.result()
+        release_gpu_memory()
         atomic_savez(path, f0_c=f0_c, per_c=per_c, f0_p=f0_p)
     rms_db = librosa.amplitude_to_db(librosa.feature.rms(y=bass_mono, frame_length=2048, hop_length=HOP)[0] + 1e-9)
     env = librosa.onset.onset_strength(y=bass_mono, sr=SR, hop_length=HOP, fmax=1000)

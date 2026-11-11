@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint + tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --python 3.12
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      # Unit tests plus the end-to-end run on a synthesized song with its stems given: no separation model, no
+      # dataset and no network are needed. The slow tier (real separation, dataset regression) runs locally:
+      # see CONTRIBUTING.md.
+      - name: Tests
+        run: uv run pytest

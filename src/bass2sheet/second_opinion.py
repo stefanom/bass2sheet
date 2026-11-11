@@ -13,12 +13,12 @@ ENV_VAR = "BASS2SHEET_BASIC_PITCH_PYTHON"
 
 
 def find_python(explicit=None):
-    candidates = [
-        explicit,
-        os.environ.get(ENV_VAR),
-        str(Path(__file__).resolve().parents[3] / ".venv-bp" / "bin" / "python"),
-        str(Path.home() / ".cache" / "bass2sheet" / "venv-bp" / "bin" / "python"),
-    ]
+    """The Python interpreter that has Basic Pitch: `explicit`, then $BASS2SHEET_BASIC_PITCH_PYTHON, then a
+    `.venv-bp` in the working directory, in the source checkout or beside it, then the cache directory."""
+    here = Path(__file__).resolve()
+    candidates = [explicit, os.environ.get(ENV_VAR)]
+    for base in (Path.cwd(), here.parents[2], here.parents[3], Path.home() / ".cache" / "bass2sheet"):
+        candidates.append(str(base / ".venv-bp" / "bin" / "python"))
     return next((c for c in candidates if c and os.path.exists(c)), None)
 
 

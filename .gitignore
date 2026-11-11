@@ -1,3 +1,20 @@
 .venv/
+.venv-bp/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.DS_Store
+# audio, models and datasets never belong in the repository
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.mp4
+*.ckpt
+*.npz
+eval-data/
+eval-runs/

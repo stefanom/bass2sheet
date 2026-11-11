@@ -22,6 +22,23 @@ class Bass2SheetError(Exception):
     """A failure the user can act on; the message says what went wrong and what to do."""
 
 
+def release_gpu_memory():
+    """Give cached GPU memory back to the system. PyTorch keeps what a model used (several GB for the separator on
+    Apple GPUs) until the process ends unless told to let go; long batch runs and parallel runs need it back."""
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception as e:  # never let housekeeping break a run
+        log.debug("could not release GPU memory: %s", e)
+
+
 def sha1_file(path, chunk=1 << 20):
     h = hashlib.sha1()
     with open(path, "rb") as f:

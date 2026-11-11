@@ -92,6 +92,7 @@ def test_transcription_gates_on_a_perfect_and_a_broken_transcription(song):
     good, checks = gates_for(song["notes"])
     assert Q.verdict([g for g in good.values() if g.name != "check_bars"]) == "PASS"
     assert good["second_model_pitch"].status == "skipped" and good["second_model_pitch"].note == "off"
+    assert good["meter_fit"].status == "skipped" and "built-in" in good["meter_fit"].note
     assert not [b for b, c in checks.items() if c["severity"] >= Q.CHECK_SEVERITY]
 
     wrong_pitch, _ = gates_for([(s, e, p + 3) for s, e, p in song["notes"]])

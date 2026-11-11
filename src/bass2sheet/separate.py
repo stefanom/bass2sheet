@@ -9,7 +9,7 @@ import tempfile
 import numpy as np
 import soundfile as sf
 
-from .common import SR, Bass2SheetError, atomic_savez, log
+from .common import SR, Bass2SheetError, atomic_savez, log, release_gpu_memory
 
 ROFORMER_MODEL = "BS-Roformer-SW.ckpt"
 METHODS = ("roformer", "demucs")
@@ -138,6 +138,7 @@ def separate(method, wav, mix_path, audio_id, cache_dir, device):
                 raise
             log.warning("Demucs on %s failed (%s); retrying on CPU", device, e)
             stems = _demucs(wav, "cpu")
+    release_gpu_memory()
     stems = {k: _fit(v, n) for k, v in stems.items()}
     atomic_savez(path, **stems)
     return stems

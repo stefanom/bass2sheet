@@ -14,7 +14,15 @@ from .common import SR, Bass2SheetError, atomic_write_text, clock, log, sha1_fil
 from .notes import SegParams, segment_notes
 from .pitch import features
 from .quality import CHECK_SEVERITY, check_list, gates_json, stem_gates, transcription_gates, verdict
-from .rhythm import beat_grid, beats_and_downbeats, chords_per_bar, estimate_key, quantize
+from .rhythm import (
+    beat_grid,
+    beats_and_downbeats,
+    chords_per_bar,
+    estimate_key,
+    grid_from_model_beats,
+    model_beats,
+    quantize,
+)
 from .score import engrave, find_mscore, musicxml
 from .second_opinion import basic_pitch_notes
 from .separate import load_stems, separate
@@ -31,13 +39,47 @@ def guess_title(path):
     return base, ""
 
 
-def transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_model="full"):
+BEAT_TRACKERS = ("auto", "beat_this", "librosa")
+
+
+def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
+    """(tempo, pulses, pulses per quarter, phase of beat 1, 4/4 fit or None, tracker used)."""
+    if beat_tracker in ("auto", "beat_this"):
+        try:
+            beats, downbeats = model_beats(mix, device, os.path.join(cache_dir, f"beats-{audio_id[:16]}.npz"))
+            return (*grid_from_model_beats(beats, downbeats), "beat_this")
+        except Exception as e:  # not installed, no network for the first download, too few beats
+            if beat_tracker == "beat_this":
+                raise Bass2SheetError(f"the Beat This! beat tracker failed: {e}") from e
+            log.warning("Beat This! beat tracker unavailable (%s); using the built-in one", e)
+    try:
+        return (*beats_and_downbeats(stems["drums"], stems["bass"], stems["harmony"]), None, "librosa")
+    except ValueError as e:
+        raise Bass2SheetError(f"could not find a steady beat ({e})") from e
+
+
+def transcribe(
+    stems,
+    cache_dir,
+    params,
+    second_mode,
+    bp_python,
+    device,
+    crepe_model="full",
+    mix=None,
+    audio_id="",
+    beat_tracker="auto",
+):
     bass_mono = stems["bass"].mean(0)
     feat = features(bass_mono, cache_dir, device, crepe_model)
     notes, _, _ = segment_notes(feat, bass_mono, params)
     if len(notes) < 8:
         raise Bass2SheetError(f"only {len(notes)} bass notes found; the stem has no clearly pitched bass")
-    tempo, pulses, per_quarter, phase = beats_and_downbeats(stems["drums"], stems["bass"], stems["harmony"])
+    if mix is None:
+        mix = sum(stems.values()).mean(0)
+    tempo, pulses, per_quarter, phase, meter_fit, tracker = track_grid(
+        stems, mix, audio_id, cache_dir, device, beat_tracker
+    )
     grid, origin = beat_grid(pulses, per_quarter, phase, len(bass_mono) / SR)
     notes = quantize(notes, grid, origin)
     chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
@@ -47,11 +89,14 @@ def transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_m
         second, reason = None, "turned off (--second-opinion off)"
     else:
         second, reason = basic_pitch_notes(stems["bass"], feat["stem_id"], cache_dir, bp_python)
-    gates, checks = transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, reason)
+    gates, checks = transcription_gates(
+        stems, feat, notes, grid, origin, synth_bass, second, reason, meter_fit, tracker
+    )
     return dict(
         notes=notes,
         tempo=tempo,
         per_quarter=per_quarter,
+        beat_tracker=tracker,
         grid=grid,
         origin=origin,
         chords=chords,
@@ -80,6 +125,7 @@ def run(
     pdf=True,
     stems_dir=None,
     crepe_model="full",
+    beat_tracker="auto",
 ):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
@@ -150,7 +196,9 @@ def run(
             continue
         t0 = time.time()
         try:
-            c = transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_model)
+            c = transcribe(
+                stems, cache_dir, params, second_mode, bp_python, device, crepe_model, mix, audio_id, beat_tracker
+            )
         except Bass2SheetError as e:
             attempts.append(dict(method=method, outcome=str(e)))
             continue
@@ -249,6 +297,7 @@ def run(
                 tempo_bpm=tempo,
                 first_downbeat_s=float(grid[origin]),
                 tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter",
+                beat_tracker=best["beat_tracker"],
                 params=params.as_dict(),
             ),
             indent=1,

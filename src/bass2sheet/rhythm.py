@@ -59,6 +59,47 @@ def beats_and_downbeats(drums, bass, harmony):
     return tempo / per_quarter, pulses, per_quarter, phase
 
 
+def model_beats(mix_mono, device="cpu", cache_path=None):
+    """Beats and downbeats in seconds from Beat This! (Foscarin, Schlüter and Widmer, ISMIR 2024) on the full mix.
+    The model downloads on first use (77 MB). Results are cached at `cache_path`."""
+    import os
+
+    if cache_path and os.path.exists(cache_path):
+        d = np.load(cache_path)
+        return d["beats"], d["downbeats"]
+    from beat_this.inference import Audio2Beats
+
+    try:
+        beats, downbeats = Audio2Beats(checkpoint_path="final0", device=device, dbn=False)(mix_mono, SR)
+    except Exception:
+        if device == "cpu":
+            raise
+        beats, downbeats = Audio2Beats(checkpoint_path="final0", device="cpu", dbn=False)(mix_mono, SR)
+    beats, downbeats = np.asarray(beats, dtype=float), np.asarray(downbeats, dtype=float)
+    if cache_path:
+        from .common import atomic_savez
+
+        atomic_savez(cache_path, beats=beats, downbeats=downbeats)
+    return beats, downbeats
+
+
+def grid_from_model_beats(beats, downbeats):
+    """Tempo, pulses, pulses per quarter (1), the pulse index of beat 1, and how well the downbeats fit 4/4.
+
+    The score is written in 4/4, so beat 1 is the phase (0-3) that most model downbeats fall on. The fit is the
+    share of downbeats on that phase: near 1 for a 4/4 song, about 0.25-0.5 for 3/4, 6/8 or changing meters."""
+    if len(beats) < 16:
+        raise ValueError("fewer than 16 beats tracked")
+    tempo = float(60.0 / np.median(np.diff(beats)))
+    idx = np.array([int(np.argmin(np.abs(beats - d))) for d in downbeats], dtype=int)
+    near = np.array([abs(beats[k] - d) < 0.07 for k, d in zip(idx, downbeats)], dtype=bool)
+    idx = idx[near] if len(idx) else idx
+    if len(idx) < 2:
+        return tempo, beats, 1, 0, None
+    counts = np.bincount(idx % 4, minlength=4)
+    return tempo, beats, 1, int(counts.argmax()), float(counts.max() / counts.sum())
+
+
 def beat_grid(pulses, per_quarter, phase, end):
     """16th-note times covering 0..end (tracked pulses extended at their median spacing) and the grid index of
     the earliest downbeat."""

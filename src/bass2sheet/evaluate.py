@@ -243,7 +243,8 @@ def _slakh_reference(track, cache=None):
     if os.path.exists(track["all_midi"]):
         pm = pretty_midi.PrettyMIDI(track["all_midi"])
         ts = pm.time_signature_changes
-        four_four = all(t.numerator == 4 and t.denominator == 4 for t in ts) if ts else True
+        # no time signature at all means the file was recorded without a click: its beats say nothing about the music
+        four_four = bool(ts) and all(t.numerator == 4 and t.denominator == 4 for t in ts)
         beats, downbeats = pm.get_beats(), pm.get_downbeats()
         if len(beats) > 8 and len(downbeats):
             grid = dict(
