@@ -21,7 +21,7 @@ def test_monophonic_keeps_one_note_at_a_time():
 @pytest.mark.parametrize(
     "path,expected",
     [
-        ("/x/Wilco - How To Fight Loneliness [7CAYFIpi89k].mp4", ("How To Fight Loneliness", "Wilco")),
+        ("/x/Some Band - A Song Title [abc123XYZ_-].mp4", ("A Song Title", "Some Band")),
         ("song.wav", ("song", "")),
         ("A - B - C.mp3", ("B - C", "A")),
     ],
