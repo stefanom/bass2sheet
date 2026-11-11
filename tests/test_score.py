@@ -166,3 +166,14 @@ def test_triads_match_rhythm_module():
 def test_find_mscore_rejects_a_missing_explicit_path(monkeypatch):
     monkeypatch.setattr(score, "MSCORE_CANDIDATES", [])
     assert score.find_mscore("/nonexistent/mscore") is None
+
+
+def test_lines_start_where_the_bass_comes_in():
+    notes = [dict(n, grid_start=n["grid_start"] + 48, bar=n["bar"] + 3) for n in _notes()]  # the bass enters in bar 4
+    notes += [
+        dict(n, grid_start=n["grid_start"] + 64, bar=n["bar"] + 4, start=n["start"] + 8, end=n["end"] + 8)
+        for n in notes
+    ]
+    doc = xml.dom.minidom.parseString(_xml(notes=notes, chords=[], check_bars={}))
+    breaks = [m.getAttribute("number") for m in doc.getElementsByTagName("measure") if m.getElementsByTagName("print")]
+    assert breaks == ["4", "8"]  # four-bar lines counted from bar 4, after the first line's lead-in

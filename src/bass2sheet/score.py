@@ -127,9 +127,10 @@ def pitch_xml(midi, name):
 
 
 def musicxml(
-    notes, chords, key, tempo, first_downbeat, title, artist, check_bars, draft, phrase_start=9, bars_per_line=4
+    notes, chords, key, tempo, first_downbeat, title, artist, check_bars, draft, phrase_start=None, bars_per_line=4
 ):
-    """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check")."""
+    """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check").
+    Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes)."""
     key_name, key_root, key_major = key
     chord_of = {c["bar"]: c for c in chords}
     rel_major = key_root if key_major else (key_root + 3) % 12
@@ -157,6 +158,8 @@ def musicxml(
         e["string"], e["fret"] = 4 - s, f  # MusicXML strings count from the highest (G = 1)
 
     first_bar = min(1, min(e["grid_start"] // 16 + 1 for e in events))
+    if phrase_start is None:  # lines of `bars_per_line` bars start where the bass comes in
+        phrase_start = max(1, min(e["grid_start"] // 16 + 1 for e in events))
     last_bar = max((e["g1"] - 1) // 16 + 1 for e in events if not e["grace"])
     by_bar = {}
     for e in events:

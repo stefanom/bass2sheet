@@ -1,6 +1,6 @@
 [project]
 name = "bass2sheet"
-version = "0.1.0"
+version = "0.2.0"
 description = "Song audio file -> printable bass sheet (PDF, MusicXML, MIDI) with quality gates"
 readme = "README.md"
 license = "MIT"

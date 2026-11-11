@@ -55,7 +55,7 @@ bass2sheet SONG [-o OUT_DIR] [--title T] [--artist A] [--strict]
 
 Exit codes: `0` the sheet was written (PASS or WARN); `2` the result failed its gates (the sheet is marked DRAFT, or not written with `--strict`); `1` error (unreadable input, no bass found).
 
-Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
+Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--beat-tracker auto|beat_this|librosa`, `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
 
 A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
 
@@ -65,7 +65,7 @@ A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
 2. **Separate the bass.** BS-RoFormer SW (via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator)) is the default; Demucs `htdemucs_ft` is the fallback when it fails or its result fails the gates.
 3. **Track pitch.** CREPE (Viterbi decoding) on the GPU, with pYIN as a cross-check.
 4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a repeated pitch is split only where the low-band energy jumps; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected.
-5. **Find the grid.** Beats from drums and bass; kick/snare alternation decides between quarter- and eighth-note pulses; the downbeat is where the harmony changes. Notes are quantized to sixteenths.
+5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
 6. **Key and chords.** Rough estimates for the chord symbols and note spelling.
 7. **Engrave.** MusicXML with a tab staff whose fingering comes from a search that keeps the fretting hand in place; MuseScore turns it into the PDF.
 8. **Judge the result.** The quality gates below.
@@ -85,6 +85,7 @@ There is no reference transcription for your song, so each gate is an independen
 | Same pitch as Basic Pitch | ≥ 80% | 60% | Disagreement with an independent model |
 | Note starts shared with Basic Pitch | F ≥ 0.6 | 0.4 | Rhythm disagreement |
 | Note starts' distance from the 16th grid | ≤ 25 ms | 40 ms | A wrong tempo or grid |
+| Downbeats that fit 4/4 | ≥ 85% | 65% | 3/4, 6/8 or a changing meter, which the 4/4 score cannot show |
 | Notes on 8th-note positions | ≥ 75% | 55% | A wrong pulse level, a shifted downbeat, swing |
 | Notes flagged uncertain | ≤ 10% | 25% | The two pitch trackers disagree |
 | Bars that need an ear check | ≤ 15% | 30% | Too many bars where the checks disagree |
@@ -101,7 +102,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 
 ## Limits
 
-- Built for 4/4 rock and pop with a steady tempo. Swing, tempo changes and odd meters are not modelled; the grid gates usually catch them.
+- The score is always written in 4/4 with straight sixteenths. Other meters and swing are not notated; the meter and grid gates flag them. Tempo changes are followed beat by beat, but the score shows one tempo.
 - One bass line. Two basses at once, and chords on the bass, are out of scope.
 - The tab assumes a 4-string bass in standard tuning.
 - Very short staccato notes (under about 100 ms) are often missed.
@@ -117,6 +118,7 @@ bass2sheet is MIT licensed (see [LICENSE](LICENSE)). It stands on other people's
 
 - Separation: BS-RoFormer (the SW checkpoint by jarredou, run through audio-separator) and [Demucs](https://github.com/adefossez/demucs)
 - Pitch: [CREPE](https://github.com/marl/crepe) through [torchcrepe](https://github.com/maxrmorrison/torchcrepe), and pYIN in [librosa](https://librosa.org)
+- Beats: [Beat This!](https://github.com/CPJKU/beat_this)
 - Second opinion: [Basic Pitch](https://github.com/spotify/basic-pitch)
 - Evaluation: [mir_eval](https://github.com/mir-evaluation/mir_eval), [pretty_midi](https://github.com/craffel/pretty-midi)
 - Engraving: [MuseScore](https://musescore.org)
