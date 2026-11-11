@@ -522,7 +522,7 @@ async function choose(pick) {
   try {
     const s = await api("/api/judge", {id: current.id, pick, note: $("note").value});
     state = s; current.pick = pick; current.reveal = s.reveal;
-    $("progress").textContent = `${s.judged} of ${s.total} judged` + (s.preparing ? " · preparing the next step" : "");
+    $("progress").textContent = `${s.judged} of ${s.total} judged`;
     stepsBar(s);
     $("skip").classList.add("hidden");
     reveal(current);
