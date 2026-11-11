@@ -2,12 +2,12 @@
  "conditions": {
   "mix": {
    "AClassicEducation_NightOwl": {
-    "oa": 0.7800463880000678,
-    "note_acc": 0.7628503580710907
+    "oa": 0.7998882624815887,
+    "note_acc": 0.7847085880967073
    },
    "AlexanderRoss_GoodbyeBolero": {
-    "oa": 0.8496077507346012,
-    "note_acc": 0.8284050722676843
+    "oa": 0.8499819814825081,
+    "note_acc": 0.8281997928544103
    },
    "AvaLuna_Waterduct": {
     "oa": 0.8514646458993272,
@@ -18,24 +18,24 @@
     "note_acc": 0.8093086883211911
    },
    "Creepoid_OldTree": {
-    "oa": 0.6502112946600077,
-    "note_acc": 0.6357841187430653
+    "oa": 0.6506242796772954,
+    "note_acc": 0.6357108464002345
    },
    "EthanHein_BluesForNofi": {
-    "oa": 0.6422008770098142,
-    "note_acc": 0.6087695185736647
+    "oa": 0.6417832532887868,
+    "note_acc": 0.6083113809032947
    },
    "HezekiahJones_BorrowedHeart": {
-    "oa": 0.9345684352172241,
-    "note_acc": 0.9297598513997611
+    "oa": 0.9347246251441753,
+    "note_acc": 0.9299323338198222
    },
    "KarimDouaidy_Hopscotch": {
     "oa": 0.8656471819375475,
     "note_acc": 0.8459328212008597
    },
    "MatthewEntwistle_AnEveningWithOliver": {
-    "oa": 0.8530097278606367,
-    "note_acc": 0.7334561954115272
+    "oa": 0.8547030759298369,
+    "note_acc": 0.736983918448775
    },
    "Meaxic_TakeAStep": {
     "oa": 0.8277996796846125,
@@ -82,16 +82,16 @@
     "note_acc": 0.9590582711958022
    },
    "StevenClark_Bounty": {
-    "oa": 0.8503644877618346,
-    "note_acc": 0.8357924956603018
+    "oa": 0.8503143518936317,
+    "note_acc": 0.835736858503583
    },
    "TablaBreakbeatScience_Animoog": {
-    "oa": 0.7839550583945203,
-    "note_acc": 0.7372814328997481
+    "oa": 0.783422855171734,
+    "note_acc": 0.7366243627027488
    },
    "TablaBreakbeatScience_WhoIsIt": {
-    "oa": 0.5495693773598582,
-    "note_acc": 0.46170074249878446
+    "oa": 0.5491937768933228,
+    "note_acc": 0.4611733293777349
    },
    "TheSoSoGlos_Emergency": {
     "oa": 0.5341084867128978,

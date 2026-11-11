@@ -113,9 +113,9 @@ def rank_candidate(gates):
 
     Failed gates count first. After that the share of note starts confirmed by the second model decides, and
     coverage when there is no second model. The number of warning gates is not used: each gate is measured
-    against the candidate's own stem, and on eleven songs transcribed from both separators the candidate with
-    fewer warnings was the less accurate one as often as not, while the one with more confirmed note starts was
-    the more accurate one on 8 of 10."""
+    against the candidate's own stem, and on ten songs with ground truth transcribed from both separators the
+    candidate with fewer warnings was the less accurate one on 5 and the more accurate on 2, while the one with
+    more confirmed note starts was the more accurate one on 7 and the less accurate on 1 (docs/evaluation.md)."""
     value = lambda name: next((g.value for g in gates if g.name == name and g.value is not None), 0.0)
     return (sum(g.status == "fail" for g in gates), -value("second_model_onsets"), -value("coverage"))
 

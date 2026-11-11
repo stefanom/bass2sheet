@@ -76,14 +76,14 @@ Version 0.2.0 on an Apple M4 Max, full mixes in, default settings. `eval/baselin
 
 | Condition | F | P | R | F name | F 100ms | F+off | 8va↓ | bias | beat pos | bar pos |
 |---|---|---|---|---|---|---|---|---|---|---|
-| mix, mean | 0.88 | 0.91 | 0.87 | 0.91 | 0.88 | 0.73 | 0.03 | +15 ms | 0.95 | 0.66 |
-| mix, median | 0.95 | 0.94 | 0.94 | 0.95 | 0.95 | 0.84 | 0.00 | +11 ms | 0.98 | 0.77 |
+| mix, mean | 0.88 | 0.91 | 0.88 | 0.91 | 0.89 | 0.73 | 0.03 | +14 ms | 0.95 | 0.66 |
+| mix, median | 0.95 | 0.94 | 0.94 | 0.96 | 0.95 | 0.84 | 0.00 | +11 ms | 0.98 | 0.77 |
 | stem, mean | 0.92 | 0.92 | 0.93 | 0.92 | 0.92 | 0.74 | 0.00 | +13 ms | 0.95 | 0.66 |
 | stem, median | 0.95 | 0.94 | 0.95 | 0.95 | 0.96 | 0.79 | 0.00 | +12 ms | 0.98 | 0.77 |
 
-- 12 of 16 songs score F ≥ 0.90 from the mix. Of the reference's notes, 87% are right, 7% missed, 3% an octave off, 1% merged into a neighbour; of ours, 91% are right, 2% are re-attacks that are not there, 1% ghosts.
-- Separation costs 0.04 of mean F, most of it on three songs: Track00019 (0.49 from the mix, 0.87 from the clean stem; the difference is notes an octave low, not yet explained), Track00009 and Track00008.
-- Track00009 scores 0.38 from the mix and 0.55 from the clean stem. Its notes last about 100 ms, and the pitch tracker reports no pitch on most of them.
+- 12 of 16 songs score F ≥ 0.90 from the mix. Of the reference's notes, 88% are right, 7% missed, 3% an octave off, 1% merged into a neighbour; of ours, 91% are right, 2% are re-attacks that are not there, 1% ghosts.
+- Separation costs 0.03 of mean F, three quarters of it on one song: Track00019 scores 0.49 from the mix and 0.87 from the clean stem. The difference is notes an octave low, not yet explained.
+- Track00009 scores 0.45 from the mix and 0.55 from the clean stem. Its notes last about 100 ms, and the pitch tracker reports no pitch on most of them.
 - The grid is measured on the 11 songs whose MIDI has a 4/4 time signature throughout. Tempo is within 2% on 10 of them. Bar position is 0.95 or more on 5. On the others the bar lines are off for part or all of the song; the meter gate (the share of the beat tracker's downbeats that fit one 4/4 phase) is low on those songs, and its rank correlation with bar position is +0.84.
 
 ### MDB-bass-synth (24 of 71 songs, evenly spaced through the list)
@@ -93,19 +93,19 @@ Version 0.2.0 on an Apple M4 Max, full mixes in, default settings. `eval/baselin
 | mean | 0.81 | 0.77 | 0.78 | 0.77 | 0.01 | 0.92 | 0.05 |
 | median | 0.85 | 0.81 | 0.82 | 0.81 | 0.00 | 0.96 | 0.02 |
 
-Note acc ranges from 0.46 to 0.96. The five lowest are TablaBreakbeatScience_WhoIsIt (0.46), MusicDelta_Disco (0.47), TheSoSoGlos_Emergency (0.51), Creepoid_OldTree (0.59) and EthanHein_BluesForNofi (0.61); why has not been looked into.
+Note acc ranges from 0.46 to 0.96. The five lowest are TablaBreakbeatScience_WhoIsIt (0.46), MusicDelta_Disco (0.47), TheSoSoGlos_Emergency (0.51), EthanHein_BluesForNofi (0.61) and Creepoid_OldTree (0.64); why has not been looked into.
 
 ### RWC Popular (24 of the 75 songs with one bass track, evenly spaced)
 
 | | F | P | R | F name | F 100ms | F+off | bias | bar pos |
 |---|---|---|---|---|---|---|---|---|
-| mean | 0.68 | 0.70 | 0.66 | 0.71 | 0.74 | 0.42 | +14 ms | 1.00 |
-| median | 0.63 | 0.70 | 0.67 | 0.66 | 0.73 | 0.36 | +13 ms | 1.00 |
+| mean | 0.68 | 0.70 | 0.68 | 0.72 | 0.75 | 0.43 | +15 ms | 1.00 |
+| median | 0.63 | 0.70 | 0.67 | 0.69 | 0.70 | 0.36 | +13 ms | 1.00 |
 
-- 6 songs score F 100ms ≥ 0.90 and 7 score below 0.60.
-- Of the reference's notes, 66% are right, 14% merged (a repeated note we wrote as one), 7% covered by a note of another pitch, 6% the wrong pitch, 4% missed, 3% an octave off. Of ours, 70% are right, 9% are re-attacks the reference does not have, 8% start inside a reference note of another pitch, 6% are the wrong pitch.
-- Bar position is 0.96 or more on all 21 songs with a 4/4 reference. Beat This! was trained on RWC Popular, so this is not a test of the grid.
-- Nine of these songs were used to choose how held notes are split at re-plucks. They average F 100ms 0.78; the other fifteen average 0.72.
+- 6 songs score F 100ms ≥ 0.90 and 6 score below 0.60.
+- Of the reference's notes, 68% are right, 12% merged (a repeated note we wrote as one), 6% covered by a note of another pitch, 6% the wrong pitch, 4% missed, 3% an octave off. Of ours, 70% are right, 10% are re-attacks the reference does not have, 8% start inside a reference note of another pitch, 6% are the wrong pitch.
+- Bar position is 0.98 or more on all 21 songs with a 4/4 reference. Beat This! was trained on RWC Popular, so this is not a test of the grid.
+- Nine of these songs were used to choose how held notes are split at re-plucks. They average F 100ms 0.78; the other fifteen average 0.73.
 
 ### Verdicts against measured scores
 
@@ -114,10 +114,14 @@ The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.
 | Verdict | Runs | Mean score | Lowest | Runs at 0.85 or more |
 |---|---|---|---|---|
 | PASS | 15 | 0.96 | 0.90 | 100% |
-| WARN | 47 | 0.85 | 0.44 | 51% |
-| FAIL | 18 | 0.60 | 0.38 | 6% |
+| WARN | 47 | 0.85 | 0.60 | 55% |
+| FAIL | 18 | 0.60 | 0.45 | 6% |
 
-The gate thresholds and the "five warnings fail" rule were set on these runs, so this table is in-sample. The gate that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.80 on BabySlakh, +0.77 on MDB, +0.59 on RWC). The meter gate does not track note accuracy; it tracks bar position, which is what it is for. Notes in bars marked "check" are right 68% of the time on BabySlakh, against 88% in other bars; on RWC, 41% against 70%.
+The gate thresholds and the "five warnings fail" rule were set on these runs, so this table is in-sample. The gate that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.79 on BabySlakh, +0.76 on MDB, +0.57 on RWC). The meter gate does not track note accuracy; it tracks bar position, which is what it is for. Notes in bars marked "check" are right 69% of the time on BabySlakh, against 88% in other bars; on RWC, 42% against 70%.
+
+### Choosing between the two separators
+
+When the BS-RoFormer result fails its gates, Demucs is tried and one of the two results is kept. Ten songs with ground truth were transcribed from both separators: nine where the RoFormer result failed its gates and one where it did not. Demucs was the more accurate on 5 (by 0.02 to 0.09 F), RoFormer on 3 (by 0.07 to 0.20), and 2 were level. Keeping the result with fewer failed gates, then the one with more note starts confirmed by Basic Pitch, picks the better or an equal result on 8 of the 10. The earlier rule, which counted warning gates second, did so on 7. That is no real difference on ten songs. The rule was changed because warning counts are measured against two different stems, and because the share of confirmed note starts is the gate that tracks accuracy best.
 
 ### What changed the scores in 0.2.0
 
@@ -129,4 +133,4 @@ The gate thresholds and the "five warnings fail" rule were set on these runs, so
 
 - **Note starts** are placed where the pluck begins to sound. 0.1.0 found the same notes 15–25 ms late, which is why its F at 100 ms was already 0.89. This accounts for nearly all of the gain in F.
 - **Beat This!** replaced the built-in beat tracker, which chose the wrong pulse level on 7 BabySlakh songs.
-- **Held notes are split at re-plucks.** Measured on the same stems, this moved mean F on five RWC songs from 0.60 to 0.69 and on BabySlakh from 0.888 to 0.882.
+- **Held notes are split at re-plucks.** Measured on the same stems, this moved mean F on the 24 RWC songs from 0.66 to 0.68 (0.72 to 0.75 at 100 ms) and on BabySlakh from 0.888 to 0.884. The gain is concentrated in songs with driving repeated notes.
