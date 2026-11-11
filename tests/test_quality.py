@@ -38,6 +38,13 @@ def test_verdict_is_the_worst_gate():
     assert Q.verdict([g("warn"), g("fail"), g("pass")]) == "FAIL"
 
 
+def test_many_accuracy_warnings_fail_but_layout_warnings_do_not_count():
+    warn = lambda name: Q.Gate(name, "G", 1.0, 0, 0, True, "", status="warn")
+    assert Q.verdict([warn(f"g{k}") for k in range(4)]) == "WARN"
+    assert Q.verdict([warn(f"g{k}") for k in range(5)]) == "FAIL"
+    assert Q.verdict([warn(f"g{k}") for k in range(4)] + [warn("meter_fit"), warn("grid_eighths")]) == "WARN"
+
+
 def test_stem_gate_tells_bass_from_no_bass(song):
     mix = song["mix"].mean(0)
     assert Q.verdict(Q.stem_gates(song["stems"], mix)) == "PASS"
@@ -103,7 +110,7 @@ def test_transcription_gates_on_a_perfect_and_a_broken_transcription(song):
     wrong_pitch, _ = gates_for([(s, e, p + 3) for s, e, p in song["notes"]])
     assert wrong_pitch["audio_pitch"].status == "fail"
     sparse, checks = gates_for(song["notes"][::4])  # three quarters of the notes missing
-    assert sparse["coverage"].status == "fail" and sparse["audio_gaps"].status == "fail"
+    assert sparse["coverage"].status == "fail" and "audio_gaps" not in sparse
     assert any("notes missing" in r for c in checks.values() for r in c["reasons"])
     shifted, _ = gates_for([(s + 0.06, e + 0.06, p) for s, e, p in song["notes"]])  # half a 16th late
     assert shifted["grid_offset_ms"].status == "fail"

@@ -8,7 +8,7 @@ bass2sheet "Artist - Title.mp3"
 
 ![The first lines of a score bass2sheet wrote for the synthesized test song](docs/example-score.png)
 
-The transcription is done by machine and is not perfect. That is why every run measures itself: thirteen quality gates decide a PASS, WARN or FAIL verdict, and the bars where independent checks disagree are marked in the PDF. See [Accuracy](#accuracy) for measured results on public datasets.
+The transcription is done by machine and is not perfect. That is why every run measures itself: twelve quality gates decide a PASS, WARN or FAIL verdict, and the bars where independent checks disagree are marked in the PDF. See [Accuracy](#accuracy) for measured results on public datasets.
 
 Feed it audio you have the rights to use. bass2sheet downloads nothing from video or streaming sites.
 
@@ -79,7 +79,6 @@ There is no reference transcription for your song, so each gate is an independen
 | Bass stem level vs the mix | ≥ −25 dB | −35 dB | The separator found no bass |
 | Sounding bass covered by notes | ≥ 97% | 85% | Missing notes |
 | Notes cut short while the bass rings | ≤ 4% | 12% | Choppy note ends |
-| Synth silent while the bass sounds | ≤ 10% | 30% | Gaps, judged on the transcription rendered back to audio |
 | Same note name as the recording | ≥ 90% | 78% | Wrong notes, judged on the rendered transcription |
 | Notes with a doubtful octave | ≤ 1% | 5% | Octave errors |
 | Same pitch as Basic Pitch | ≥ 90% | 70% | Disagreement with an independent model |
@@ -90,7 +89,7 @@ There is no reference transcription for your song, so each gate is an independen
 | Notes flagged uncertain | ≤ 6% | 20% | The two pitch trackers disagree |
 | Bars that need an ear check | ≤ 6% | 25% | Too many bars where the checks disagree |
 
-FAIL if any gate fails, WARN if any warns, otherwise PASS. Each bar also gets a severity that adds up independent signals (missing notes, a pitch mismatch with the recording, Basic Pitch disagreeing, a doubtful octave); the report lists the bars worst first, and severity 3 or more puts the red "check" in the PDF.
+FAIL if any gate fails, or if five or more of the accuracy gates warn at once; WARN if any gate warns; otherwise PASS. Each bar also gets a severity that adds up independent signals (missing notes, a pitch mismatch with the recording, Basic Pitch disagreeing, a doubtful octave); the report lists the bars worst first, and severity 3 or more puts the red "check" in the PDF.
 
 The thresholds come from evaluation runs with ground truth: a gate warns below what 90% of the accurate runs reach, and fails where only inaccurate runs were seen. `bass2sheet-eval` reports, for each gate, how well it tracks the measured score.
 

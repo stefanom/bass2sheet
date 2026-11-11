@@ -14,7 +14,8 @@ STATUS_STYLE = {
 VERDICT_TEXT = {
     "PASS": "Every quality gate passed. The sheet should be close; still check the bars listed below by ear.",
     "WARN": "Usable, with warnings. Read the flagged gates and check the listed bars by ear before relying on it.",
-    "FAIL": "Failed quality gates. Treat the sheet as a draft at best; the failing gates say what went wrong.",
+    "FAIL": "Failed its quality gates: a gate failed, or five or more warn at once. Treat the sheet as a draft at "
+    "best; the flagged gates say what went wrong.",
 }
 
 

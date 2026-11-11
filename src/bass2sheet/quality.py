@@ -2,7 +2,7 @@
 
 There is no reference transcription, so each gate is a proxy; none is trusted alone. They cover the stem
 (is there any bass), the transcription against the stem (coverage, notes cut short), the
-transcription rendered back to audio against the stem (gaps, pitch), octave sanity, an independent model
+transcription rendered back to audio against the stem (pitch), octave sanity, an independent model
 (Basic Pitch) on the same stem, and the rhythm grid. Bars where the checks disagree go on an ear-check list.
 """
 
@@ -119,17 +119,15 @@ def transcription_gates(
             cut.append((a["end"] - a["start"]) / ioi < 0.8 and still > 0.5)
     cut_short = float(np.mean(cut)) if cut else 0.0
 
-    # the transcription rendered back to audio, against the stem
+    # the transcription rendered back to audio, against the stem: where a note is written and the stem sounds, do
+    # the two show the same note name? (There is no "synth silent" gate: the pluck synth decays, so it measured how
+    # long the notes were held, not whether they were transcribed. Coverage already says what is missing.)
     C_real = feat["cqt"]
-    s_db = librosa.amplitude_to_db(librosa.feature.rms(y=synth_bass, frame_length=2048, hop_length=HOP)[0] + 1e-9)[:n]
-    s_on = np.zeros(n, bool)
-    s_on[: len(s_db)] = s_db > np.percentile(s_db, 99) - 30
     r_semi = _harmonic_pitch(C_real)[:n]
     s_semi = _harmonic_pitch(_cqt(synth_bass))[:n]
     m = min(len(r_semi), len(s_semi), n)
-    both = (playing & s_on)[:m]
+    both = (playing & cover)[:m]
     same_name = both & ((r_semi[:m] - s_semi[:m]) % 12 == 0)
-    gaps = float((playing & ~s_on).sum() / max(1, playing.sum()))
     pitch_match = float(same_name.sum() / max(1, both.sum()))
     doubts = octave_doubts(C_real, notes)
 
@@ -176,15 +174,6 @@ def transcription_gates(
             0.12,
             False,
             "share of notes followed by a MIDI gap while the stem still sounds (heard as choppy)",
-        ).judge(),
-        Gate(
-            "audio_gaps",
-            "Synth silent while the bass sounds",
-            gaps,
-            0.10,
-            0.30,
-            False,
-            "the transcription rendered to audio, compared with the stem",
         ).judge(),
         Gate(
             "audio_pitch",
@@ -324,9 +313,18 @@ def transcription_gates(
     return gates, checks
 
 
+LAYOUT_GATES = {"meter_fit", "grid_eighths"}  # about how the bars are laid out, not whether the notes are right
+MANY_WARNINGS = 5
+
+
 def verdict(gates):
+    """FAIL when a gate fails or when MANY_WARNINGS of the accuracy gates warn at once: in the evaluation runs,
+    results with five or more warnings were as inaccurate as those with a failed gate. WARN for any warning."""
     statuses = [g.status for g in gates]
-    return "FAIL" if "fail" in statuses else "WARN" if "warn" in statuses else "PASS"
+    accuracy_warnings = sum(g.status == "warn" for g in gates if g.name not in LAYOUT_GATES)
+    if "fail" in statuses or accuracy_warnings >= MANY_WARNINGS:
+        return "FAIL"
+    return "WARN" if "warn" in statuses else "PASS"
 
 
 def gates_json(gates):
