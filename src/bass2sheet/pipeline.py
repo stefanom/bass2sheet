@@ -75,18 +75,9 @@ def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
         raise Bass2SheetError(f"could not find a steady beat ({e})") from e
 
 
-def transcribe(
-    stems,
-    cache_dir,
-    params,
-    second_mode,
-    bp_python,
-    device,
-    crepe_model="full",
-    mix=None,
-    audio_id="",
-    beat_tracker="auto",
-):
+def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, audio_id="", beat_tracker="auto"):
+    """Everything the sheet is written from: the notes heard in the bass stem, placed on the beat grid, with the
+    key and the chords. Returns them with the pitch features (`feat`) and the 4/4 fit of the beats (`meter_fit`)."""
     bass_mono = stems["bass"].mean(0)
     feat = features(bass_mono, cache_dir, device, crepe_model)
     notes, _, _ = segment_notes(feat, bass_mono, params)
@@ -100,15 +91,6 @@ def transcribe(
     grid, origin = beat_grid(pulses, per_quarter, phase, len(bass_mono) / SR)
     notes = quantize(notes, grid, origin)
     chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
-    key = estimate_key(chroma)
-    synth_bass = render.synth(notes, len(bass_mono))
-    if second_mode == "off":
-        second, reason = None, "turned off (--second-opinion off)"
-    else:
-        second, reason = basic_pitch_notes(stems["bass"], feat["stem_id"], cache_dir, bp_python)
-    gates, checks = transcription_gates(
-        stems, feat, notes, grid, origin, synth_bass, second, reason, meter_fit, tracker
-    )
     return dict(
         notes=notes,
         tempo=tempo,
@@ -117,12 +99,36 @@ def transcribe(
         grid=grid,
         origin=origin,
         chords=chords,
-        key=key,
-        synth=synth_bass,
-        gates=gates,
-        checks=checks,
-        second_reason=reason,
+        key=estimate_key(chroma),
+        feat=feat,
+        meter_fit=meter_fit,
     )
+
+
+def transcribe(
+    stems,
+    cache_dir,
+    params,
+    second_mode,
+    bp_python,
+    device,
+    crepe_model="full",
+    mix=None,
+    audio_id="",
+    beat_tracker="auto",
+):
+    """find_notes, then the quality gates on what it found."""
+    c = find_notes(stems, cache_dir, params, device, crepe_model, mix, audio_id, beat_tracker)
+    feat, meter_fit = c.pop("feat"), c.pop("meter_fit")
+    synth_bass = render.synth(c["notes"], stems["bass"].shape[1])
+    if second_mode == "off":
+        second, reason = None, "turned off (--second-opinion off)"
+    else:
+        second, reason = basic_pitch_notes(stems["bass"], feat["stem_id"], cache_dir, bp_python)
+    gates, checks = transcription_gates(
+        stems, feat, c["notes"], c["grid"], c["origin"], synth_bass, second, reason, meter_fit, c["beat_tracker"]
+    )
+    return dict(c, synth=synth_bass, gates=gates, checks=checks, second_reason=reason)
 
 
 def bar_times(grid, origin):

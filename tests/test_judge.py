@@ -214,6 +214,14 @@ def _comp(cid, choice="separator", flip=False, **kw):
     )
     if choice == "tab":
         del c["media"]["B"], c["media"]["B_bass"]
+    if choice == "replucks":  # as the second step is made: a pitch picture with the notes and the pitch line on it
+        c["media"] = {k: f"media/{cid}/{k}.flac" for k in ("record", "A", "B")}
+        c["sources"] = [["record", "Isolated bass"], ["A", "A"], ["B", "B"]]
+        c["alt"] = dict(label="Real bass left, notes right", media={k: f"media/{cid}/{k}_both.flac" for k in "AB"})
+        roll = dict(lo=26, hi=62, notes=[[0.5, 1.0, 40, 0], [1.2, 1.6, 43, 1]])
+        roll["line"] = [[0.5, 40.0], [0.52, 40.1], None, [1.2, 43.0], [1.22, 43.0], [1.24, 43.1]]
+        view = dict(page=[1200, 333], crop=[0, 0, 1200, 333], staff=[0, 333], keys=[[0.0, 0.0], [8.8, 1200]], marks=[])
+        c["sheets"] = {name: dict(view, src=f"media/{cid}/picture.png", roll=roll) for name in "AB"}
     c.update(kw)
     return c
 
@@ -256,16 +264,11 @@ def test_the_latest_pick_counts_and_the_tally_is_by_alternative(workdir):
     assert "No comparisons yet" in judge.report(os.path.join(workdir, "empty"))
 
 
-def test_comparisons_are_shown_one_of_each_choice_before_a_second_of_any():
+def test_comparisons_are_shown_step_by_step_with_changed_passages_first():
     comps = [_comp("s.tab.2", "tab"), _comp("s.separator.2"), _comp("s.tab.1", "tab"), _comp("s.separator.1")]
     comps.append(dict(_comp("s.change.1"), choice="change"))
-    assert [c["id"] for c in judge.order(comps)] == [
-        "s.change.1",
-        "s.separator.1",
-        "s.tab.1",
-        "s.separator.2",
-        "s.tab.2",
-    ]
+    shown = [c["id"] for c in judge.order(comps)]
+    assert shown == ["s.change.1", "s.separator.1", "s.separator.2", "s.tab.1", "s.tab.2"]
 
 
 # ------------------------------------------------------------------------------------------------- the server
@@ -363,12 +366,114 @@ def test_the_page_script_works_against_the_server(server):
     assert picks["song-one.separator.1"]["note"] == "too busy" and picks["song-one.tab.1"]["pick"] == "same"
 
 
-# ---------------------------------------------------------------------------------- building and the later loop
+# ------------------------------------------------------------------------------------ pictures and stem media
+
+
+def test_a_png_is_written_without_an_imaging_library(tmp_path):
+    import struct
+    import zlib
+
+    rgb = np.zeros((4, 5, 3), np.uint8)
+    rgb[1, 2] = (255, 128, 0)
+    judge.write_png(str(tmp_path / "x.png"), rgb)
+    data = (tmp_path / "x.png").read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", data[16:24]) == (5, 4)
+    start = data.index(b"IDAT") + 4
+    raw = zlib.decompress(data[start : data.index(b"IEND") - 8])
+    rows = [raw[k * 16 + 1 : k * 16 + 16] for k in range(4)]  # each row: a filter byte, then 5 pixels
+    assert rows[1][6:9] == bytes([255, 128, 0]) and rows[0] == bytes(15)
+
+
+def _tone(pitch, start, end, total=3.0):
+    t = np.arange(int(total * SR)) / SR
+    y = 0.4 * np.sin(2 * np.pi * 440 * 2 ** ((pitch - 69) / 12) * t)
+    return (y * ((t >= start) & (t < end))).astype(np.float32)
+
+
+def test_the_pitch_picture_shows_a_note_where_and_when_it_sounds(tmp_path):
+    c = judge.spectrum(_tone(40, 1.0, 2.0), 0.5, 2.5)
+    assert c.shape == (3 * (judge.ROLL_HI - judge.ROLL_LO + 1), judge.ROLL_W)
+    row = 3 * (judge.ROLL_HI - 40) + 1  # the middle of the three rows of E2
+    inside, before = c[:, 450:750], c[:, :150]  # 1.25-1.75 s and 0.5-0.75 s
+    assert abs(int(np.argmax(inside.mean(1))) - row) <= 1 and inside[row].mean() > 30 * before[row].mean()
+    size = judge.write_picture(str(tmp_path / "p.png"), c, float(c.max()), other=np.zeros_like(c))
+    assert size == [judge.ROLL_W, 3 * c.shape[0]]
+    view = judge.roll_view("media/x/p.png", size, 2.0, [[0.5, 1.5, 40, 1]], [[0.5, 40.0], None])
+    assert view["keys"] == [[0.0, 0.0], [2.0, judge.ROLL_W]] and view["crop"] == [0, 0, *size] and view["marks"] == []
+    assert view["roll"] == dict(lo=judge.ROLL_LO, hi=judge.ROLL_HI, notes=[[0.5, 1.5, 40, 1]], line=[[0.5, 40.0], None])
+
+
+def test_heard_boxes_are_the_notes_as_played_and_flag_the_ones_only_one_version_has():
+    held = [dict(start=1.0, end=2.0, pitch=40), dict(start=2.5, end=3.0, pitch=43)]
+    split = [
+        dict(start=1.0, end=1.5, pitch=40),
+        dict(start=1.52, end=2.0, pitch=40),
+        dict(start=2.53, end=3.5, pitch=43),
+    ]
+    a, b = dict(notes=held), dict(notes=split)
+    assert judge.heard_boxes(b, a, 0.5, 3.2) == [[0.5, 1.0, 40, 0], [1.02, 1.5, 40, 1], [2.03, 2.7, 43, 0]]
+    assert judge.heard_boxes(a, b, 0.5, 3.2) == [[0.5, 1.5, 40, 0], [2.0, 2.5, 43, 0]]
+    assert judge.heard_boxes(a, b, 2.2, 2.4) == []
+
+
+class _Audio:
+    """A song as one separator took it apart, made up for the test."""
+
+    def __init__(self, bass, rest):
+        self.bass_mono = bass
+        self.bass, self.rest = np.stack([bass, bass]).astype(float), np.stack([rest, rest]).astype(float)
+        self.mix, self.n = self.bass + self.rest, len(bass)
+
+
+def test_the_first_step_is_judged_on_the_isolated_bass_tracks_themselves(tmp_path):
+    import random
+
+    import soundfile as sf
+
+    drums = (0.2 * np.random.default_rng(0).standard_normal(3 * SR)).astype(np.float32)
+    whole, part = _tone(40, 0.2, 2.8), _tone(40, 0.2, 1.4)  # one separator loses the second half of the note
+    audio = dict(roformer=_Audio(whole, drums), demucs=_Audio(part, drums + (whole - part)))
+    notes = [_note(k * 4, 4, 40) for k in range(6)]
+    va = judge.make_version(DEFAULTS, _heard(notes, bars=2))
+    vb = judge.make_version(dict(DEFAULTS, separator="demucs"), _heard(notes[:3], bars=2))
+    song, comps = dict(id="s", title="S", artist=""), []
+    window = dict(bars=(1, 1), weight=3)
+    comp = judge.add_comparison(
+        comps,
+        song,
+        "separator",
+        "stem",
+        va,
+        vb,
+        "a.json",
+        "b.json",
+        window,
+        random.Random(1),
+        ("roformer", "demucs"),
+        "roformer",
+    )
+    judge.render_comparison(comp, va, vb, lambda v: audio[v["settings"]["separator"]], str(tmp_path))
+    assert comp["id"] == "s.separator.1" and comp["sources"] == [["record", "Record"], ["A", "A"], ["B", "B"]]
+    assert sorted(comp["media"]) == ["A", "B", "record"] and comp["alt"]["label"] == "What was left behind"
+    assert sorted(comp["alt"]["media"]) == ["A", "B"] and comp["sheet_rev"] == judge.SHEET_REV
+    read = lambda rel: sf.read(os.path.join(tmp_path, rel))[0]
+    whole_name, part_name = ("B", "A") if comp["flip"] else ("A", "B")
+    rms = lambda y, a, b: float(np.sqrt(np.mean(y[int(a * SR) : int(b * SR)] ** 2)))
+    late = (1.6, 2.2)  # seconds into the clip (the clip starts where the passage does: time 0)
+    assert rms(read(comp["media"][part_name]), *late) < 0.01 * rms(read(comp["media"][whole_name]), *late)
+    assert rms(read(comp["alt"]["media"][part_name]), *late) > 1.5 * rms(read(comp["alt"]["media"][whole_name]), *late)
+    assert comp["sheets"]["A"]["src"].endswith("A_picture.png") and comp["sheets"]["A"]["roll"]["notes"] == []
+    for sheet in comp["sheets"].values():
+        assert os.path.getsize(os.path.join(tmp_path, sheet["src"])) > 500 and sheet["page"] == [judge.ROLL_W, 333]
+
+
+# ------------------------------------------------------------------------------- the steps of a song, in order
 
 
 @pytest.fixture(scope="module")
 def built(song_files, cache_dir, tmp_path_factory):
-    """The synthetic song under three choices that need no model download."""
+    """The synthetic song with its stems given (so there is no separator to judge) and three later steps that
+    need no model download. The tests below walk through it in order."""
     mix, stems = song_files
     workdir = str(tmp_path_factory.mktemp("judging"))
     said = []
@@ -376,91 +481,170 @@ def built(song_files, cache_dir, tmp_path_factory):
     n = judge.build(
         [mix], workdir, ["replucks", "rhythm", "tab"], per_song=2, stems_dirs={mix: stems}, say=said.append, **kw
     )
-    return dict(workdir=workdir, added=n, said=said, mix=mix, kw=kw)
+    return dict(workdir=workdir, added=n, said=said, mix=mix, stems=stems, kw=kw)
 
 
-def test_build_makes_comparisons_with_audio_and_scores(built):
-    comps = judge.load_comparisons(built["workdir"])
+def _pick(workdir, comp, value):
+    """Judge a comparison for the version with this value, through the random order it is shown in."""
+    judge.record_judgment(workdir, comp, "A" if (comp["a_value"] == value) != comp["flip"] else "B")
+
+
+def _live(workdir):
+    return [c for c in judge.live_comparisons(workdir)]
+
+
+def test_build_opens_the_first_step_only_and_shows_the_notes_as_heard(built):
+    workdir = built["workdir"]
+    comps = judge.load_comparisons(workdir)
     assert built["added"] == len(comps) > 0, built["said"]
-    tab = [c for c in comps if c["choice"] == "tab"]
-    assert tab and tab[0]["same_audio"] and "B" not in tab[0]["media"]
-    for c in comps:
-        assert c["a_label"].endswith("(the default)") and not c["b_label"].endswith("(the default)")
-        assert 2.0 < c["t1"] - c["t0"] < 12.0 and c["bars_b"] == c["bars_a"]
-        for name, rel in c["media"].items():
-            assert os.path.getsize(os.path.join(built["workdir"], rel)) > 1000, (c["id"], name)
-        if find_mscore():
-            assert set(c["sheets"]) == {"A", "B"} and c["sheet_rev"] == judge.SHEET_REV
-            for sheet in c["sheets"].values():
-                x0, y0, x1, y1 = sheet["crop"]
-                assert os.path.getsize(os.path.join(built["workdir"], sheet["src"])) > 1000
-                assert 0 <= x0 < x1 <= sheet["page"][0] and 0 <= y0 < y1 <= sheet["page"][1]
-                assert y1 - y0 < 0.75 * sheet["page"][1]  # cropped to what is drawn, not the whole page
-                times, xs = [k[0] for k in sheet["keys"]], [k[1] for k in sheet["keys"]]
-                assert times == sorted(times) and xs == sorted(xs) and x0 < xs[0] and xs[-1] < x1
-                assert abs(times[0] - c["lead"]) < 0.05 and abs(times[-1] - (c["lead"] + c["t1"] - c["t0"])) < 0.05
-                assert y0 < sheet["staff"][0] < sheet["staff"][1] < y1 and all(x0 < m < x1 for m in sheet["marks"])
-            if c["kind"] == "tab":
-                assert not c["sheets"]["A"]["marks"]  # every fingering differs: nothing worth marking
-        assert os.path.exists(os.path.join(built["workdir"], c["a"])) and c["a"] != c["b"]
+    assert {(c["choice"], c["kind"], c["base_key"]) for c in comps} == {("replucks", "heard", "")}
+    assert [p["total"] for p in judge.progress(workdir)] == [len(comps), 0, 0]
+    assert judge.read_json(workdir, "songs.json", {})["mix"]["built"] == {"replucks": {"": len(comps)}}
+    assert judge.read_settings(workdir)["choices"] == ["replucks", "rhythm", "tab"]
     import soundfile as sf
 
-    y, sr = sf.read(os.path.join(built["workdir"], comps[0]["media"]["record"]))
-    assert sr == SR and abs(len(y) / sr - comps[0]["length"]) < 0.01 and 0.5 < np.abs(y).max() <= 1.0
+    for c in comps:
+        assert c["a_label"].endswith("(the default)") and not c["b_label"].endswith("(the default)")
+        assert c["sources"][0] == ["record", "Isolated bass"] and c["alt"]["label"] == "Real bass left, notes right"
+        for rel in [*c["media"].values(), *c["alt"]["media"].values()]:
+            y, sr = sf.read(os.path.join(workdir, rel))
+            assert sr == SR and abs(len(y) / sr - c["length"]) < 0.01 and 0.05 < np.abs(y).max() <= 1.0
+        both = sf.read(os.path.join(workdir, c["alt"]["media"]["A"]))[0]
+        assert not np.allclose(both[:, 0], both[:, 1])  # the real bass in one ear, the notes in the other
+        a, b = c["sheets"]["A"], c["sheets"]["B"]
+        assert a["src"] == b["src"] and os.path.getsize(os.path.join(workdir, a["src"])) > 1000
+        assert a["roll"]["line"] == b["roll"]["line"] and sum(p is not None for p in a["roll"]["line"]) > 50
+        assert a["roll"]["notes"] != b["roll"]["notes"]
+        assert any(n[3] for n in a["roll"]["notes"] + b["roll"]["notes"])  # what the two versions disagree on
+        for t0, t1, pitch, _ in a["roll"]["notes"] + b["roll"]["notes"]:
+            assert 0 <= t0 < t1 <= c["length"] + 1e-6 and judge.ROLL_LO <= pitch <= judge.ROLL_HI
 
 
-def test_snippets_are_engraved_once_and_again_on_demand(built):
+def test_judging_a_step_opens_the_next_one_built_on_that_pick(built):
+    workdir = built["workdir"]
+    first = _live(workdir)
+    for c in first:
+        _pick(workdir, c, "clear")
+    assert judge.advance(workdir, say=lambda _: 0) > 0
+    live = _live(workdir)
+    rhythm = [c for c in live if c["choice"] == "rhythm"]
+    assert rhythm and {c["base_key"] for c in rhythm} == {"replucks=clear"} and len(live) == len(first) + len(rhythm)
+    for c in rhythm:
+        assert (c["kind"], c["a_value"], c["b_value"]) == ("writing", "literal", "simple")
+        assert judge.load_version(workdir, c["a"])["settings"]["replucks"] == "clear"
+        assert c["alt"]["label"] == "Bass only" and sorted(c["alt"]["media"]) == ["A", "B", "record"]
+    assert judge.advance(workdir, say=lambda _: 0) == 0  # the tab waits for the rhythm
+
+
+def test_changing_an_earlier_pick_retires_what_was_built_on_it(built):
+    workdir = built["workdir"]
+    rhythm = lambda: [c for c in _live(workdir) if c["choice"] == "rhythm"]
+    first = [c for c in _live(workdir) if c["choice"] == "replucks"]
+    on_clear = {c["id"] for c in rhythm()}
+    for c in first:
+        _pick(workdir, c, "every")
+    assert rhythm() == []  # at once, before anything is rebuilt
+    judge.advance(workdir, say=lambda _: 0)
+    on_every = {c["id"] for c in rhythm()}
+    assert on_every and not on_every & on_clear and {c["base_key"] for c in rhythm()} == {"replucks=every"}
+    _pick(workdir, rhythm()[0], "simple")
+    assert judge.tally(workdir)["rhythm"]["picks"]["simple"] == 1
+    for c in first:  # back again: the comparisons made before count again and nothing is rebuilt
+        _pick(workdir, c, "clear")
+    assert {c["id"] for c in rhythm()} == on_clear and judge.advance(workdir, say=lambda _: 0) == 0
+    row = judge.tally(workdir)["rhythm"]
+    assert (row["picks"]["simple"], row["open"]) == (0, len(on_clear))  # a pick on a retired passage does not count
+    assert "- mix: a new note only at a clear re-pluck" in judge.report(workdir)
+
+
+def test_the_server_prepares_the_step_a_pick_opens(built):
+    import time
+
+    workdir = built["workdir"]
+    srv = judge_server.make_server(workdir, 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        s = json.loads(_get(url + "/api/next")[2])
+        assert [(p["id"], p["total"] > 0) for p in s["steps"]] == [("replucks", True), ("rhythm", True), ("tab", False)]
+        records = {c["id"]: c for c in judge.load_comparisons(workdir)}
+        while s["comparison"] and s["comparison"]["choice"] == "rhythm":  # judge what is open: the rhythm step
+            c = s["comparison"]
+            assert c["step"] == "Step 2 of 3 · Write the rhythm" and c["legend"]
+            simple = "A" if records[c["id"]]["flip"] else "B"  # the alternative is the second version
+            assert _post(url + "/api/judge", dict(id=c["id"], pick=simple))["reveal"][simple] == "rhythm simplified"
+            s = json.loads(_get(url + "/api/next?after=" + c["id"])[2])
+        for _ in range(600):  # nothing to show yet: the tab is being prepared
+            if s["comparison"] or not s["preparing"]:
+                break
+            time.sleep(0.1)
+            s = json.loads(_get(url + "/api/next")[2])
+        assert s["error"] is None and s["comparison"] and s["comparison"]["choice"] == "tab"
+        assert s["comparison"]["sources"] == [["record", "Record", "r"], ["A", "Transcription", "a"]]
+        assert [p["total"] > 0 for p in s["steps"]] == [True, True, True]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_score_snippets_follow_the_audio_and_are_engraved_once(built):
     if not find_mscore():
         pytest.skip("needs MuseScore")
     workdir = built["workdir"]
     comps = judge.load_comparisons(workdir)
-    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0) == 0
-    comps[0]["sheet_rev"] = 1  # from an older layout
-    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0) == 1
-    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0, force=True) == len(comps)
+    scores = [c for c in comps if c["kind"] in ("writing", "tab")]
+    assert scores and all(set(c["sheets"]) == {"A", "B"} and c["sheet_rev"] == judge.SHEET_REV for c in scores)
+    for c in scores:
+        for sheet in c["sheets"].values():
+            x0, y0, x1, y1 = sheet["crop"]
+            assert os.path.getsize(os.path.join(workdir, sheet["src"])) > 1000
+            assert 0 <= x0 < x1 <= sheet["page"][0] and 0 <= y0 < y1 <= sheet["page"][1]
+            assert y1 - y0 < 0.75 * sheet["page"][1]  # cropped to what is drawn, not the whole page
+            times, xs = [k[0] for k in sheet["keys"]], [k[1] for k in sheet["keys"]]
+            assert times == sorted(times) and xs == sorted(xs) and x0 < xs[0] and xs[-1] < x1
+            assert abs(times[0] - c["lead"]) < 0.05 and abs(times[-1] - (c["lead"] + c["t1"] - c["t0"])) < 0.05
+            assert y0 < sheet["staff"][0] < sheet["staff"][1] < y1 and all(x0 < m < x1 for m in sheet["marks"])
+        if c["kind"] == "tab":
+            assert not c["sheets"]["A"]["marks"]  # every fingering differs: nothing worth marking
+    quiet = lambda _: 0
+    assert judge.render_sheets(workdir, comps, find_mscore(), quiet) == 0
+    scores[0]["sheet_rev"] = 1  # from an older layout
+    assert judge.render_sheets(workdir, comps, find_mscore(), quiet) == 1
+    assert judge.render_sheets(workdir, comps, find_mscore(), quiet, force=True) == len(scores)  # pictures are kept
     said = []
-    for c in comps:
-        del c["sheet_rev"]
+    scores[0]["sheet_rev"] = 1
     assert judge.render_sheets(workdir, comps, None, said.append) == 0 and "MuseScore 4 not found" in said[0]
-    judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0)  # leave the directory as it was
+    judge.render_sheets(workdir, comps, find_mscore(), quiet)  # leave the directory as it was
 
 
 def test_building_again_adds_nothing_and_keeps_the_picks(built):
     workdir = built["workdir"]
-    comps = judge.load_comparisons(workdir)
-    judge.record_judgment(workdir, comps[0], "A", "first")
-    stems = judge.read_json(workdir, "songs.json", {})[comps[0]["song"]]["stems_dir"]
+    before = [c["id"] for c in judge.load_comparisons(workdir)]
+    picks = judge.load_judgments(workdir)
     again = judge.build(
         [built["mix"]],
         workdir,
         ["replucks", "rhythm", "tab"],
         2,
-        stems_dirs={built["mix"]: stems},
+        stems_dirs={built["mix"]: built["stems"]},
         say=lambda _: 0,
         **built["kw"],
     )
-    assert again == 0 and [c["id"] for c in judge.load_comparisons(workdir)] == [c["id"] for c in comps]
-    assert judge.load_judgments(workdir)[comps[0]["id"]]["note"] == "first"
+    assert again == 0 and [c["id"] for c in judge.load_comparisons(workdir)] == before
+    assert judge.load_judgments(workdir) == picks
     with pytest.raises(Bass2SheetError, match="unknown choice"):
         judge.build([built["mix"]], workdir, ["tempo"])
 
 
 def test_after_a_change_only_passages_written_differently_come_back(built, monkeypatch):
     workdir = built["workdir"]
-    comps = judge.load_comparisons(workdir)
-    tab = next(c for c in comps if c["choice"] == "tab")
-    for c in comps:  # the default wins everywhere, except that the other tab is picked once
-        judge.record_judgment(workdir, c, "A" if (c is tab) == c["flip"] else "B")
-    assert judge.load_judgments(workdir)[tab["id"]]["value"] == "position"
-    quiet = dict(say=lambda _: 0, **built["kw"])
-
-    kept, ignored, new = judge.update(workdir, **quiet)  # nothing changed: only the tab pick is not followed
-    assert (kept, ignored, new) == (len(comps) - 1, 1, 0)
-
-    followed = dict(quiet, defaults=dict(beat_tracker="librosa", tab="position"))  # the default now follows it
-    kept, ignored, new = judge.update(workdir, **followed)
-    others = [c for c in comps if c["choice"] == "tab" and c is not tab]
-    assert (ignored, new) == (len(others), 0) and kept == len(comps) - len(others)
+    quiet = lambda _: 0
+    tabs = [c for c in _live(workdir) if c["choice"] == "tab"]
+    _pick(workdir, tabs[0], "position")  # one tab judged; the rest of that step stays open
+    judged = [c for c in _live(workdir) if c["id"] in judge.load_judgments(workdir)]
+    kept, stray, new = judge.update(workdir, say=quiet)  # the tool has not changed
+    assert (kept, new) == (len(judged), 0) and stray == len(judged)  # every pick here was for an alternative
+    assert [c["id"] for c in _live(workdir)] == [c["id"] for c in judged] + [c["id"] for c in tabs[1:]]
 
     real = judge.hear
 
@@ -471,11 +655,13 @@ def test_after_a_change_only_passages_written_differently_come_back(built, monke
         )
 
     monkeypatch.setattr(judge, "hear", changed)
-    kept, ignored, new = judge.update(workdir, **quiet)
+    kept, stray, new = judge.update(workdir, say=quiet)
     after = judge.load_comparisons(workdir)
     fresh = [c for c in after if c["choice"] == "change"]
-    assert new == len(fresh) > 0 and kept + ignored + new <= len(comps)  # one passage may answer two picks
-    assert not any(c["same_audio"] for c in fresh)  # the notes differ now, so both versions are heard
+    assert new == len(fresh) > 0 and kept + new <= len(judged)  # one passage may answer two picks
     assert fresh[0]["a_label"] == "the version you picked before" and fresh[0]["b_label"] == "what the tool writes now"
-    assert judge.order(after)[0]["choice"] == "change" and os.path.exists(os.path.join(workdir, fresh[0]["media"]["A"]))
-    assert judge.update(workdir, **quiet)[2] == 0  # asked once, not again
+    assert {c["kind"] for c in fresh} <= {"heard", "notes"}  # the notes differ now, so both versions are heard
+    assert all(not c["same_audio"] and os.path.exists(os.path.join(workdir, c["media"]["A"])) for c in fresh)
+    live = _live(workdir)
+    assert live[0]["choice"] == "change" and judge.progress(workdir)[0]["id"] == "change"
+    assert judge.update(workdir, say=quiet)[2] == 0  # asked once, not again

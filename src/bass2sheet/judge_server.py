@@ -1,13 +1,15 @@
 """The judging page: a local web server on the standard library, for one person on their own machine.
 
-The page never learns which version is which until a pick is recorded: the server hands it audio and score
-snippets named A and B, and reveals what they were only in the answer to the pick.
+The page never learns which version is which until a pick is recorded: the server hands it audio, pictures and
+score snippets named A and B, and reveals what they were only in the answer to the pick. As picks come in, the
+server prepares the steps they open in the background (judge.advance).
 """
 
 import json
 import mimetypes
 import os
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -15,51 +17,113 @@ from . import judge
 from .common import Bass2SheetError
 
 mmss = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
+LEGENDS = dict(
+    stem="Amber marks what sounds in one track and hardly in the other. Click a picture to play from there.",
+    heard="The boxes are the notes found; amber ones are in this version only. The red line is the pitch that was "
+    "tracked. E1, A1, D2 and G2 are the open strings. Click a picture to play from there.",
+    marked="Shaded notes are the ones the two versions write differently. Click a score to play from there.",
+    plain="Click a score to play from there.",
+)
 
 
-def public(comp, judgment=None):
+class Worker:
+    """Prepares the steps that picks open, in the background, one run at a time."""
+
+    def __init__(self, workdir):
+        self.workdir, self.lock = workdir, threading.Lock()
+        self.running = self.again = False
+        self.error = None
+
+    def kick(self):
+        with self.lock:
+            if self.running:
+                self.again = True  # picks came in during a run: look again when it ends
+                return
+            self.running = True
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        while True:
+            try:
+                judge.advance(self.workdir, say=lambda text: None)
+                self.error = None
+            except Exception as e:  # shown on the page: the person cannot see this process
+                self.error = f"{type(e).__name__}: {e}"
+            with self.lock:
+                if not self.again:
+                    self.running = False
+                    return
+                self.again = False
+
+
+def public(comp, judgment=None, steps=()):
     """What the page may know about a comparison before the pick: nothing that tells the versions apart."""
     ch = judge.choice_of(comp["choice"])
+    media = comp.get("media", {})
+    sources = comp.get("sources") or [
+        [n, n.capitalize() if n == "record" else n] for n in ("record", "A", "B") if n in media
+    ]
+    alt = comp.get("alt")
+    if alt is None and "A_bass" in media:  # a directory made before the steps
+        alt = dict(
+            label="Bass only", media={n: media[f"{n}_bass"] for n in ("record", "A", "B") if f"{n}_bass" in media}
+        )
+    sheets = comp.get("sheets", {})
+    legend = (
+        comp["kind"] if comp["kind"] in LEGENDS else "marked" if any(s["marks"] for s in sheets.values()) else "plain"
+    )
+    number = f"Step {steps.index(comp['choice']) + 1} of {len(steps)} · " if comp["choice"] in steps else ""
     out = dict(
         id=comp["id"],
+        choice=comp["choice"],
+        step=number + ch["name"],
         title=comp["title"],
         artist=comp["artist"],
         where=f"bars {comp['bars_a'][0]}–{comp['bars_a'][1]} · {mmss(comp['t0'])}–{mmss(comp['t1'])}",
         about=ch["about"],
         ask=ch["ask"],
-        kind=comp["kind"],
-        same_audio=comp.get("same_audio", False),
         lead=comp.get("lead", 0.0),
         length=comp.get("length", 0.0),
-        media={k: "/" + v for k, v in comp.get("media", {}).items()},
-        sheets={name: dict(sheet, src="/" + sheet["src"]) for name, sheet in comp.get("sheets", {}).items()},
+        sources=[[name, label, key] for (name, label), key in zip(sources, "rab")],
+        media={name: "/" + media[name] for name, _ in sources},
+        alt=dict(label=alt["label"], media={n: "/" + path for n, path in alt["media"].items()}) if alt else None,
+        sheets={name: dict(sheet, src="/" + sheet["src"]) for name, sheet in sheets.items()},
+        legend=LEGENDS[legend] if sheets else "",
     )
     if judgment:  # judged before: the page shows the earlier pick and what the versions were
         out.update(pick=judgment["pick"], note=judgment["note"], reveal=judge.shown_labels(comp))
     return out
 
 
-def state(workdir, want=None, after=None):
-    """Progress and the comparison to show: the one asked for; else the first not judged yet that follows
-    `after` in the order, wrapping round to the ones skipped earlier."""
-    comps = judge.order(judge.load_comparisons(workdir))
+def state(workdir, want=None, after=None, step=None, worker=None):
+    """Progress and the comparison to show: the one asked for; else the first one of `step` that is not judged;
+    else the first not judged that follows `after` in the order, wrapping round to the ones skipped earlier."""
     judged = judge.load_judgments(workdir)
+    comps = judge.live_comparisons(workdir, judged=judged)
     ids = [c["id"] for c in comps]
     comp = next((c for c in comps if c["id"] == want), None) if want else None
+    if comp is None and step:
+        mine = [c for c in comps if c["choice"] == step]
+        comp = next((c for c in mine if c["id"] not in judged), mine[0] if mine else None)
     if comp is None:
         start = ids.index(after) + 1 if after in ids else 0
         comp = next((c for c in comps[start:] + comps[:start] if c["id"] not in judged), None)
     k = ids.index(comp["id"]) if comp else len(ids)
+    steps = [s["id"] for s in judge.steps_of(judge.read_settings(workdir))]
     return dict(
         total=len(comps),
-        judged=sum(1 for i in ids if i in judged),
-        comparison=public(comp, judged.get(comp["id"])) if comp else None,
+        judged=sum(i in judged for i in ids),
+        steps=judge.progress(workdir, comps, judged),
+        preparing=bool(worker and worker.running),
+        error=worker.error if worker else None,
+        comparison=public(comp, judged.get(comp["id"]), steps) if comp else None,
         previous=ids[k - 1] if k > 0 else None,
     )
 
 
 class Handler(BaseHTTPRequestHandler):
     workdir = "."
+    worker = None
     server_version = "bass2sheet-judge"
 
     def log_message(self, fmt, *args):  # one person, one machine: no access log
@@ -110,8 +174,8 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/":
             self.send_body(PAGE.encode(), "text/html; charset=utf-8")
         elif url.path == "/api/next":
-            q = parse_qs(url.query)
-            self.send_json(state(self.workdir, q.get("id", [None])[0], q.get("after", [None])[0]))
+            q = {k: v[0] for k, v in parse_qs(url.query).items()}
+            self.send_json(state(self.workdir, q.get("id"), q.get("after"), q.get("step"), self.worker))
         elif url.path == "/api/results":
             self.send_json(judge.tally(self.workdir))
         elif url.path.startswith("/media/"):
@@ -132,7 +196,8 @@ class Handler(BaseHTTPRequestHandler):
             judge.record_judgment(self.workdir, comp, data.get("pick"), data.get("note", ""))
         except (ValueError, Bass2SheetError) as e:
             return self.send_json(dict(error=str(e)), 400)
-        self.send_json(dict(reveal=judge.shown_labels(comp), **state(self.workdir, comp["id"])))
+        self.worker.kick()  # this pick may have opened a step
+        self.send_json(dict(reveal=judge.shown_labels(comp), **state(self.workdir, comp["id"], worker=self.worker)))
 
 
 def make_server(workdir, port=8765):
@@ -140,11 +205,14 @@ def make_server(workdir, port=8765):
         raise Bass2SheetError(
             f"no comparisons in {workdir}: run `bass2sheet-judge build SONG... --dir {workdir}` first"
         )
-    handler = type("JudgeHandler", (Handler,), dict(workdir=os.path.abspath(workdir)))
+    workdir = os.path.abspath(workdir)
+    handler = type("JudgeHandler", (Handler,), dict(workdir=workdir, worker=Worker(workdir)))
     try:
-        return ThreadingHTTPServer(("127.0.0.1", port), handler)
+        server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     except OSError as e:
         raise Bass2SheetError(f"cannot listen on port {port} ({e}); pick another with --port") from e
+    handler.worker.kick()  # steps opened by picks made before this run
+    return server
 
 
 def serve(workdir, port=8765):
@@ -176,9 +244,16 @@ PAGE = r"""<!doctype html>
   header h1 { font-size:17px; margin:0; }
   header .grow { flex:1; }
   header button { font:inherit; background:none; border:0; color:var(--go); cursor:pointer; padding:0; }
+  nav { display:flex; flex-wrap:wrap; gap:8px; padding:10px 24px; background:var(--card); border-bottom:1px solid var(--line); }
+  nav button { font:inherit; font-size:14px; border:1px solid var(--line); border-radius:999px; background:#fff; padding:5px 12px; cursor:pointer; color:var(--ink); }
+  nav button span { color:var(--soft); margin-left:4px; font-variant-numeric:tabular-nums; }
+  nav button.current { border-color:var(--go); box-shadow:0 0 0 2px rgba(31,111,235,.2); }
+  nav button.done { background:#e9f6ee; border-color:#b7dfc5; }
+  nav button:disabled { color:var(--soft); background:var(--bg); cursor:default; }
   main { max-width:1180px; margin:20px auto 60px; padding:0 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin-bottom:16px; }
   h2 { font-size:22px; margin:0 0 2px; }
+  .stepname { color:var(--go); font-weight:600; font-size:14px; margin-bottom:4px; }
   .where { color:var(--soft); margin-bottom:12px; }
   .about { margin:0 0 6px; }
   .ask { font-weight:600; margin:0; }
@@ -199,10 +274,15 @@ PAGE = r"""<!doctype html>
   .score { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
   .score.active { border-color:var(--go); box-shadow:0 0 0 2px rgba(31,111,235,.25); }
   .score img { position:absolute; max-width:none; display:block; user-select:none; -webkit-user-drag:none; }
+  .score svg { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; }
+  .score svg .guide { stroke:rgba(0,0,0,.14); stroke-width:1; }
+  .score svg .name { font:11px -apple-system, Helvetica, Arial, sans-serif; fill:var(--soft); }
+  .score svg .n { fill:rgba(11,93,42,.20); stroke:#0b5d2a; stroke-width:1.3; }
+  .score svg .n.d { fill:rgba(255,193,7,.45); stroke:#9a6700; }
+  .score svg .line { fill:none; stroke:#c62828; stroke-width:1.5; }
   .score .mark { position:absolute; background:rgba(255,193,7,.30); border-radius:3px; pointer-events:none; }
   .score .cursor { position:absolute; width:2px; margin-left:-1px; background:var(--go); box-shadow:0 0 0 5px rgba(31,111,235,.16); pointer-events:none; }
   .legend { color:var(--soft); font-size:13px; margin-top:8px; }
-  .legend i { display:inline-block; width:14px; height:12px; background:rgba(255,193,7,.45); border-radius:3px; vertical-align:-1px; margin-right:4px; }
   textarea { width:100%; min-height:54px; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-top:12px; }
   .reveal { margin-top:14px; padding:12px 14px; background:#eef6ff; border:1px solid #c8defc; border-radius:8px; }
   .reveal b { display:inline-block; min-width:1.6em; }
@@ -221,27 +301,29 @@ PAGE = r"""<!doctype html>
   <span class="grow"></span>
   <button id="toggleResults">Picks so far</button>
 </header>
+<nav id="steps"></nav>
 <main>
   <div id="judging">
-    <div class="card" id="what">
+    <div class="card">
+      <div class="stepname" id="stepname"></div>
       <h2 id="title"></h2>
       <div class="where" id="where"></div>
       <p class="about" id="about"></p>
       <p class="ask" id="ask"></p>
     </div>
-    <div class="card" id="listen">
+    <div class="card">
       <div class="row" id="players"></div>
       <div class="row" style="margin-top:12px">
-        <label class="opt" id="soloOpt"><input type="checkbox" id="solo"> Bass only</label>
+        <label class="opt" id="soloOpt"><input type="checkbox" id="solo"> <span id="soloLabel">Bass only</span></label>
         <label class="opt"><input type="checkbox" id="loop" checked> Loop</label>
         <button class="play" id="stop">Stop</button>
       </div>
       <div class="bar" id="bar"><div class="fill" id="fill"></div><div class="mark" id="mark"></div></div>
       <div class="keys" id="keys"></div>
       <div class="sheet" id="sheets"></div>
-      <div class="legend hidden" id="legend"><i></i>Shaded notes are the ones the two versions write differently. Click a score to play from there.</div>
+      <div class="legend" id="legend"></div>
     </div>
-    <div class="card" id="decide">
+    <div class="card">
       <div class="row" id="picks"></div>
       <textarea id="note" placeholder="Optional: what is wrong, or what you would want instead"></textarea>
       <div class="reveal hidden" id="reveal"></div>
@@ -253,6 +335,11 @@ PAGE = r"""<!doctype html>
       </div>
     </div>
   </div>
+  <div id="waiting" class="card hidden">
+    <h2>Preparing the next step</h2>
+    <p>It is being built on your picks so far. This takes about a minute, and the page carries on by itself.</p>
+    <p class="error" id="workerError"></p>
+  </div>
   <div id="done" class="card hidden">
     <h2>Everything is judged</h2>
     <p>Your picks are saved. They are listed under “Picks so far”.</p>
@@ -261,8 +348,9 @@ PAGE = r"""<!doctype html>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-let current = null, state = null, audio = {}, playing = null, at = 0, from = 0;
+let current = null, state = null, audio = {}, playing = null, at = 0, from = 0, timer = null;
 const PICKS = [["A", "A is better"], ["B", "B is better"], ["same", "No difference"], ["neither", "Neither is right"]];
+const STRINGS = [[28, "E1"], [33, "A1"], [38, "D2"], [43, "G2"], [50, "D3"], [55, "G3"]];
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 async function api(path, body) {
@@ -271,15 +359,9 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
-function sources() {
-  if (!current) return [];
-  const m = current.media;
-  if (current.same_audio) return [["record", "Record", "r"], ["A", "Transcription", "a"]].filter(s => m[s[0]]);
-  return [["record", "Record", "r"], ["A", "A", "a"], ["B", "B", "b"]].filter(s => m[s[0]]);
-}
 function url(name) {
-  const m = current.media, solo = $("solo").checked && m[name + "_bass"];
-  return solo ? m[name + "_bass"] : m[name];
+  const other = current.alt && $("solo").checked ? current.alt.media[name] : null;
+  return other || current.media[name];
 }
 function stop() {
   if (playing && audio[playing]) { at = audio[playing].currentTime; audio[playing].pause(); }
@@ -312,13 +394,29 @@ function place(t) {
     $("cursor-" + name).style.left = (100 * (xAt(s.keys, t) - s.crop[0]) / (s.crop[2] - s.crop[0])) + "%";
   }
 }
+// A pitch picture's drawing: the open strings, the notes found (amber: in this version only), the tracked pitch.
+function rollSvg(s) {
+  const [W, H] = s.page, r = s.roll, length = s.keys[1][0], band = H / (r.hi - r.lo + 1);
+  const x = t => W * t / length, y = m => H * (r.hi + 0.5 - m) / (r.hi - r.lo + 1);
+  const guides = STRINGS.filter(([m]) => m >= r.lo && m <= r.hi).map(([m, name]) =>
+    `<line class="guide" x1="0" x2="${W}" y1="${y(m).toFixed(1)}" y2="${y(m).toFixed(1)}"/><text class="name" x="6" y="${(y(m) - 3).toFixed(1)}">${name}</text>`).join("");
+  const notes = r.notes.map(([t0, t1, m, differs]) =>
+    `<rect class="${differs ? "n d" : "n"}" x="${x(t0).toFixed(1)}" y="${(y(m) - band / 2).toFixed(1)}" width="${Math.max(2, x(t1) - x(t0) - 1).toFixed(1)}" height="${band.toFixed(1)}" rx="2"/>`).join("");
+  let line = "", run = [];
+  for (const p of r.line.concat([null])) {
+    if (p) { run.push(x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)); continue; }
+    if (run.length > 1) line += `<polyline class="line" points="${run.join(" ")}"/>`;
+    run = [];
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${guides}${notes}${line}</svg>`;
+}
 function sheetHtml(name, s) {
   const [x0, y0, x1, y1] = s.crop, w = x1 - x0, h = y1 - y0, pct = v => (100 * v) + "%";
   const top = pct((s.staff[0] - y0) / h), height = pct((s.staff[1] - s.staff[0]) / h);
   const marks = s.marks.map(x => `<div class="mark" style="left:${pct((x - 11 - x0) / w)};width:${pct(22 / w)};top:${top};height:${height}"></div>`).join("");
   return `<h3>${name}</h3><div class="score" id="score-${name}" style="aspect-ratio:${w}/${h}">` +
-    `<img alt="Score ${name}" src="${s.src}" draggable="false" style="left:${pct(-x0 / w)};top:${pct(-y0 / h)};width:${pct(s.page[0] / w)}">` +
-    marks + `<div class="cursor" id="cursor-${name}" style="top:${top};height:${height}"></div></div>`;
+    `<img alt="${name}" src="${s.src}" draggable="false" style="left:${pct(-x0 / w)};top:${pct(-y0 / h)};width:${pct(s.page[0] / w)}">` +
+    (s.roll ? rollSvg(s) : "") + marks + `<div class="cursor" id="cursor-${name}" style="top:${top};height:${height}"></div></div>`;
 }
 // A click on a score plays from the note under it: that score's version, or whatever is playing already.
 function seek(name, e) {
@@ -334,7 +432,7 @@ function seek(name, e) {
 function load() {
   stop();
   audio = {};
-  for (const [name] of sources()) {
+  for (const [name] of current.sources) {
     const a = new Audio(url(name));
     a.preload = "auto";
     a.addEventListener("ended", () => { if ($("loop").checked && playing === name) { a.currentTime = 0; a.play(); } else if (playing === name) { playing = null; paint(); } });
@@ -363,29 +461,48 @@ function tick() {
   }
   requestAnimationFrame(tick);
 }
-function show(s) {
+function stepsBar(s) {
+  const numbered = s.steps.filter(st => st.id !== "change");
+  $("steps").innerHTML = s.steps.map(st => {
+    const cls = "step" + (current && current.choice === st.id ? " current" : "") + (st.total && st.judged === st.total ? " done" : "");
+    const label = (st.id === "change" ? "" : (numbered.indexOf(st) + 1) + " ") + esc(st.name);
+    return `<button class="${cls}"${st.total ? "" : " disabled"} data-step="${st.id}">${label}<span>${st.total ? st.judged + "/" + st.total : "–"}</span></button>`;
+  }).join("");
+  for (const b of document.querySelectorAll("#steps button")) b.onclick = () => go("?step=" + encodeURIComponent(b.dataset.step));
+}
+function show(s, query) {
   stop();
+  if (timer) { clearTimeout(timer); timer = null; }
   state = s; current = s.comparison;
-  $("progress").textContent = s.total ? `${s.judged} of ${s.total} judged` : "nothing to judge yet";
+  $("progress").textContent = (s.total ? `${s.judged} of ${s.total} judged` : "nothing to judge yet") + (s.preparing ? " · preparing the next step" : "");
   $("error").textContent = "";
+  stepsBar(s);
+  const wait = !current && (s.preparing || s.error);
   $("judging").classList.toggle("hidden", !current);
-  $("done").classList.toggle("hidden", !!current);
-  if (!current) { stop(); return; }
+  $("waiting").classList.toggle("hidden", !wait);
+  $("done").classList.toggle("hidden", !!current || !!wait);
+  $("workerError").textContent = s.error ? "Preparing failed: " + s.error : "";
+  if (!current) {
+    if (s.preparing) timer = setTimeout(() => go(query), 2000);   // look again until the step is there
+    return;
+  }
+  $("stepname").textContent = current.step;
   $("title").textContent = (current.artist ? current.artist + " – " : "") + current.title;
   $("where").textContent = current.where;
   $("about").textContent = current.about;
   $("ask").textContent = current.ask;
   $("solo").checked = false;
-  $("soloOpt").classList.toggle("hidden", !current.media.record_bass);
-  $("players").innerHTML = sources().map(([n, label]) => `<button class="play" data-name="${n}">▶ ${label}</button>`).join("");
+  $("soloOpt").classList.toggle("hidden", !current.alt);
+  $("soloLabel").textContent = current.alt ? current.alt.label : "";
+  $("players").innerHTML = current.sources.map(([n, label]) => `<button class="play" data-name="${n}">▶ ${esc(label)}</button>`).join("");
   for (const b of document.querySelectorAll("#players button")) b.onclick = () => play(b.dataset.name);
-  $("keys").textContent = "Keys: " + sources().map(([n, label, k]) => `${k.toUpperCase()} ${label}`).join(" · ") + " · Space stop" + (current.media.record_bass ? " · S bass only" : "");
+  $("keys").textContent = "Keys: " + current.sources.map(([n, label, k]) => `${k.toUpperCase()} ${label}`).join(" · ") + " · Space stop" + (current.alt ? " · S " + current.alt.label.toLowerCase() : "");
   $("mark").style.left = (current.length ? 100 * current.lead / current.length : 0) + "%";
   $("fill").style.width = "0%";
   const sheets = current.sheets || {};
   $("sheets").innerHTML = ["A", "B"].filter(n => sheets[n]).map(n => sheetHtml(n, sheets[n])).join("");
   for (const n of Object.keys(sheets)) $("score-" + n).onclick = e => seek(n, e);
-  $("legend").classList.toggle("hidden", !Object.values(sheets).some(s => s.marks.length));
+  $("legend").textContent = current.legend || "";
   at = 0; from = 0; place(0);
   $("picks").innerHTML = PICKS.map(([p, label]) => `<button class="pick" data-pick="${p}">${label}</button>`).join("");
   for (const b of document.querySelectorAll("#picks button")) b.onclick = () => choose(b.dataset.pick);
@@ -405,13 +522,14 @@ async function choose(pick) {
   try {
     const s = await api("/api/judge", {id: current.id, pick, note: $("note").value});
     state = s; current.pick = pick; current.reveal = s.reveal;
-    $("progress").textContent = `${s.judged} of ${s.total} judged`;
+    $("progress").textContent = `${s.judged} of ${s.total} judged` + (s.preparing ? " · preparing the next step" : "");
+    stepsBar(s);
     $("skip").classList.add("hidden");
     reveal(current);
   } catch (e) { $("error").textContent = e.message; }
 }
 async function go(query) {
-  try { show(await api("/api/next" + (query || ""))); }
+  try { show(await api("/api/next" + (query || "")), query); }
   catch (e) { $("error").textContent = e.message; }
 }
 const after = () => "?after=" + encodeURIComponent(current.id);
@@ -419,8 +537,9 @@ async function results() {
   const t = await api("/api/results");
   let html = "<h2>Picks so far</h2>";
   if (!Object.keys(t).length) html += "<p>No comparisons yet.</p>";
+  const names = Object.fromEntries(state.steps.map(st => [st.id, st.name]));
   for (const [id, row] of Object.entries(t)) {
-    html += `<h3>${esc(id)}</h3><table>`;
+    html += `<h3>${esc(names[id] || id)}</h3><table>`;
     for (const [value, n] of Object.entries(row.picks)) html += `<tr><td>${esc(row.labels[value] || value)}</td><td class="n">${n}</td></tr>`;
     html += `<tr><td>No difference</td><td class="n">${row.same}</td></tr><tr><td>Neither is right</td><td class="n">${row.neither}</td></tr>`;
     html += `<tr><td class="note">Not judged yet</td><td class="n note">${row.open}</td></tr></table>`;
@@ -429,7 +548,7 @@ async function results() {
   $("results").innerHTML = html;
 }
 $("stop").onclick = stop;
-$("solo").onchange = () => { const was = playing, at = was ? audio[was].currentTime : 0; load(); if (was) { audio[was].currentTime = at; playing = was; audio[was].play(); paint(); } };
+$("solo").onchange = () => { const was = playing, t = was ? audio[was].currentTime : 0; load(); if (was) { audio[was].currentTime = t; playing = was; audio[was].play(); paint(); } };
 $("bar").onclick = e => {
   if (!current.length) return;
   const t = current.length * e.offsetX / $("bar").clientWidth;
@@ -441,16 +560,17 @@ $("skip").onclick = () => go(after());
 $("toggleResults").onclick = async () => {
   const open = $("results").classList.toggle("hidden");
   $("toggleResults").textContent = open ? "Picks so far" : "Back to judging";
-  $("judging").classList.toggle("hidden", !open || !current);
-  $("done").classList.toggle("hidden", !open || !!current);
-  if (!open) { stop(); await results(); }
+  if (open) { show(state); return; }
+  stop();
+  for (const id of ["judging", "waiting", "done"]) $(id).classList.add("hidden");
+  await results();
 };
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "TEXTAREA" || e.metaKey || e.ctrlKey || !current) return;
-  const k = e.key.toLowerCase(), hit = sources().find(s => s[2] === k);
+  const k = e.key.toLowerCase(), hit = current.sources.find(s => s[2] === k);
   if (hit) { play(hit[0]); e.preventDefault(); }
-  else if (k === " ") { playing ? stop() : play(sources()[0][0]); e.preventDefault(); }
-  else if (k === "s" && current.media.record_bass) { $("solo").checked = !$("solo").checked; $("solo").onchange(); }
+  else if (k === " ") { playing ? stop() : play(current.sources[0][0]); e.preventDefault(); }
+  else if (k === "s" && current.alt) { $("solo").checked = !$("solo").checked; $("solo").onchange(); }
 });
 requestAnimationFrame(tick);
 go();

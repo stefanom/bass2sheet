@@ -7,7 +7,7 @@ const base = process.argv[2];
 const els = {}, kids = {}, handlers = {}, played = [];
 
 function makeEl(id) {
-  const cls = new Set(["reveal", "next", "done", "results"].includes(id) ? ["hidden"] : []);
+  const cls = new Set(["reveal", "next", "done", "results", "waiting"].includes(id) ? ["hidden"] : []);
   const e = {
     id, dataset: {}, style: {}, value: "", checked: id === "loop", disabled: false, textContent: "", clientWidth: 100, html: "",
     classList: {
@@ -19,7 +19,7 @@ function makeEl(id) {
     get() { return e.html; },
     set(v) {
       e.html = v;
-      kids[id] = [...v.matchAll(/<button class="[^"]*" data-(name|pick)="([^"]+)">/g)].map(m => {
+      kids[id] = [...v.matchAll(/<button class="[^"]*"(?: disabled)? data-(name|pick|step)="([^"]+)">/g)].map(m => {
         const b = makeEl(id + ":" + m[2]);
         b.dataset[m[1]] = m[2];
         return b;
@@ -64,7 +64,11 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   // the scores: cropped page images, a cursor on each, the differing notes shaded
   assert.ok(/id="score-A"[^>]*aspect-ratio:1576\/264/.test(els.sheets.html), els.sheets.html);
   assert.strictEqual((els.sheets.html.match(/class="mark"/g) || []).length, 1);
-  assert.ok(!hidden("legend"));
+  assert.ok(els.legend.textContent.length > 20);
+  assert.strictEqual(els.stepname.textContent, "Step 1 of 5 · Isolate the bass");
+  assert.deepStrictEqual(kids.steps.map(b => b.dataset.step), ["separator", "replucks", "barlines", "rhythm", "tab"]);
+  assert.ok(/class="step current" data-step="separator">1 Isolate the bass<span>0\/1</, els.steps.html);
+  assert.ok(els.steps.html.includes('disabled data-step="barlines">3 Count the bars<span>–<'), els.steps.html);
   const left = name => parseFloat(els["cursor-" + name].style.left);
   assert.ok(Math.abs(left("A") - 100 * (216 - 36) / 1576) < 0.01, els["cursor-A"].style.left);
   see("place(1.4)");   // half way between the notes at 0.4 s (x 216) and 2.4 s (x 520)
@@ -105,6 +109,22 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   await sleep(300);
   const second = see("current.id");
   assert.notStrictEqual(second, first);
+
+  // the second step: its own sources, and a pitch picture with the notes and the tracked pitch drawn on it
+  assert.strictEqual(kids.players.length, 3);
+  assert.ok(els.players.html.includes("▶ Isolated bass") && els.soloLabel.textContent === "Real bass left, notes right");
+  assert.ok(els.keys.textContent.includes("S real bass left, notes right"), els.keys.textContent);
+  const drawn = els.sheets.html;
+  assert.strictEqual((drawn.match(/<svg /g) || []).length, 2);
+  assert.strictEqual((drawn.match(/<rect class="n"/g) || []).length, 2);     // one plain note on each picture
+  assert.strictEqual((drawn.match(/<rect class="n d"/g) || []).length, 2);   // and one that the other lacks
+  assert.strictEqual((drawn.match(/<polyline /g) || []).length, 4);          // the pitch line, broken where it is unsure
+  assert.ok(drawn.includes('<rect class="n" x="68.2" y="198.0" width="67.2" height="9.0" rx="2"/>'), drawn);
+  assert.ok(drawn.includes(">E1</text>") && drawn.includes(">G2</text>") && els.legend.textContent.includes("open strings"));
+  see("place(4.4)");
+  assert.strictEqual(els["cursor-A"].style.left, "50%");
+  key("s");
+  assert.ok(played.some(src => src.endsWith("A_both.flac")), played.join(" "));
   els.skip.onclick();
   await sleep(300);
   const third = see("current.id");
@@ -123,10 +143,28 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.strictEqual(see("current.id"), first);
   assert.ok(!hidden("reveal") && els.note.value === "too busy");
 
+  // the step bar jumps to a step and shows what is done
+  kids.steps[4].onclick();
+  await sleep(300);
+  assert.strictEqual(see("current.id"), third);
+  assert.ok(/class="step current done" data-step="tab">5 Place it on the neck<span>1\/1</.test(els.steps.html), els.steps.html);
+  kids.steps[0].onclick();
+  await sleep(300);
+  assert.strictEqual(see("current.id"), first);
+
   // the picks so far
   els.toggleResults.onclick();
   await sleep(300);
   assert.ok(!hidden("results") && hidden("judging"));
   assert.ok(els.results.html.includes("too busy") && els.results.html.includes("No difference"));
+  // nothing left to show while a step is being prepared: wait, and look again
+  const idle = { total: 3, judged: 3, steps: [], error: null, comparison: null, previous: null };
+  els.toggleResults.onclick();
+  see("show")({ ...idle, preparing: true }, "");
+  assert.ok(!hidden("waiting") && hidden("done") && hidden("judging") && see("timer") !== null);
+  see("show")({ ...idle, preparing: false, error: "ValueError: boom" }, "");
+  assert.ok(!hidden("waiting") && els.workerError.textContent.includes("boom") && see("timer") === null);
+  see("show")({ ...idle, preparing: false }, "");
+  assert.ok(hidden("waiting") && !hidden("done"));
   console.log("ok");
 })().catch(e => { console.error(e); process.exit(1); });
