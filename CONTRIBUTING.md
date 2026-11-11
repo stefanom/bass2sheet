@@ -19,7 +19,7 @@ Tests never use recorded music. `tests/songsynth.py` synthesizes a short song (d
 | Unit | Each stage's pure logic: note segmentation on synthetic features, onset refinement, quantization, MusicXML (every measure adds up, ties pair, text is escaped), tab fingering, quality gates, the evaluation metrics, the dataset adapters, the report, the CLI's error paths | `uv run pytest` |
 | End to end, stems given | The whole pipeline from audio files to MusicXML, MIDI, renders, report and (with MuseScore installed) PDF, scored against the song's known notes; garbage and silent bass stems must fail | `uv run pytest tests/test_e2e.py` |
 | End to end, full | The mix alone goes in: real separation (BS-RoFormer and Demucs), the production pitch model, Basic Pitch when installed | `BASS2SHEET_FULL_E2E=1 uv run pytest -m full` |
-| Judging | Passage selection, picks, the page's server, the page's own script (run under Node.js when it is installed), and build and update on the synthesized song | `uv run pytest tests/test_judge.py` |
+| Judging | Passage selection, pitch pictures, picks, the steps of a song in order, the page's server and its background preparation, the page's own script (run under Node.js when it is installed), and update on the synthesized song | `uv run pytest tests/test_judge.py` |
 | Dataset regression | A four-track BabySlakh subset must not score below `eval/baselines/babyslakh.json` | `BASS2SHEET_FULL_E2E=1 BASS2SHEET_EVAL_DATA=/path/to/babyslakh_16k uv run pytest -m full` |
 
 The default tiers need no model download and no network, and they run in CI. The full tier downloads about 1 GB of separation models into `~/.cache/bass2sheet` on first use.

@@ -4,7 +4,7 @@
 
 Measured against ground truth for the first time; the numbers are in `docs/evaluation.md`.
 
-- **Judging on your own songs.** `bass2sheet-judge` sets each of the tool's choices against its alternative on short passages of your songs, by ear and by eye, without saying which version is which. A cursor follows the audio over both scores, and the notes that differ are shaded. Picks decide the defaults, and a judged passage comes back when a later change alters it. See `docs/judging.md`.
+- **Judging on your own songs.** `bass2sheet-judge` takes your songs through the pipeline one step at a time: the isolated bass tracks, the notes heard in them, the count, the written rhythm, the tab. Each step sets the tool's choice against its alternative on short passages, by ear and by eye, without saying which version is which, and is built on what you picked at the steps before it. A cursor follows the audio over the pictures and scores, and what differs is marked. Picks decide the defaults, and a judged passage comes back when a later change alters it. See `docs/judging.md`.
 - **Choices you can make per run.** `--replucks every|clear`, `--rhythm literal|simple` (stray sixteenths onto eighths, short rests closed) and `--tab low|position` (the hand kept in one position).
 - **Line times** in the score follow the tracked beats; they assumed a steady tempo before.
 - **File names.** "(Official Video)" and the like are dropped from the title and the output folder.

@@ -61,14 +61,14 @@ A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
 
 ## Judge it on your own songs
 
-Accuracy numbers cannot tell whether the sheet suits you. `bass2sheet-judge` can: it transcribes your songs under each of the tool's choices and its alternative, and shows you short passages where the two differ. You hear the record with each version's bass in place of the real one, read both scores, and pick, without being told which is which.
+Accuracy numbers cannot tell whether the sheet suits you. `bass2sheet-judge` can. It takes your songs through the pipeline one step at a time and, at each step, shows you short passages where the tool's choice and its alternative differ. You hear and see that step's own output and pick, without being told which is which.
 
 ```
 bass2sheet-judge build SONG... --dir judging
 bass2sheet-judge serve --dir judging        # then open http://localhost:8765
 ```
 
-The choices are which model isolates the bass, whether a re-plucked note is one note or two, whether the rhythm is written as played or simplified, where the bar lines fall, and whether the tab stays low on the neck or in one position. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
+The steps are: which model isolates the bass (you hear the two isolated tracks), which notes are found in it, where the bar lines fall, whether the rhythm is written as played or simplified, and whether the tab stays low on the neck or in one position. Each step of a song is built on what you picked before it. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
 
 ## How it works
 
