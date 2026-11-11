@@ -108,6 +108,18 @@ def transcribe(
     )
 
 
+def rank_candidate(gates):
+    """Sort key for results from different separators: lowest is best.
+
+    Failed gates count first. After that the share of note starts confirmed by the second model decides, and
+    coverage when there is no second model. The number of warning gates is not used: each gate is measured
+    against the candidate's own stem, and on eleven songs transcribed from both separators the candidate with
+    fewer warnings was the less accurate one as often as not, while the one with more confirmed note starts was
+    the more accurate one on 8 of 10."""
+    value = lambda name: next((g.value for g in gates if g.name == name and g.value is not None), 0.0)
+    return (sum(g.status == "fail" for g in gates), -value("second_model_onsets"), -value("coverage"))
+
+
 def run(
     audio_path,
     out_dir,
@@ -207,7 +219,10 @@ def run(
         c.update(method=method, stems=stems, gates=sg + c["gates"])
         candidates.append(c)
         v = verdict(c["gates"])
-        attempts.append(dict(method=method, outcome=f"transcribed: {v}"))
+        flagged = [f"{g.label} ({g.status})" for g in c["gates"] if g.status in ("fail", "warn")]
+        attempts.append(
+            dict(method=method, outcome=f"transcribed: {v}" + (f": {'; '.join(flagged)}" if flagged else ""))
+        )
         if v != "FAIL":
             break
         if not last:
@@ -216,14 +231,14 @@ def run(
         raise Bass2SheetError(
             "no usable transcription: " + "; ".join(f"{a['method']}: {a['outcome']}" for a in attempts)
         )
-    rank = lambda c: (
-        sum(g.status == "fail" for g in c["gates"]),
-        sum(g.status == "warn" for g in c["gates"]),
-        -next(g.value for g in c["gates"] if g.name == "coverage"),
-    )
-    best = min(candidates, key=rank)
+    best = min(candidates, key=lambda c: rank_candidate(c["gates"]))
     if len(candidates) > 1:
-        attempts.append(dict(method=best["method"], outcome="chosen: fewest failing, then warning gates"))
+        attempts.append(
+            dict(
+                method=best["method"],
+                outcome="chosen: fewest failed gates, then most note starts confirmed by the second model",
+            )
+        )
     v = verdict(best["gates"])
     notes, grid, origin, tempo = best["notes"], best["grid"], best["origin"], best["tempo"]
     checks = check_list(best["checks"], grid, origin)

@@ -17,7 +17,7 @@ class SegParams:
     unpitched_frames: int = 20  # ... for 200 ms (each pluck briefly drops periodicity)
     decay_db: float = 15.0  # ... or once it decays this far below its own peak
     attack_db: float = 3.0  # a repeated pitch is a new note only if the low-band energy jumps this much
-    flux_support: float = 1.0  # ... together with at least this much spectral flux (0 = level alone decides)
+    flux_support: float = 1.0  # splitting a held note also needs this much spectral flux at the jump (0 = no)
     flux_thr: float = 3.0  # ... or the spectral flux alone reaches this (0 = never): a re-pluck of a ringing note
     split_held: bool = True  # split a held note at each pluck inside it: repeated notes the tracker saw as one
     split_min_frames: int = 8  # ... when both parts last at least this long (shorter cuts are the note's own attack)
@@ -122,9 +122,13 @@ def segment_notes(feat, bass_mono, p=None):
     flux = np.pad(flux, (0, max(0, n - len(flux))))[:n]
     flux_near = np.maximum.reduce([flux, np.r_[flux[1:], 0], np.r_[flux[2:], 0, 0]])
     level = rise / p.attack_db
-    if p.flux_support > 0:  # the level of the lowest notes ripples with their period; a real pluck is also bright
-        level = np.minimum(level, flux_near / p.flux_support)
-    pluck = np.maximum(level, flux_near / p.flux_thr if p.flux_thr > 0 else 0)
+    strong_flux = flux_near / p.flux_thr if p.flux_thr > 0 else 0
+    # Splitting a note the tracker held needs strict evidence: the level of the lowest notes ripples with their
+    # period, so a jump in level counts only when it is also bright. Keeping apart two notes the tracker already
+    # saw as separate needs less: a jump in level is enough, as it always was.
+    bright_level = np.minimum(level, flux_near / p.flux_support) if p.flux_support > 0 else level
+    pluck = np.maximum(bright_level, strong_flux)
+    attack = np.maximum(level, strong_flux)
     floor = np.percentile(rms_db, 99) - 30
     voiced = (rms_db > floor) & (per_c > p.enter_per)
     midi_c = np.where(voiced, librosa.hz_to_midi(np.maximum(f0_c, 1e-6)), np.nan)
@@ -209,7 +213,7 @@ def segment_notes(feat, bass_mono, p=None):
             prev
             and nt["pitch"] == prev["pitch"]
             and nt["s"] - prev["e"] <= p.merge_gap_frames
-            and pluck[max(0, nt["s"] - p.attack_look) : nt["s"] + p.attack_look + 1].max() < 1.0
+            and attack[max(0, nt["s"] - p.attack_look) : nt["s"] + p.attack_look + 1].max() < 1.0
         ):
             prev["e"] = nt["e"]
             prev["agree"] = min(prev["agree"], nt["agree"])

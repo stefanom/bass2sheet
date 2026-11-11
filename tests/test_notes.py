@@ -120,3 +120,13 @@ def test_a_cut_right_after_a_notes_own_attack_is_not_a_split():
     y = _stem(spec, 2.0)
     out, _, _ = N.segment_notes(_features(y, spec, lag_frames=5), y)  # the tracker locks on 50 ms after the pluck
     assert len(out) == 1
+
+
+def test_a_level_jump_alone_keeps_two_notes_the_tracker_saw_apart():
+    # a soft re-pluck: the level jumps but the attack is dull, so there is little spectral flux. The tracker saw
+    # two notes (its pitch confidence dipped at the pluck); they must stay two.
+    spec = [(0.5, 0.6, 40), (1.1, 0.8, 40)]
+    y = _stem(spec, 2.5)
+    feat = _features(y, spec)
+    out, _, _ = N.segment_notes(feat, y, N.SegParams(flux_support=1e9, flux_thr=1e9))  # flux can prove nothing
+    assert [n["pitch"] for n in out] == [40, 40]

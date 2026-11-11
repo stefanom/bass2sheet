@@ -114,3 +114,20 @@ def test_cli_reports_unreadable_input(tmp_path, capsys):
     p.write_text("nope")
     assert cli.main([str(p), "-o", str(tmp_path / "out")]) == 1
     assert "bass2sheet:" in capsys.readouterr().err
+
+
+def test_candidates_rank_by_failures_then_confirmed_note_starts_then_coverage():
+    from bass2sheet.pipeline import rank_candidate
+    from bass2sheet.quality import Gate
+
+    def gates(fails=0, warns=0, onsets=None, coverage=0.9):
+        out = [Gate(f"f{k}", "F", 0.0, 0, 0, True, "", status="fail") for k in range(fails)]
+        out += [Gate(f"w{k}", "W", 0.0, 0, 0, True, "", status="warn") for k in range(warns)]
+        out.append(Gate("second_model_onsets", "S", onsets, 0, 0, True, "", status="pass" if onsets else "skipped"))
+        out.append(Gate("coverage", "C", coverage, 0, 0, True, "", status="pass"))
+        return out
+
+    best = lambda *cands: min(range(len(cands)), key=lambda k: rank_candidate(cands[k]))
+    assert best(gates(fails=1, onsets=0.9), gates(fails=0, onsets=0.5)) == 1  # a failed gate outweighs the rest
+    assert best(gates(warns=5, onsets=0.70), gates(warns=3, onsets=0.58)) == 0  # warnings are not counted
+    assert best(gates(coverage=0.90), gates(coverage=0.95)) == 1  # no second model: coverage decides
