@@ -287,6 +287,14 @@ def test_media_is_served_in_byte_ranges_and_nothing_else_is(server):
         assert e.value.code == 404
 
 
+def test_the_page_has_every_element_its_script_reaches_for():
+    import re
+
+    html, script = judge_server.PAGE.split("<script>")
+    missing = set(re.findall(r'\$\("([^"]+)"\)', script)) - set(re.findall(r'id="([^"]+)"', html))
+    assert not missing, missing
+
+
 def test_serving_an_empty_directory_says_what_to_do(tmp_path):
     with pytest.raises(Bass2SheetError, match="bass2sheet-judge build"):
         judge_server.make_server(str(tmp_path), 0)

@@ -499,8 +499,10 @@ def render_comparison(comp, va, vb, audio, workdir):
         level = 0.8 * np.abs(record).max()
         mixes = {name: record + level * clicks(v, w0, w1)[None, : record.shape[1]] for name, v in shown.items()}
         solos = {}
-    else:  # the record with the written bass in place of the real one
+    else:  # the record with the written bass in place of the real one, as loud as the record
+        rms = lambda x: float(np.sqrt(np.mean(x**2))) + 1e-9
         mixes = {name: clip(audio.rest + audio.synth(v)[None, :], w0, w1) for name, v in shown.items()}
+        mixes = {name: x * (rms(record) / rms(x)) for name, x in mixes.items()}
         solos = {name: clip(audio.synth(v), w0, w1) for name, v in shown.items()}
         solos["record"] = clip(audio.bass, w0, w1)
     same = kind == "tab"  # two fingerings of the same notes sound the same
@@ -682,7 +684,7 @@ def build(
     mscore=None,
     crepe_model="full",
     defaults=None,
-    say=print,
+    say=None,
 ):
     """Transcribe each song under the tool's defaults and under each alternative, find the passages where the
     two differ, and render what the person will hear and see. Running it again adds songs or choices and keeps
@@ -692,6 +694,7 @@ def build(
         known = ", ".join(c["id"] for c in CHOICES)
         raise Bass2SheetError(f"unknown choice {', '.join(sorted(unknown))}; the choices are {known}")
     os.makedirs(workdir, exist_ok=True)
+    say = say or (lambda text: print(text, flush=True))
     wanted = [c for c in CHOICES if choices is None or c["id"] in choices]
     base_settings = dict(DEFAULTS, **(defaults or {}))
     songs, comps = read_json(workdir, "songs.json", {}), load_comparisons(workdir)
@@ -742,13 +745,14 @@ def build(
     return added
 
 
-def update(workdir, cache_dir=None, device=None, mscore=None, crepe_model="full", defaults=None, say=print):
+def update(workdir, cache_dir=None, device=None, mscore=None, crepe_model="full", defaults=None, say=None):
     """After the tool has changed: transcribe every song again and look at each judged passage.
 
     A passage the tool still writes as the person picked needs nothing. One it writes as the version they
     rejected is counted: the tool does not follow that pick (yet). One it now writes differently from both comes
     back as a new comparison between the pick and the new writing. Returns (kept, not followed, new)."""
     songs, comps, judged = read_json(workdir, "songs.json", {}), load_comparisons(workdir), load_judgments(workdir)
+    say = say or (lambda text: print(text, flush=True))
     base_settings = dict(DEFAULTS, **(defaults or {}))
     rng = random.Random(len(comps) + 1)
     kept = ignored = new = 0
