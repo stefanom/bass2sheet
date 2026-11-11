@@ -18,10 +18,12 @@ dependencies = [
   "audioread",
   "imageio-ffmpeg",
   "setuptools<81",
+  "pyyaml",
 ]
 
 [project.scripts]
 bass2sheet = "bass2sheet.cli:main"
+bass2sheet-eval = "bass2sheet.evaluate:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -53,7 +53,12 @@ def transcribe(stems, cache_dir, params, second_mode, bp_python, device):
 
 
 def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=False, cache_dir=None, mscore=None,
-        renders=True, second_mode="auto", bp_python=None, device=None):
+        renders=True, second_mode="auto", bp_python=None, device=None, bass_stem=None, pdf=True):
+    """Runs the whole pipeline and writes the outputs; returns the exit code.
+
+    `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
+    for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
+    error comes from separation."""
     t_start = time.time()
     timings, warnings = {}, []
     tick = lambda name, t0: timings.__setitem__(name, timings.get(name, 0) + time.time() - t0)
@@ -92,6 +97,11 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
             continue
         finally:
             tick("separation", t0)
+        if bass_stem:
+            b = decode(bass_stem)
+            n = wav.shape[1]
+            stems = dict(stems, bass=np.pad(b[:, :n], ((0, 0), (0, max(0, n - b.shape[1])))))
+            method = f"{method} + given bass stem"
         sg = stem_gates(stems, mix)
         no_bass = any(g.name == "bass_level" and g.status == "fail" for g in sg)
         if verdict(sg) == "FAIL" and (no_bass or not last):
@@ -142,8 +152,10 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
                        {c["bar"]: c["reasons"] for c in checks if c["severity"] >= CHECK_SEVERITY}, draft=v == "FAIL")
         atomic_write_text(path("bass.musicxml"), xml)
         files["bass.musicxml"] = "the score, editable in MuseScore"
-        ms = find_mscore(mscore)
-        if ms:
+        ms = find_mscore(mscore) if pdf else None
+        if not pdf:
+            pass
+        elif ms:
             err = engrave(path("bass.musicxml"), path("bass.pdf"), ms)
             if err:
                 warnings.append(f"PDF not written: {err}")
