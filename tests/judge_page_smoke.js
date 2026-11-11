@@ -61,6 +61,27 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.ok(hidden("reveal") && hidden("next") && !hidden("skip"));
   assert.ok(!/default|RoFormer|Demucs/.test(els.about.textContent + els.ask.textContent + els.sheets.html));
 
+  // the scores: cropped page images, a cursor on each, the differing notes shaded
+  assert.ok(/id="score-A"[^>]*aspect-ratio:1576\/264/.test(els.sheets.html), els.sheets.html);
+  assert.strictEqual((els.sheets.html.match(/class="mark"/g) || []).length, 1);
+  assert.ok(!hidden("legend"));
+  const left = name => parseFloat(els["cursor-" + name].style.left);
+  assert.ok(Math.abs(left("A") - 100 * (216 - 36) / 1576) < 0.01, els["cursor-A"].style.left);
+  see("place(1.4)");   // half way between the notes at 0.4 s (x 216) and 2.4 s (x 520)
+  assert.ok(Math.abs(left("A") - 100 * (368 - 36) / 1576) < 0.01 && left("B") === left("A"));
+  see("place(99)");
+  assert.ok(Math.abs(left("A") - 100 * (1602 - 36) / 1576) < 0.01);
+
+  // a click on a score plays that version from the note under the click
+  els["score-B"].onclick({ offsetX: 50, currentTarget: { clientWidth: 100 } });   // x 824, between 520 and 1602
+  assert.strictEqual(see("playing"), "B");
+  assert.ok(Math.abs(see("audio.B.currentTime") - (2.4 + 6 * (824 - 520) / (1602 - 520))) < 1e-6);
+  assert.ok(els["score-B"].classList.contains("active") && !els["score-A"].classList.contains("active"));
+  els["score-A"].onclick({ offsetX: 0, currentTarget: { clientWidth: 100 } });    // B keeps playing, from the start
+  assert.strictEqual(see("playing"), "B");
+  assert.strictEqual(see("audio.B.currentTime"), 0.4);
+  key(" ");
+
   // playing: buttons and keys switch source, the bass-only switch swaps the files
   kids.players[1].onclick();
   assert.strictEqual(see("playing"), "A");
@@ -89,6 +110,9 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   const third = see("current.id");
   assert.ok(third !== first && third !== second);
   assert.deepStrictEqual(kids.players.map(b => b.dataset.name), ["record", "A"]);  // two fingerings sound alike
+  els["score-B"].onclick({ offsetX: 50, currentTarget: { clientWidth: 100 } });      // so B's score plays the one there is
+  assert.strictEqual(see("playing"), "A");
+  key(" ");
   kids.picks[2].onclick();
   await sleep(300);
   els.next.onclick();

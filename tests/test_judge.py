@@ -124,6 +124,44 @@ def test_a_passage_is_the_same_when_its_notes_are_within_a_few_hundredths():
     assert judge.passage(a, 2.0, 4.0, "writing")[0] == [0.0, 40, 0.5]
 
 
+def test_the_cursor_follows_the_engraved_notes_through_the_tracked_beats(tmp_path):
+    """Positions as MuseScore reports them (twelfths of a pixel; milliseconds at the printed tempo) become
+    [seconds into the audio, x] on the tracked beat grid, which here runs 10% slow."""
+    import struct
+
+    heard = _heard(_riff())
+    heard["grid"] = heard["grid"] * 1.1
+    v = judge.make_version(DEFAULTS, heard)
+    xs, ms = [2400, 4800, 7200, 9600, 12000], [0, 500, 1000, 1500, 2000]  # quarter notes at 120, bar 2 beat 1
+    spos = "<score><elements>" + "".join(
+        f'<element id="{k}" x="{x}" y="3000" sx="161" sy="1860" page="0"/>' for k, x in enumerate(xs)
+    )
+    spos += "</elements><events>" + "".join(f'<event elid="{k}" position="{m}"/>' for k, m in enumerate(ms))
+    (tmp_path / "A.spos").write_text(spos + "</events></score>")
+    (tmp_path / "A.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 1650, 600))
+    sheet = judge.sheet_data(str(tmp_path / "A.png"), str(tmp_path / "A.spos"), v, (2, 2), 2.0, marks=[20, 99])
+    half = judge.NOTEHEAD / 2
+    assert sheet["keys"][:5] == [[round(0.2 + 0.55 * k, 3), round(x / 12 + half, 1)] for k, x in enumerate(xs)]
+    assert sheet["keys"][5] == [
+        round(4.4 - 2.0, 3),
+        judge.SNIPPET_RIGHT - 3,
+    ]  # the end of the bar, at the last bar line
+    assert sheet["page"] == [1650, 600] and sheet["staff"] == [242.0, 413.0]
+    assert sheet["marks"] == [round(4800 / 12 + half, 1)]  # sixteenth 20 is beat 2 of bar 2; 99 is not on the page
+    assert sheet["crop"] == [22, 127, 1628, 435]  # the image cannot be read here: a generous box round the staves
+
+
+def test_differing_notes_are_listed_for_each_version():
+    a, b = _version(_riff()), _version(_riff(change={2}))
+    only_a, only_b = judge.unmatched_events(a, b, "notes")
+    assert [(e["g0"], e["pitch"]) for e in only_a] == [(24, 45)] and [(e["g0"], e["pitch"]) for e in only_b] == [
+        (24, 48)
+    ]
+    late = judge.make_version(DEFAULTS, _heard(_riff(change={2}), offset=0.02))
+    only_a, only_b = judge.unmatched_events(a, late, "notes")
+    assert [e["pitch"] for e in only_a] == [45] and [e["pitch"] for e in only_b] == [48]
+
+
 def test_the_count_marks_beat_one_higher_than_the_other_beats():
     v = _version(_riff(bars=2))
     y = judge.clicks(v, 0.0, 2.0)
@@ -162,6 +200,17 @@ def _comp(cid, choice="separator", flip=False, **kw):
         length=8.8,
         same_audio=choice == "tab",
         media={k: f"media/{cid}/{k}.flac" for k in ("record", "A", "B", "record_bass", "A_bass", "B_bass")},
+        sheets={
+            name: dict(
+                src=f"media/{cid}/{name}.png",
+                page=[1650, 600],
+                crop=[36, 161, 1612, 425],
+                staff=[247.0, 418.0],
+                keys=[[0.4, 216.0], [2.4, 520.0], [8.4, 1602.0]],
+                marks=[300.0] if name == "A" and choice == "separator" else [],
+            )
+            for name in "AB"
+        },
     )
     if choice == "tab":
         del c["media"]["B"], c["media"]["B_bass"]
@@ -251,6 +300,10 @@ def test_the_page_is_told_nothing_that_tells_the_versions_apart(server):
     text = json.dumps(c)
     for secret in ("flip", "a_value", "b_label", "roformer", "demucs", "default", "versions/"):
         assert secret not in text, secret
+    assert c["sheets"]["A"]["src"] == "/media/song-one.separator.1/A.png" and c["sheets"]["B"]["keys"][0] == [
+        0.4,
+        216.0,
+    ]
     assert b"<title>bass2sheet" in _get(url + "/")[2]
 
 
@@ -337,12 +390,39 @@ def test_build_makes_comparisons_with_audio_and_scores(built):
         for name, rel in c["media"].items():
             assert os.path.getsize(os.path.join(built["workdir"], rel)) > 1000, (c["id"], name)
         if find_mscore():
-            assert {"A_sheet", "B_sheet"} <= set(c["media"])
+            assert set(c["sheets"]) == {"A", "B"} and c["sheet_rev"] == judge.SHEET_REV
+            for sheet in c["sheets"].values():
+                x0, y0, x1, y1 = sheet["crop"]
+                assert os.path.getsize(os.path.join(built["workdir"], sheet["src"])) > 1000
+                assert 0 <= x0 < x1 <= sheet["page"][0] and 0 <= y0 < y1 <= sheet["page"][1]
+                assert y1 - y0 < 0.75 * sheet["page"][1]  # cropped to what is drawn, not the whole page
+                times, xs = [k[0] for k in sheet["keys"]], [k[1] for k in sheet["keys"]]
+                assert times == sorted(times) and xs == sorted(xs) and x0 < xs[0] and xs[-1] < x1
+                assert abs(times[0] - c["lead"]) < 0.05 and abs(times[-1] - (c["lead"] + c["t1"] - c["t0"])) < 0.05
+                assert y0 < sheet["staff"][0] < sheet["staff"][1] < y1 and all(x0 < m < x1 for m in sheet["marks"])
+            if c["kind"] == "tab":
+                assert not c["sheets"]["A"]["marks"]  # every fingering differs: nothing worth marking
         assert os.path.exists(os.path.join(built["workdir"], c["a"])) and c["a"] != c["b"]
     import soundfile as sf
 
     y, sr = sf.read(os.path.join(built["workdir"], comps[0]["media"]["record"]))
     assert sr == SR and abs(len(y) / sr - comps[0]["length"]) < 0.01 and 0.5 < np.abs(y).max() <= 1.0
+
+
+def test_snippets_are_engraved_once_and_again_on_demand(built):
+    if not find_mscore():
+        pytest.skip("needs MuseScore")
+    workdir = built["workdir"]
+    comps = judge.load_comparisons(workdir)
+    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0) == 0
+    comps[0]["sheet_rev"] = 1  # from an older layout
+    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0) == 1
+    assert judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0, force=True) == len(comps)
+    said = []
+    for c in comps:
+        del c["sheet_rev"]
+    assert judge.render_sheets(workdir, comps, None, said.append) == 0 and "MuseScore 4 not found" in said[0]
+    judge.render_sheets(workdir, comps, find_mscore(), lambda _: 0)  # leave the directory as it was
 
 
 def test_building_again_adds_nothing_and_keeps_the_picks(built):

@@ -16,8 +16,10 @@ import json
 import os
 import random
 import re
+import struct
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import soundfile as sf
@@ -85,6 +87,10 @@ CHANGE = dict(
 )
 WRITING = ("rhythm", "tab")  # settings that write the same notes differently: no new transcription needed
 PICKS = ("A", "B", "same", "neither")
+SHEET_REV = 2  # what a comparison's score snippets hold; older ones are engraved again (2: with cursor positions)
+SNIPPET_DPI = 150
+SNIPPET_RIGHT = (0.3 + 10.4) * SNIPPET_DPI  # where the system ends on the snippet page below, in pixels
+NOTEHEAD = 13.4  # pixels at SNIPPET_DPI: the cursor runs through the middle of a note, not along its left edge
 SNIPPET_STYLE = """<?xml version="1.0" encoding="UTF-8"?>
 <museScore version="4.70"><Style>
 <pageWidth>11</pageWidth><pageHeight>4</pageHeight><pagePrintableWidth>10.4</pagePrintableWidth>
@@ -253,33 +259,44 @@ KEYS = {
 }
 
 
-def unmatched(va, vb, kind):
-    """Written notes that one version has and the other does not: [(A's bar, what, side)]. On one grid a note
-    matches when it has the same place and the same `kind` key; across two grids, when it starts within 60 ms."""
+def unmatched_events(va, vb, kind):
+    """(A's written notes that B lacks, B's that A lacks). On one grid a note matches when it has the same place
+    and the same `kind` key; across two grids, when it starts within 60 ms."""
     key = KEYS.get(kind, KEYS["notes"])
     ea, eb = events(va), events(vb)
     if same_grid(va, vb):
         a, b = {(e["g0"], *key(e)) for e in ea}, {(e["g0"], *key(e)) for e in eb}
-        return [(k[0] // 16 + 1, (k[0] % 16, *k[1:]), "a") for k in a - b] + [
-            (k[0] // 16 + 1, (k[0] % 16, *k[1:]), "b") for k in b - a
-        ]
-    starts = np.array(sorted(bar_times(va).items()))  # [bar, time]
-    bar_at = lambda t: int(starts[max(0, np.searchsorted(starts[:, 1], t + 0.03) - 1), 0])
+        return [e for e in ea if (e["g0"], *key(e)) not in b], [e for e in eb if (e["g0"], *key(e)) not in a]
     pool = [(g_time(vb, e["g0"]), key(e)) for e in eb]
     used = [False] * len(pool)
-    out = []
+    only_a = []
     for e in ea:
         t, k = g_time(va, e["g0"]), key(e)
         hit = next((i for i, (tb, kb) in enumerate(pool) if not used[i] and kb == k and abs(tb - t) <= 0.06), None)
         if hit is None:
-            out.append((bar_at(t), (round(t - bar_time(va, bar_at(t)), 1), *k), "a"))
+            only_a.append(e)
         else:
             used[hit] = True
-    out += [
-        (bar_at(tb), (round(tb - bar_time(va, bar_at(tb)), 1), *kb), "b")
-        for i, (tb, kb) in enumerate(pool)
-        if not used[i]
-    ]
+    return only_a, [e for e, u in zip(eb, used) if not u]
+
+
+def unmatched(va, vb, kind):
+    """The same, as [(A's bar, what, side)]: `what` is the note's place in its bar and its `kind` key."""
+    key = KEYS.get(kind, KEYS["notes"])
+    only_a, only_b = unmatched_events(va, vb, kind)
+    if same_grid(va, vb):
+        return [
+            (e["g0"] // 16 + 1, (e["g0"] % 16, *key(e)), side)
+            for side, es in (("a", only_a), ("b", only_b))
+            for e in es
+        ]
+    starts = np.array(sorted(bar_times(va).items()))  # [bar, time]
+    bar_at = lambda t: int(starts[max(0, np.searchsorted(starts[:, 1], t + 0.03) - 1), 0])
+    out = []
+    for side, v, es in (("a", va, only_a), ("b", vb, only_b)):
+        for e in es:
+            t = g_time(v, e["g0"])
+            out.append((bar_at(t), (round(t - bar_time(va, bar_at(t)), 1), *key(e)), side))
     return out
 
 
@@ -448,7 +465,8 @@ def snippet_xml(v, bars):
 
 
 def engrave_snippets(jobs, mscore, timeout=900):
-    """[(MusicXML path, PNG path)] through one MuseScore run. Returns an error string or None."""
+    """[(MusicXML path, PNG path, positions path)] through one MuseScore run: the page as an image, and where
+    each note and rest sits on it. Returns an error string or None."""
     if not jobs:
         return None
     folder = os.path.dirname(jobs[0][0])
@@ -456,10 +474,10 @@ def engrave_snippets(jobs, mscore, timeout=900):
     with open(style, "w") as f:
         f.write(SNIPPET_STYLE)
     with open(job, "w") as f:
-        json.dump([{"in": x, "out": p} for x, p in jobs], f)
+        json.dump([{"in": x, "out": [png, spos]} for x, png, spos in jobs], f)
     try:
         r = subprocess.run(
-            [mscore, "-S", style, "-T", "14", "-r", "150", "-j", job], capture_output=True, text=True, timeout=timeout
+            [mscore, "-S", style, "-r", str(SNIPPET_DPI), "-j", job], capture_output=True, text=True, timeout=timeout
         )
     except subprocess.TimeoutExpired:
         return f"MuseScore timed out after {timeout} s"
@@ -468,20 +486,72 @@ def engrave_snippets(jobs, mscore, timeout=900):
             if os.path.exists(p):
                 os.remove(p)
     missing = 0
-    for _, png in jobs:
+    for _, png, spos in jobs:
         page = png[:-4] + "-1.png"  # MuseScore numbers the pages of an image export
         if os.path.exists(page):
             os.replace(page, png)
-        elif not os.path.exists(png):
-            missing += 1
+        missing += not (os.path.exists(png) and os.path.exists(spos))
     if missing:
         tail = "\n".join(line for line in (r.stderr or "").splitlines() if "sandbox_extension" not in line)[-400:]
         return f"MuseScore wrote {len(jobs) - missing} of {len(jobs)} score snippets (exit {r.returncode}): {tail}"
     return None
 
 
+def ink_box(png_path):
+    """(x0, y0, x1, y1) of what is drawn on a page image, or None when the image cannot be read."""
+    try:
+        import av
+
+        with av.open(png_path) as c:
+            img = next(c.decode(video=0)).to_ndarray(format="rgba")
+    except Exception:
+        return None
+    ink = (img[..., :3].min(-1) < 200) & (img[..., 3] > 0)
+    ys, xs = np.where(ink.any(1))[0], np.where(ink.any(0))[0]
+    return (int(xs[0]), int(ys[0]), int(xs[-1]) + 1, int(ys[-1]) + 1) if len(xs) else None
+
+
+def time_at(v, g):
+    """g_time for a fractional sixteenth."""
+    grid = v["grid"]
+    return float(np.interp(v["origin"] + g, np.arange(len(grid)), grid))
+
+
+def sheet_data(png, spos, v, bars, w0, marks=()):
+    """What the page needs to run a cursor over a score snippet in step with the audio.
+
+    `keys` are [seconds into the comparison's audio, x on the page image] for every note and rest, from the
+    positions MuseScore reports for the engraved page; the cursor moves in a straight line between them. `crop`
+    is the part of the page worth showing, `staff` the height the cursor spans, and `marks` the x of the notes
+    written at the sixteenths in `marks` (the notes the other version writes differently)."""
+    with open(png, "rb") as f:
+        width, height = struct.unpack(">II", f.read(24)[16:24])
+    root = ET.parse(spos).getroot()
+    at = {e.get("id"): e for e in root.iter("element")}
+    system = next(iter(at.values()))
+    top = float(system.get("y")) / 12  # positions are in twelfths of a pixel at the export resolution
+    bottom = top + float(system.get("sy")) / 12
+    per_sixteenth = 60000 / float(f"{v['tempo']:.0f}") / 4  # the snippet plays at the tempo printed on it
+    keys, where = [], {}
+    for ev in root.iter("event"):
+        x = float(at[ev.get("elid")].get("x")) / 12 + NOTEHEAD / 2
+        g = 16 * (bars[0] - 1) + float(ev.get("position")) / per_sixteenth
+        keys.append([round(time_at(v, g) - w0, 3), round(x, 1)])
+        where[round(g)] = round(x, 1)
+    keys.append([round(g_time(v, 16 * bars[1]) - w0, 3), SNIPPET_RIGHT - 3])
+    box = ink_box(png) or (30, top - 115, width - 30, bottom + 22)
+    crop = [max(0, box[0] - 8), max(0, int(box[1]) - 8), min(width, box[2] + 8), min(height, int(box[3]) + 8)]
+    return dict(
+        page=[width, height],
+        crop=crop,
+        staff=[round(top - 8, 1), round(bottom + 8, 1)],
+        keys=keys,
+        marks=sorted(where[g] for g in marks if g in where),
+    )
+
+
 def render_comparison(comp, va, vb, audio, workdir):
-    """Write the audio for one comparison and return the score-snippet jobs still to engrave.
+    """Write the audio for one comparison (render_sheets adds the score snippets).
 
     Everything in a comparison covers the same stretch of the record, so the page can switch between the record
     and the two versions without losing its place. Files are named for what the person sees (A, B), never for
@@ -490,7 +560,6 @@ def render_comparison(comp, va, vb, audio, workdir):
     os.makedirs(folder, exist_ok=True)
     kind, t0, t1 = comp["kind"], comp["t0"], comp["t1"]
     shown = dict(A=vb, B=va) if comp["flip"] else dict(A=va, B=vb)
-    bars = dict(A=comp["bars_b"], B=comp["bars_a"]) if comp["flip"] else dict(A=comp["bars_a"], B=comp["bars_b"])
     bar_len = (t1 - t0) / max(1, comp["bars_a"][1] - comp["bars_a"][0] + 1)
     lead = bar_len + 0.15 if kind == "bars" else 0.4
     w0, w1 = max(0.0, t0 - lead), min(audio.n / SR, t1 + 0.4)
@@ -520,13 +589,6 @@ def render_comparison(comp, va, vb, audio, workdir):
                 write_audio(os.path.join(folder, f"{name}_bass.flac"), x, solo_scale)
                 media[f"{name}_bass"] = f"media/{comp['id']}/{name}_bass.flac"
     comp.update(media=media, same_audio=same, lead=round(t0 - w0, 3), length=round(w1 - w0, 3))
-    jobs = []
-    for name, v in shown.items():
-        if bars[name]:
-            xml = os.path.join(folder, f"{name}.musicxml")
-            atomic_write_text(xml, snippet_xml(v, tuple(bars[name])))
-            jobs.append((xml, os.path.join(folder, f"{name}.png")))
-    return jobs
 
 
 # ---------------------------------------------------------------------------------------------- the workspace
@@ -657,20 +719,53 @@ def add_comparison(comps, song, choice, kind, va, vb, rel_a, rel_b, window, rng,
     return comp
 
 
-def finish_sheets(workdir, comps, jobs, mscore, say=print):
-    """Engrave the pending score snippets and note on each comparison which images exist."""
-    if jobs and not mscore:
+def render_sheets(workdir, comps, mscore, say=print, force=False):
+    """Engrave the score snippets of every comparison that has none, or has them from an older layout, and work
+    out where the cursor runs over each. Returns how many comparisons were engraved."""
+    stale = [c for c in comps if c.get("media") and (force or c.get("sheet_rev") != SHEET_REV)]
+    if stale and not mscore:
         say("MuseScore 4 not found: the comparisons have audio but no score snippets")
-    elif jobs:
-        err = engrave_snippets(jobs, mscore)
-        if err:
-            say(err)
-    for c in comps:
-        for name in ("A", "B"):
-            rel = f"media/{c['id']}/{name}.png"
-            if os.path.exists(os.path.join(workdir, rel)):
-                c.setdefault("media", {})[f"{name}_sheet"] = rel
+        stale = []
+    versions = {}
+
+    def version(rel):
+        if rel not in versions:
+            versions[rel] = load_version(workdir, rel)
+        return versions[rel]
+
+    plan = []
+    for c in stale:
+        va, vb = version(c["a"]), version(c["b"])
+        only = dict(a=[], b=[])
+        if c["kind"] in ("notes", "writing") and same_grid(va, vb):  # where the two differ, for the page to mark
+            lo, hi = 16 * (c["bars_a"][0] - 1), 16 * c["bars_a"][1]
+            only_a, only_b = ([e["g0"] for e in es if lo <= e["g0"] < hi] for es in unmatched_events(va, vb, c["kind"]))
+            total = sum(lo <= e["g0"] < hi for e in events(va) + events(vb))
+            if 2 * (len(only_a) + len(only_b)) <= total:  # when most notes differ, marking them all says nothing
+                only = dict(a=only_a, b=only_b)
+        folder = os.path.join(workdir, "media", c["id"])
+        for name, side in (("A", "b"), ("B", "a")) if c["flip"] else (("A", "a"), ("B", "b")):
+            bars = c[f"bars_{side}"]
+            if bars:
+                v = version(c[side])
+                files = tuple(os.path.join(folder, f"{name}.{ext}") for ext in ("musicxml", "png", "spos"))
+                atomic_write_text(files[0], snippet_xml(v, tuple(bars)))
+                plan.append((c, name, v, bars, only[side], files))
+    err = engrave_snippets([files for *_, files in plan], mscore) if plan else None
+    if err:
+        say(err)
+    for c in stale:
+        c["sheets"] = {}
+        c["media"] = {k: rel for k, rel in c["media"].items() if not k.endswith("_sheet")}
+    for c, name, v, bars, marks, (_, png, spos) in plan:
+        if os.path.exists(png) and os.path.exists(spos):
+            data = sheet_data(png, spos, v, bars, c["t0"] - c["lead"], marks)
+            c["sheets"][name] = dict(src=f"media/{c['id']}/{name}.png", **data)
+    for c in stale:
+        if c["sheets"]:
+            c["sheet_rev"] = SHEET_REV
     save_comparisons(workdir, comps)
+    return len(stale)
 
 
 def build(
@@ -699,7 +794,7 @@ def build(
     base_settings = dict(DEFAULTS, **(defaults or {}))
     songs, comps = read_json(workdir, "songs.json", {}), load_comparisons(workdir)
     rng = random.Random(len(comps) + 1)
-    jobs, added = [], 0
+    added = 0
     for path in audio_paths:
         song = song_entry(path)
         stems_dir = (stems_dirs or {}).get(path)
@@ -735,13 +830,13 @@ def build(
                     comps, song, ch["id"], ch["kind"], base, other, rel_base, rel_other, w, rng, values, values[0]
                 )
                 if comp:
-                    jobs += render_comparison(comp, base, other, audio, workdir)
+                    render_comparison(comp, base, other, audio, workdir)
                     new += 1
             added += new
             say(f"  {ch['id']}: {new} new passage{'' if new == 1 else 's'}")
         atomic_write_text(os.path.join(workdir, "songs.json"), json.dumps(songs, indent=1))
         save_comparisons(workdir, comps)
-    finish_sheets(workdir, comps, jobs, score.find_mscore(mscore), say)
+    render_sheets(workdir, comps, score.find_mscore(mscore), say)
     return added
 
 
@@ -756,7 +851,6 @@ def update(workdir, cache_dir=None, device=None, mscore=None, crepe_model="full"
     base_settings = dict(DEFAULTS, **(defaults or {}))
     rng = random.Random(len(comps) + 1)
     kept = ignored = new = 0
-    jobs = []
     for song in songs.values():
         mine = [
             c for c in comps if c["song"] == song["id"] and judged.get(c["id"], {}).get("pick") in ("A", "B", "same")
@@ -788,10 +882,10 @@ def update(workdir, cache_dir=None, device=None, mscore=None, crepe_model="full"
                 )
                 if comp:
                     audio = audio or SongAudio(song["path"], cache_dir, device, stems_dir, base_settings["separator"])
-                    jobs += render_comparison(comp, picked, base, audio, workdir)
+                    render_comparison(comp, picked, base, audio, workdir)
                     new += 1
         save_comparisons(workdir, comps)
-    finish_sheets(workdir, comps, jobs, score.find_mscore(mscore), say)
+    render_sheets(workdir, comps, score.find_mscore(mscore), say)
     say(
         f"{kept} judged passages are still written as you picked; {ignored} are written the way you turned down; "
         f"{new} changed and wait for a new pick"
@@ -830,7 +924,9 @@ def main(argv=None):
     s.add_argument("--port", type=int, default=8765)
     r = sub.add_parser("report", help="print the picks so far")
     u = sub.add_parser("update", help="after the tool changed: bring back judged passages it now writes differently")
-    for p in (b, s, r, u):
+    e = sub.add_parser("sheets", help="engrave every comparison's score snippets again; picks and audio are kept")
+    e.add_argument("--mscore", help="path to the MuseScore 4 binary")
+    for p in (b, s, r, u, e):
         p.add_argument("--dir", default="judging", help="working directory (default ./judging)")
     for p in (b, u):
         p.add_argument("--cache-dir", help="where models, stems and pitch tracks are cached")
@@ -858,6 +954,9 @@ def main(argv=None):
             serve(args.dir, args.port)
         elif args.command == "report":
             print(report(args.dir), end="")
+        elif args.command == "sheets":
+            n = render_sheets(args.dir, load_comparisons(args.dir), score.find_mscore(args.mscore), force=True)
+            print(f"score snippets engraved for {n} comparisons")
         else:
             update(args.dir, args.cache_dir, args.device, args.mscore)
     except Bass2SheetError as e:

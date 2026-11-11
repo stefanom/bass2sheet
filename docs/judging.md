@@ -7,6 +7,7 @@ uv run bass2sheet-judge build SONG... --dir judging     # transcribe each song u
 uv run bass2sheet-judge serve --dir judging             # judge in the browser: http://localhost:8765
 uv run bass2sheet-judge report --dir judging            # the picks so far
 uv run bass2sheet-judge update --dir judging            # after the tool changed: what came out differently
+uv run bass2sheet-judge sheets --dir judging            # engrave the score snippets again (after an upgrade)
 ```
 
 Everything stays on your machine: the page is served to `localhost` only, and the audio never leaves the working directory.
@@ -14,6 +15,8 @@ Everything stays on your machine: the page is served to `localhost` only, and th
 ## What you judge
 
 Each comparison is a passage of 4 bars (2 at slow tempos) where two versions of the transcription differ. You can play the record, version A and version B, switch between them without losing your place, hear the bass alone, and read both scores for those bars. You pick A, B, "no difference" or "neither is right", and can leave a note. The page does not know which version is which; it is told only after your pick is saved, and then shows you.
+
+While the audio plays, a line sweeps over both scores in step with it, through each note as it sounds, so you can see what each version wrote for what you are hearing. The notes the two versions write differently are shaded, unless most of the passage differs. Click a score to play from the note under the pointer.
 
 What you hear for A and B is the record with the real bass taken out and each version's bass put in, played exactly as its sheet is written. That is deliberate: it is what you would play from that sheet.
 
@@ -43,7 +46,8 @@ judging/
   songs.json          the songs, by path
   versions/<song>/    one snapshot per version, named by a hash of what it writes; never overwritten
   comparisons.json    the passages, which two versions each compares, and the order they were shown in
-  media/<id>/         record.flac, A.flac, B.flac, the bass alone, A.png and B.png
+  media/<id>/         record.flac, A.flac, B.flac, the bass alone; A.png and B.png with A.spos and B.spos,
+                      MuseScore's positions of the notes on those pages, which the cursor follows
   judgments.jsonl     your picks, appended; the latest pick for a passage counts
 ```
 

@@ -32,6 +32,7 @@ def public(comp, judgment=None):
         lead=comp.get("lead", 0.0),
         length=comp.get("length", 0.0),
         media={k: "/" + v for k, v in comp.get("media", {}).items()},
+        sheets={name: dict(sheet, src="/" + sheet["src"]) for name, sheet in comp.get("sheets", {}).items()},
     )
     if judgment:  # judged before: the page shows the earlier pick and what the versions were
         out.update(pick=judgment["pick"], note=judgment["note"], reveal=judge.shown_labels(comp))
@@ -195,7 +196,13 @@ PAGE = r"""<!doctype html>
   .keys { color:var(--soft); font-size:13px; margin-top:10px; }
   .sheet { margin-top:6px; }
   .sheet h3 { margin:14px 0 4px; font-size:15px; }
-  .sheet img { max-width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; display:block; }
+  .score { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
+  .score.active { border-color:var(--go); box-shadow:0 0 0 2px rgba(31,111,235,.25); }
+  .score img { position:absolute; max-width:none; display:block; user-select:none; -webkit-user-drag:none; }
+  .score .mark { position:absolute; background:rgba(255,193,7,.30); border-radius:3px; pointer-events:none; }
+  .score .cursor { position:absolute; width:2px; margin-left:-1px; background:var(--go); box-shadow:0 0 0 5px rgba(31,111,235,.16); pointer-events:none; }
+  .legend { color:var(--soft); font-size:13px; margin-top:8px; }
+  .legend i { display:inline-block; width:14px; height:12px; background:rgba(255,193,7,.45); border-radius:3px; vertical-align:-1px; margin-right:4px; }
   textarea { width:100%; min-height:54px; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-top:12px; }
   .reveal { margin-top:14px; padding:12px 14px; background:#eef6ff; border:1px solid #c8defc; border-radius:8px; }
   .reveal b { display:inline-block; min-width:1.6em; }
@@ -232,6 +239,7 @@ PAGE = r"""<!doctype html>
       <div class="bar" id="bar"><div class="fill" id="fill"></div><div class="mark" id="mark"></div></div>
       <div class="keys" id="keys"></div>
       <div class="sheet" id="sheets"></div>
+      <div class="legend hidden" id="legend"><i></i>Shaded notes are the ones the two versions write differently. Click a score to play from there.</div>
     </div>
     <div class="card" id="decide">
       <div class="row" id="picks"></div>
@@ -253,7 +261,7 @@ PAGE = r"""<!doctype html>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-let current = null, state = null, audio = {}, playing = null;
+let current = null, state = null, audio = {}, playing = null, at = 0, from = 0;
 const PICKS = [["A", "A is better"], ["B", "B is better"], ["same", "No difference"], ["neither", "Neither is right"]];
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -274,8 +282,54 @@ function url(name) {
   return solo ? m[name + "_bass"] : m[name];
 }
 function stop() {
-  if (playing && audio[playing]) audio[playing].pause();
+  if (playing && audio[playing]) { at = audio[playing].currentTime; audio[playing].pause(); }
   playing = null; paint();
+}
+// Where the cursor stands on a score at `t` seconds into the audio: a straight line between the notes' places.
+function xAt(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let k = 1; k < keys.length; k++) {
+    if (t <= keys[k][0]) {
+      const [t0, x0] = keys[k - 1], [t1, x1] = keys[k];
+      return t1 > t0 ? x0 + (x1 - x0) * (t - t0) / (t1 - t0) : x1;
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+function tAt(keys, x) {
+  if (x <= keys[0][1]) return keys[0][0];
+  for (let k = 1; k < keys.length; k++) {
+    if (x <= keys[k][1]) {
+      const [t0, x0] = keys[k - 1], [t1, x1] = keys[k];
+      return x1 > x0 ? t0 + (t1 - t0) * (x - x0) / (x1 - x0) : t1;
+    }
+  }
+  return keys[keys.length - 1][0];
+}
+function place(t) {
+  if (!current) return;
+  for (const [name, s] of Object.entries(current.sheets || {})) {
+    $("cursor-" + name).style.left = (100 * (xAt(s.keys, t) - s.crop[0]) / (s.crop[2] - s.crop[0])) + "%";
+  }
+}
+function sheetHtml(name, s) {
+  const [x0, y0, x1, y1] = s.crop, w = x1 - x0, h = y1 - y0, pct = v => (100 * v) + "%";
+  const top = pct((s.staff[0] - y0) / h), height = pct((s.staff[1] - s.staff[0]) / h);
+  const marks = s.marks.map(x => `<div class="mark" style="left:${pct((x - 11 - x0) / w)};width:${pct(22 / w)};top:${top};height:${height}"></div>`).join("");
+  return `<h3>${name}</h3><div class="score" id="score-${name}" style="aspect-ratio:${w}/${h}">` +
+    `<img alt="Score ${name}" src="${s.src}" draggable="false" style="left:${pct(-x0 / w)};top:${pct(-y0 / h)};width:${pct(s.page[0] / w)}">` +
+    marks + `<div class="cursor" id="cursor-${name}" style="top:${top};height:${height}"></div></div>`;
+}
+// A click on a score plays from the note under it: that score's version, or whatever is playing already.
+function seek(name, e) {
+  const s = current.sheets[name];
+  const t = tAt(s.keys, s.crop[0] + (s.crop[2] - s.crop[0]) * e.offsetX / e.currentTarget.clientWidth);
+  const source = playing || (audio[name] ? name : audio.A ? "A" : "record");
+  if (playing && playing !== source) audio[playing].pause();
+  playing = source;
+  audio[source].currentTime = t;
+  audio[source].play().catch(err => { $("error").textContent = "Cannot play audio: " + err.message; });
+  paint();
 }
 function load() {
   stop();
@@ -290,8 +344,8 @@ function load() {
 function play(name) {
   const next = audio[name];
   if (!next) return;
-  let at = 0;
   if (playing && playing !== name) { at = audio[playing].currentTime; audio[playing].pause(); }
+  else if (!playing) { at = from; from = 0; }     // from the start, or from where the bar was clicked while stopped
   next.currentTime = playing === name ? 0 : at;   // the same button again starts over; another one keeps the place
   playing = name;
   next.play().catch(e => { $("error").textContent = "Cannot play audio: " + e.message; });
@@ -299,12 +353,18 @@ function play(name) {
 }
 function paint() {
   for (const b of document.querySelectorAll("#players button")) b.classList.toggle("on", b.dataset.name === playing);
+  for (const name of Object.keys((current && current.sheets) || {})) $("score-" + name).classList.toggle("active", playing === name);
 }
 function tick() {
-  if (current && playing && audio[playing] && current.length) $("fill").style.width = (100 * audio[playing].currentTime / current.length) + "%";
+  if (current && playing && audio[playing] && current.length) {
+    at = audio[playing].currentTime;
+    $("fill").style.width = (100 * at / current.length) + "%";
+    place(at);
+  }
   requestAnimationFrame(tick);
 }
 function show(s) {
+  stop();
   state = s; current = s.comparison;
   $("progress").textContent = s.total ? `${s.judged} of ${s.total} judged` : "nothing to judge yet";
   $("error").textContent = "";
@@ -322,7 +382,11 @@ function show(s) {
   $("keys").textContent = "Keys: " + sources().map(([n, label, k]) => `${k.toUpperCase()} ${label}`).join(" · ") + " · Space stop" + (current.media.record_bass ? " · S bass only" : "");
   $("mark").style.left = (current.length ? 100 * current.lead / current.length : 0) + "%";
   $("fill").style.width = "0%";
-  $("sheets").innerHTML = ["A", "B"].filter(n => current.media[n + "_sheet"]).map(n => `<h3>${n}</h3><img alt="Score ${n}" src="${current.media[n + "_sheet"]}">`).join("");
+  const sheets = current.sheets || {};
+  $("sheets").innerHTML = ["A", "B"].filter(n => sheets[n]).map(n => sheetHtml(n, sheets[n])).join("");
+  for (const n of Object.keys(sheets)) $("score-" + n).onclick = e => seek(n, e);
+  $("legend").classList.toggle("hidden", !Object.values(sheets).some(s => s.marks.length));
+  at = 0; from = 0; place(0);
   $("picks").innerHTML = PICKS.map(([p, label]) => `<button class="pick" data-pick="${p}">${label}</button>`).join("");
   for (const b of document.querySelectorAll("#picks button")) b.onclick = () => choose(b.dataset.pick);
   $("note").value = current.note || "";
@@ -366,7 +430,11 @@ async function results() {
 }
 $("stop").onclick = stop;
 $("solo").onchange = () => { const was = playing, at = was ? audio[was].currentTime : 0; load(); if (was) { audio[was].currentTime = at; playing = was; audio[was].play(); paint(); } };
-$("bar").onclick = e => { if (playing && current.length) audio[playing].currentTime = current.length * e.offsetX / $("bar").clientWidth; };
+$("bar").onclick = e => {
+  if (!current.length) return;
+  const t = current.length * e.offsetX / $("bar").clientWidth;
+  if (playing) audio[playing].currentTime = t; else { at = from = t; place(t); $("fill").style.width = (100 * t / current.length) + "%"; }
+};
 $("next").onclick = () => go(after());
 $("back").onclick = () => state.previous && go("?id=" + encodeURIComponent(state.previous));
 $("skip").onclick = () => go(after());
