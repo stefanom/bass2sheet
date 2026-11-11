@@ -22,6 +22,10 @@ def test_monophonic_keeps_one_note_at_a_time():
     "path,expected",
     [
         ("/x/Some Band - A Song Title [abc123XYZ_-].mp4", ("A Song Title", "Some Band")),
+        ("/x/CAKE - I Will Survive (Official HD Video) [f9rCUQjmkxU].opus", ("I Will Survive", "CAKE")),
+        ("Muse - Hysteria [Official Music Video] [3dm_5qWWDV8].opus", ("Hysteria", "Muse")),
+        ("The Roots - You Got Me ft. Erykah Badu [MJCHeEQV454].opus", ("You Got Me ft. Erykah Badu", "The Roots")),
+        ("Band - Song (Live at Wembley) (Remastered 2011).flac", ("Song (Live at Wembley)", "Band")),
         ("song.wav", ("song", "")),
         ("A - B - C.mp3", ("B - C", "A")),
     ],

@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import time
 
 import numpy as np
@@ -10,7 +9,7 @@ import soundfile as sf
 
 from . import __version__, render, report
 from .audio import decode, validate
-from .common import SR, Bass2SheetError, atomic_write_text, clock, log, sha1_file
+from .common import SR, Bass2SheetError, atomic_write_text, clean_name, clock, log, sha1_file
 from .notes import SegParams, segment_notes
 from .pitch import features
 from .quality import CHECK_SEVERITY, check_list, gates_json, stem_gates, transcription_gates, verdict
@@ -31,8 +30,8 @@ EXIT_OK, EXIT_ERROR, EXIT_FAILED_GATES = 0, 1, 2
 
 
 def guess_title(path):
-    """'Artist - Title [videoid].ext' -> (title, artist)."""
-    base = re.sub(r"\s*\[[^\]]+\]$", "", os.path.splitext(os.path.basename(path))[0]).strip()
+    """'Artist - Title (Official Video) [videoid].ext' -> (title, artist)."""
+    base = clean_name(path)
     if " - " in base:
         artist, title = base.split(" - ", 1)
         return title.strip(), artist.strip()

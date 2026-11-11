@@ -3,6 +3,7 @@
 import hashlib
 import logging
 import os
+import re
 import tempfile
 
 import numpy as np
@@ -87,3 +88,15 @@ def spelling(key_root, key_major):
 
 def clock(s):
     return f"{int(max(s, 0) // 60)}:{max(s, 0) % 60:04.1f}"
+
+
+# "(Official HD Video)", "[Official Music Video]", "(Lyric Video)", "(Remastered 2011)": decoration, not the title
+_DECORATION = re.compile(
+    r"\s*[\(\[][^\)\]]*\b(official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|remaster(ed)?)\b[^\)\]]*[\)\]]", re.I
+)
+
+
+def clean_name(path):
+    """The file name without its extension, a trailing '[videoid]' and video-title decoration."""
+    base = re.sub(r"\s*\[[^\]]+\]$", "", os.path.splitext(os.path.basename(path))[0])
+    return re.sub(r"\s{2,}", " ", _DECORATION.sub("", base)).strip()

@@ -13,7 +13,7 @@ import sys
 import warnings
 
 from . import __version__
-from .common import Bass2SheetError
+from .common import Bass2SheetError, clean_name
 
 
 def main(argv=None):
@@ -79,9 +79,7 @@ def main(argv=None):
     if not os.path.isfile(args.audio):
         print(f"bass2sheet: no such file: {args.audio}", file=sys.stderr)
         return 1
-    out = args.out or os.path.join(
-        os.path.dirname(os.path.abspath(args.audio)), os.path.splitext(os.path.basename(args.audio))[0] + " bass"
-    )
+    out = args.out or os.path.join(os.path.dirname(os.path.abspath(args.audio)), clean_name(args.audio) + " bass")
     from .pipeline import run
 
     try:
