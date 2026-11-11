@@ -1,0 +1,102 @@
+{
+ "conditions": {
+  "mix": {
+   "AClassicEducation_NightOwl": {
+    "oa": 0.7800463880000678,
+    "note_acc": 0.7628503580710907
+   },
+   "AlexanderRoss_GoodbyeBolero": {
+    "oa": 0.8496077507346012,
+    "note_acc": 0.8284050722676843
+   },
+   "AvaLuna_Waterduct": {
+    "oa": 0.8514646458993272,
+    "note_acc": 0.7576218867605395
+   },
+   "ClaraBerryAndWooldog_AirTraffic": {
+    "oa": 0.8952608855718063,
+    "note_acc": 0.8093086883211911
+   },
+   "Creepoid_OldTree": {
+    "oa": 0.6502112946600077,
+    "note_acc": 0.6357841187430653
+   },
+   "EthanHein_BluesForNofi": {
+    "oa": 0.6422008770098142,
+    "note_acc": 0.6087695185736647
+   },
+   "HezekiahJones_BorrowedHeart": {
+    "oa": 0.9345684352172241,
+    "note_acc": 0.9297598513997611
+   },
+   "KarimDouaidy_Hopscotch": {
+    "oa": 0.8656471819375475,
+    "note_acc": 0.8459328212008597
+   },
+   "MatthewEntwistle_AnEveningWithOliver": {
+    "oa": 0.8530097278606367,
+    "note_acc": 0.7334561954115272
+   },
+   "Meaxic_TakeAStep": {
+    "oa": 0.8277996796846125,
+    "note_acc": 0.8151765673267106
+   },
+   "MusicDelta_Beatles": {
+    "oa": 0.9237152888605171,
+    "note_acc": 0.919532441131628
+   },
+   "MusicDelta_Britpop": {
+    "oa": 0.8453648915187377,
+    "note_acc": 0.8400163666121113
+   },
+   "MusicDelta_Disco": {
+    "oa": 0.6442511223279291,
+    "note_acc": 0.4726179720619918
+   },
+   "MusicDelta_FusionJazz": {
+    "oa": 0.8015376971155104,
+    "note_acc": 0.7675960346964065
+   },
+   "MusicDelta_Grunge": {
+    "oa": 0.7833714721586575,
+    "note_acc": 0.7570399476096922
+   },
+   "MusicDelta_LatinJazz": {
+    "oa": 0.866114771151179,
+    "note_acc": 0.8432252613792375
+   },
+   "MusicDelta_Reggae": {
+    "oa": 0.8266578028918066,
+    "note_acc": 0.8135840788752967
+   },
+   "MusicDelta_Shadows": {
+    "oa": 0.9246035185024699,
+    "note_acc": 0.9242583816043531
+   },
+   "MusicDelta_Vivaldi": {
+    "oa": 0.9533492822966507,
+    "note_acc": 0.9491026772580171
+   },
+   "PortStWillow_StayEven": {
+    "oa": 0.9834282470564538,
+    "note_acc": 0.9590582711958022
+   },
+   "StevenClark_Bounty": {
+    "oa": 0.8503644877618346,
+    "note_acc": 0.8357924956603018
+   },
+   "TablaBreakbeatScience_Animoog": {
+    "oa": 0.7839550583945203,
+    "note_acc": 0.7372814328997481
+   },
+   "TablaBreakbeatScience_WhoIsIt": {
+    "oa": 0.5495693773598582,
+    "note_acc": 0.46170074249878446
+   },
+   "TheSoSoGlos_Emergency": {
+    "oa": 0.5341084867128978,
+    "note_acc": 0.5108745849185231
+   }
+  }
+ }
+}

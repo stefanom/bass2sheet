@@ -64,7 +64,7 @@ A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
 1. **Decode and validate.** Any format to 44.1 kHz stereo. Unreadable, silent, very short or very long input is refused with a message.
 2. **Separate the bass.** BS-RoFormer SW (via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator)) is the default; Demucs `htdemucs_ft` is the fallback when it fails or its result fails the gates.
 3. **Track pitch.** CREPE (Viterbi decoding) on the GPU, with pYIN as a cross-check.
-4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a repeated pitch is split only where the low-band energy jumps; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected.
+4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a held note is split where the string is plucked again, and only there; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected.
 5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
 6. **Key and chords.** Rough estimates for the chord symbols and note spelling.
 7. **Engrave.** MusicXML with a tab staff whose fingering comes from a search that keeps the fretting hand in place; MuseScore turns it into the PDF.
@@ -95,7 +95,24 @@ The thresholds come from evaluation runs with ground truth: a gate warns below w
 
 ## Accuracy
 
-<!-- ACCURACY -->
+Version 0.2.0, measured with `bass2sheet-eval`. The full mix goes in, with the same settings for every song.
+
+| Dataset | Songs | Measure | Mean | Median |
+|---|---|---|---|---|
+| BabySlakh: synthetic songs, exact notes | 16 | Notes right: start within 50 ms, exact pitch (F-measure) | 0.88 | 0.95 |
+| | 16 | The same, given the dataset's clean bass track | 0.92 | 0.95 |
+| | 11 | Correct notes written on the right sixteenth of the bar | 0.66 | 0.77 |
+| MDB-bass-synth: real multitrack songs, exact pitch curve | 24 of 71 | Share of the time the bass plays that has the right note | 0.77 | 0.81 |
+| RWC Popular: studio pop, bass transcribed by ear | 24 of 100 | Notes right, start within 100 ms (F-measure) | 0.74 | 0.73 |
+| | | Notes right, start within 50 ms | 0.68 | 0.63 |
+
+What that means in practice:
+
+- **Clean material mostly comes out right.** 12 of the 16 BabySlakh songs score 0.90 or more. Two do badly: one played in very short staccato notes (0.38), and one where over a third of the notes from the separated bass land an octave low (0.49, against 0.87 from the dataset's clean bass track).
+- **Real recordings are harder.** On RWC about a third of the notes differ from the reference: repeated notes written as one long note (14% of the reference's notes), re-attacks the reference does not have (9% of ours) and wrong pitches (6%). The reference was transcribed by ear, so part of the difference is its own.
+- **Pitch is more reliable than rhythmic detail.** Octave errors are 1–3% of the notes.
+- **Tempo is right on nearly every song; bar lines are not.** On BabySlakh, 5 of 11 songs have their notes on the right sixteenth of the bar throughout. On the others the bar lines are off for part or all of the song: finding the downbeat is the hard part, and the fixed 4/4 grid cannot follow a song whose bars change length. RWC scores 1.00 here, but the beat tracker was trained on RWC, so that number says little.
+- **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.90, WARN 0.85 and FAIL 0.60. The thresholds were set on these same runs, so expect a looser relation on new songs.
 
 How to reproduce these numbers, and what each dataset can and cannot tell you, is in [docs/evaluation.md](docs/evaluation.md).
 
@@ -104,7 +121,8 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 - The score is always written in 4/4 with straight sixteenths. Other meters and swing are not notated; the meter and grid gates flag them. Tempo changes are followed beat by beat, but the score shows one tempo.
 - One bass line. Two basses at once, and chords on the bass, are out of scope.
 - The tab assumes a 4-string bass in standard tuning.
-- Very short staccato notes (under about 100 ms) are often missed.
+- Very short staccato notes (under about 100 ms) are often missed, and fast repeated notes on one pitch can come out as one long note.
+- A bar of another length (a 2/4 bar in a 4/4 song) shifts the bar lines after it.
 - Chord symbols are rough. Slides, ghost notes and dead notes are not notated.
 
 ## Development
