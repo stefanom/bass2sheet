@@ -1,6 +1,6 @@
 """Fast segmentation experiments against ground truth, on stems and pitch tracks already in the cache.
 
-    python dev/seg_eval.py DATASET [--tracks ID,ID] [--cond mix|stem] [name=value ...]
+    python dev/seg_eval.py DATASET [--annotations DIR] [--tracks ID,ID] [--cond mix|stem] [name=value ...]
 
 Each `name=value` set overrides SegParams (comma-separated within one argument); several arguments are compared.
 Scores are on as-played notes (no grid), so this needs no beat tracking: a few seconds per track.
@@ -21,19 +21,21 @@ from bass2sheet.pitch import features
 
 args = sys.argv[1:]
 dataset = args.pop(0)
-tracks, cond, specs = None, "mix", []
+tracks, cond, specs, annotations = None, "mix", [], None
 while args:
     a = args.pop(0)
     if a == "--tracks":
         tracks = set(args.pop(0).split(","))
     elif a == "--cond":
         cond = args.pop(0)
+    elif a == "--annotations":
+        annotations = args.pop(0)
     else:
         specs.append(a)
 cache = os.path.expanduser("~/.cache/bass2sheet")
 rows = {}
 feats = {}
-for t in ev.slakh_tracks(dataset):
+for t in ev.load_dataset(dataset, annotations)[1]:
     if len(t["bass"]) != 1 or (tracks and t["id"] not in tracks):
         continue
     if cond == "mix":

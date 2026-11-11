@@ -100,3 +100,23 @@ def test_attack_rise_finds_the_jump():
     low = np.r_[np.full(50, -40.0), np.full(50, -20.0)]
     rise = N.attack_rise(low, 2, 3)
     assert rise[49] == 20 and rise[10] == 0 and rise[80] == 0
+
+
+def test_repeated_notes_the_tracker_sees_as_one_are_split_at_each_pluck():
+    plucks = [(0.5, 0.24, 40), (0.75, 0.24, 40), (1.0, 0.24, 40), (1.25, 0.5, 40)]  # eighth notes on one pitch
+    y = _stem(plucks, 2.5)
+    feat = _features(y, [(0.5, 1.25, 40)])  # ...which the pitch tracker reports as one long E
+    feat["onsets"] = feat["onsets"][:1]  # ...and whose re-plucks the onset detector missed
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out] == [40, 40, 40, 40]
+    for n, (start, _, _) in zip(out, plucks):
+        assert abs(n["start"] - start) < 0.02
+    unsplit, _, _ = N.segment_notes(feat, y, N.SegParams(split_held=False))
+    assert len(unsplit) == 1
+
+
+def test_a_cut_right_after_a_notes_own_attack_is_not_a_split():
+    spec = [(0.5, 1.0, 40)]
+    y = _stem(spec, 2.0)
+    out, _, _ = N.segment_notes(_features(y, spec, lag_frames=5), y)  # the tracker locks on 50 ms after the pluck
+    assert len(out) == 1

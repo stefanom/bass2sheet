@@ -29,7 +29,10 @@ def fmt(g):
 
 def threshold(g):
     op = "≥" if g["higher_is_better"] else "≤"
-    f = (lambda x: f"{x:.0%}") if g["name"] not in ("bass_level", "grid_offset_ms") else (lambda x: f"{x:g}")
+    plain = g["name"] in ("bass_level", "grid_offset_ms")
+    f = (lambda x: f"{x:g}") if plain else (lambda x: f"{x:.0%}")
+    if g["fail"] is None:
+        return f"pass {op} {f(g['warn'])}; warns only"
     return f"pass {op} {f(g['warn'])}; fail beyond {f(g['fail'])}"
 
 

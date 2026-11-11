@@ -4,7 +4,7 @@ import numpy as np
 
 from .common import SR, Bass2SheetError, log
 
-MIN_SECONDS = 20.0
+MIN_SECONDS = 10.0
 MAX_SECONDS = 20 * 60.0
 
 

@@ -21,6 +21,11 @@ def test_gate_judge(value, higher, expected):
     assert Q.Gate("g", "G", value, warn, fail, higher, "").judge().status == expected
 
 
+def test_a_gate_without_a_fail_threshold_only_warns():
+    assert Q.Gate("g", "G", 0.01, 0.80, None, True, "").judge().status == "warn"
+    assert Q.Gate("g", "G", 0.90, 0.80, None, True, "").judge().status == "pass"
+
+
 def test_gate_thresholds_are_inclusive_on_the_passing_side():
     assert Q.Gate("g", "G", 0.95, 0.95, 0.85, True, "").judge().status == "pass"
     assert Q.Gate("g", "G", 0.05, 0.05, 0.15, False, "").judge().status == "pass"

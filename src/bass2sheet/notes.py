@@ -17,6 +17,10 @@ class SegParams:
     unpitched_frames: int = 20  # ... for 200 ms (each pluck briefly drops periodicity)
     decay_db: float = 15.0  # ... or once it decays this far below its own peak
     attack_db: float = 3.0  # a repeated pitch is a new note only if the low-band energy jumps this much
+    flux_support: float = 1.0  # ... together with at least this much spectral flux (0 = level alone decides)
+    flux_thr: float = 3.0  # ... or the spectral flux alone reaches this (0 = never): a re-pluck of a ringing note
+    split_held: bool = True  # split a held note at each pluck inside it: repeated notes the tracker saw as one
+    split_min_frames: int = 8  # ... when both parts last at least this long (shorter cuts are the note's own attack)
     merge_gap_frames: int = 10  # same-pitch notes closer than 100 ms without a new pluck are one note
     rise_before: int = 2  # pluck rise: peak in the next rise_after frames minus trough in the last rise_before
     rise_after: int = 3
@@ -35,9 +39,21 @@ class SegParams:
 
 def low_band_db(bass_mono):
     """30-400 Hz energy per 10 ms frame, in dB."""
+    return pluck_features(bass_mono)[0]
+
+
+def pluck_features(bass_mono):
+    """Two views of a pluck per 10 ms frame: the 30-400 Hz level in dB, whose jump marks a note that starts from
+    a quieter moment, and the spectral flux over 30-4000 Hz (mean rise of the dB spectrum across frequency), which
+    also marks a re-pluck of a note that is still ringing, where the level barely moves but the attack's
+    brightness returns."""
     S = np.abs(librosa.stft(bass_mono, n_fft=2048, hop_length=HOP))
     f = librosa.fft_frequencies(sr=SR, n_fft=2048)
-    return librosa.amplitude_to_db(S[(f > 30) & (f < 400)].sum(0) + 1e-9)
+    low = librosa.amplitude_to_db(S[(f > 30) & (f < 400)].sum(0) + 1e-9)
+    flux = librosa.onset.onset_strength(
+        S=librosa.amplitude_to_db(S[(f > 30) & (f < 4000)] + 1e-9), sr=SR, hop_length=HOP
+    )
+    return low, flux
 
 
 def attack_rise(low_db, before, after):
@@ -98,10 +114,17 @@ def segment_notes(feat, bass_mono, p=None):
     p = p or SegParams()
     f0_c, per_c, f0_p, rms_db, onsets = feat["f0_c"], feat["per_c"], feat["f0_p"], feat["rms_db"], feat["onsets"]
     cqt = feat["cqt"][:60]  # A0..G#5
-    low_db = low_band_db(bass_mono)
+    low_db, flux = pluck_features(bass_mono)
     n = min(len(f0_c), len(f0_p), len(rms_db), len(low_db))
     f0_c, per_c, f0_p, rms_db, low_db = f0_c[:n], per_c[:n], f0_p[:n], rms_db[:n], low_db[:n]
     rise = attack_rise(low_db, p.rise_before, p.rise_after)
+    # pluck strength: 1.0 is the threshold of either view (see pluck_features); flux peaks a frame or two late
+    flux = np.pad(flux, (0, max(0, n - len(flux))))[:n]
+    flux_near = np.maximum.reduce([flux, np.r_[flux[1:], 0], np.r_[flux[2:], 0, 0]])
+    level = rise / p.attack_db
+    if p.flux_support > 0:  # the level of the lowest notes ripples with their period; a real pluck is also bright
+        level = np.minimum(level, flux_near / p.flux_support)
+    pluck = np.maximum(level, flux_near / p.flux_thr if p.flux_thr > 0 else 0)
     floor = np.percentile(rms_db, 99) - 30
     voiced = (rms_db > floor) & (per_c > p.enter_per)
     midi_c = np.where(voiced, librosa.hz_to_midi(np.maximum(f0_c, 1e-6)), np.nan)
@@ -160,6 +183,24 @@ def segment_notes(feat, bass_mono, p=None):
                 break
             t += 1
         nt["e"] = max(t, nt["last"])
+    # a held note with a pluck inside it is several notes: fast repeats are too short for the tracker to see each
+    # one, so the note before swallows them. Each part takes its own pitch where the tracker has one.
+    if p.split_held:
+        from scipy.signal import find_peaks
+
+        plucks = find_peaks(pluck, height=1.0, distance=5)[0]
+        split = []
+        for nt in notes:
+            cuts = [int(t) for t in plucks if nt["s"] + p.split_min_frames <= t <= nt["e"] - p.split_min_frames]
+            edges = [nt["s"], *cuts, nt["e"]]
+            for a, b in zip(edges, edges[1:]):
+                part = dict(nt, s=a, e=b, last=min(max(nt["last"], a + 1), b))
+                own = midi_c[a:b]
+                own = own[np.isfinite(own)]
+                if cuts and len(own) >= 3:
+                    part["pitch"] = int(round(np.median(own)))
+                split.append(part)
+        notes = split
     # a repeated pitch without a new pluck continues the previous note
     merged = []
     for nt in notes:
@@ -168,7 +209,7 @@ def segment_notes(feat, bass_mono, p=None):
             prev
             and nt["pitch"] == prev["pitch"]
             and nt["s"] - prev["e"] <= p.merge_gap_frames
-            and rise[max(0, nt["s"] - p.attack_look) : nt["s"] + p.attack_look + 1].max() < p.attack_db
+            and pluck[max(0, nt["s"] - p.attack_look) : nt["s"] + p.attack_look + 1].max() < 1.0
         ):
             prev["e"] = nt["e"]
             prev["agree"] = min(prev["agree"], nt["agree"])

@@ -643,29 +643,38 @@ def summarize(rows):
             L.append(f"| {v} | {len(fs)} | {np.mean(fs):.2f} | {np.min(fs):.2f} |")
     L += [
         "",
-        f"| gate | Spearman ρ with {head} | runs warn/fail | mean {head} when pass | mean {head} when warn/fail |",
-        "|---|---|---|---|---|",
+        f"| gate | Spearman ρ with {head} | ρ with bar pos | runs warn/fail | mean {head} when pass | "
+        f"mean {head} when warn/fail |",
+        "|---|---|---|---|---|---|",
     ]
+
+    def rank_corr(pts):
+        if len(pts) < 5 or len({a for a, _ in pts}) < 2 or len({b for _, b in pts}) < 2:
+            return None
+        rho = spearmanr([a for a, _ in pts], [b for _, b in pts])[0]
+        return None if np.isnan(rho) else float(rho)
+
+    show = lambda v, spec: "–" if v is None else format(v, spec)
     for name in ok[0]["gates"] if ok else {}:
         pts = [(r["gates"][name], score_of(r)) for r in ok if r["gates"].get(name) is not None]
-        rho = (
-            spearmanr([a for a, _ in pts], [b for _, b in pts])[0]
-            if len(pts) >= 5 and len({a for a, _ in pts}) > 1
-            else None
-        )
+        bars = [
+            (r["gates"][name], r["bar_position_acc"])
+            for r in ok
+            if r["gates"].get(name) is not None and r.get("bar_position_acc") is not None
+        ]
         bad = [score_of(r) for r in ok if r["gate_status"].get(name) in ("warn", "fail")]
         good = [score_of(r) for r in ok if r["gate_status"].get(name) == "pass"]
         out["gates"][name] = dict(
-            rho=None if rho is None or np.isnan(rho) else float(rho),
+            rho=rank_corr(pts),
+            rho_bar_position=rank_corr(bars),
             flagged=len(bad),
             f_pass=float(np.mean(good)) if good else None,
             f_flagged=float(np.mean(bad)) if bad else None,
         )
         g = out["gates"][name]
         L.append(
-            f"| {name} | {'–' if g['rho'] is None else format(g['rho'], '+.2f')} | {len(bad)} | "
-            f"{'–' if g['f_pass'] is None else format(g['f_pass'], '.2f')} | "
-            f"{'–' if g['f_flagged'] is None else format(g['f_flagged'], '.2f')} |"
+            f"| {name} | {show(g['rho'], '+.2f')} | {show(g['rho_bar_position'], '+.2f')} | {len(bad)} | "
+            f"{show(g['f_pass'], '.2f')} | {show(g['f_flagged'], '.2f')} |"
         )
     pc = [
         (r["precision_in_check_bars"], r["precision_in_other_bars"])

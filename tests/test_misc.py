@@ -98,6 +98,10 @@ def test_report_renders_verdict_gates_and_checks(tmp_path):
     html = (tmp_path / "r.html").read_text()
     assert "WARN" in html and "T &lt;x&gt;" in html and "91%" in html and "notes missing: 60%" in html
     assert json.loads((tmp_path / "r.json").read_text())["verdict"] == "WARN"
+    from bass2sheet.report import threshold
+
+    assert threshold(gate) == "pass ≥ 95%; fail beyond 85%"
+    assert threshold(dict(gate, fail=None)) == "pass ≥ 95%; warns only"
 
 
 def test_cli_reports_a_missing_file(capsys):

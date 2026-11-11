@@ -77,22 +77,22 @@ There is no reference transcription for your song, so each gate is an independen
 | Gate | Passes at | Fails beyond | What it catches |
 |---|---|---|---|
 | Bass stem level vs the mix | ≥ −25 dB | −35 dB | The separator found no bass |
-| Sounding bass covered by notes | ≥ 95% | 85% | Missing notes |
-| Notes cut short while the bass rings | ≤ 5% | 15% | Choppy note ends |
-| Synth silent while the bass sounds | ≤ 5% | 15% | Gaps, judged on the transcription rendered back to audio |
-| Same note name as the recording | ≥ 85% | 70% | Wrong notes, judged on the rendered transcription |
-| Notes with a doubtful octave | 0 | 5% | Octave errors |
-| Same pitch as Basic Pitch | ≥ 80% | 60% | Disagreement with an independent model |
-| Note starts shared with Basic Pitch | F ≥ 0.6 | 0.4 | Rhythm disagreement |
-| Note starts' distance from the 16th grid | ≤ 25 ms | 40 ms | A wrong tempo or grid |
-| Downbeats that fit 4/4 | ≥ 85% | 65% | 3/4, 6/8 or a changing meter, which the 4/4 score cannot show |
-| Notes on 8th-note positions | ≥ 75% | 55% | A wrong pulse level, a shifted downbeat, swing |
-| Notes flagged uncertain | ≤ 10% | 25% | The two pitch trackers disagree |
-| Bars that need an ear check | ≤ 15% | 30% | Too many bars where the checks disagree |
+| Sounding bass covered by notes | ≥ 97% | 85% | Missing notes |
+| Notes cut short while the bass rings | ≤ 4% | 12% | Choppy note ends |
+| Synth silent while the bass sounds | ≤ 10% | 30% | Gaps, judged on the transcription rendered back to audio |
+| Same note name as the recording | ≥ 90% | 78% | Wrong notes, judged on the rendered transcription |
+| Notes with a doubtful octave | ≤ 1% | 5% | Octave errors |
+| Same pitch as Basic Pitch | ≥ 90% | 70% | Disagreement with an independent model |
+| Note starts shared with Basic Pitch | F ≥ 0.75 | 0.50 | Missed, extra or mistimed notes |
+| Note starts' distance from the 16th grid | ≤ 32 ms | 50 ms | A wrong tempo or grid, or swing |
+| Downbeats that fit 4/4 | ≥ 80% | warns only | 3/4, 6/8 or a changing meter, which the 4/4 score cannot show; bar lines may be shifted |
+| Notes on 8th-note positions | ≥ 60% | warns only | A shifted grid or swing (or simply a busy sixteenth-note line) |
+| Notes flagged uncertain | ≤ 6% | 20% | The two pitch trackers disagree |
+| Bars that need an ear check | ≤ 6% | 25% | Too many bars where the checks disagree |
 
 FAIL if any gate fails, WARN if any warns, otherwise PASS. Each bar also gets a severity that adds up independent signals (missing notes, a pitch mismatch with the recording, Basic Pitch disagreeing, a doubtful octave); the report lists the bars worst first, and severity 3 or more puts the red "check" in the PDF.
 
-The thresholds are being calibrated against real accuracy; `bass2sheet-eval` reports, for each gate, how well it tracks the measured score.
+The thresholds come from evaluation runs with ground truth: a gate warns below what 90% of the accurate runs reach, and fails where only inaccurate runs were seen. `bass2sheet-eval` reports, for each gate, how well it tracks the measured score.
 
 ## Accuracy
 

@@ -24,7 +24,7 @@ class Gate:
     label: str
     value: float | None
     warn: float
-    fail: float
+    fail: float | None  # None: the gate can warn but never fail a run
     higher_is_better: bool
     meaning: str
     status: str = "pass"  # pass | warn | fail | skipped
@@ -35,7 +35,8 @@ class Gate:
             self.status = "skipped"
         else:
             bad = (lambda v, t: v < t) if self.higher_is_better else (lambda v, t: v > t)
-            self.status = "fail" if bad(self.value, self.fail) else "warn" if bad(self.value, self.warn) else "pass"
+            failed = self.fail is not None and bad(self.value, self.fail)
+            self.status = "fail" if failed else "warn" if bad(self.value, self.warn) else "pass"
         return self
 
 
@@ -96,7 +97,12 @@ def octave_doubts(C, notes):
 def transcription_gates(
     stems, feat, notes, grid, origin, synth_bass, second, second_reason, meter_fit=None, beat_tracker=None
 ):
-    """Gates on the transcription plus the per-bar ear-check list {bar: [reasons]}."""
+    """Gates on the transcription plus the per-bar ear-check list {bar: [reasons]}.
+
+    Thresholds were set from evaluation runs with ground truth (BabySlakh, MDB-bass-synth, RWC Popular): a gate
+    warns below what 90% of the accurate runs reach, and fails where only inaccurate runs were seen. Gates about
+    the meter and the share of notes on eighth-note positions track the bar layout, not the notes; they warn but
+    never fail a run."""
     rms_db = feat["rms_db"]
     n = len(rms_db)
     playing = rms_db > np.percentile(rms_db, 99) - 20
@@ -157,7 +163,7 @@ def transcription_gates(
             "coverage",
             "Sounding bass covered by notes",
             coverage,
-            0.95,
+            0.97,
             0.85,
             True,
             "share of the time the stem clearly sounds that has a transcribed note",
@@ -166,8 +172,8 @@ def transcription_gates(
             "cut_short",
             "Notes cut short while the bass rings",
             cut_short,
-            0.05,
-            0.15,
+            0.04,
+            0.12,
             False,
             "share of notes followed by a MIDI gap while the stem still sounds (heard as choppy)",
         ).judge(),
@@ -175,8 +181,8 @@ def transcription_gates(
             "audio_gaps",
             "Synth silent while the bass sounds",
             gaps,
-            0.05,
-            0.15,
+            0.10,
+            0.30,
             False,
             "the transcription rendered to audio, compared with the stem",
         ).judge(),
@@ -184,8 +190,8 @@ def transcription_gates(
             "audio_pitch",
             "Same note name as the recording",
             pitch_match,
-            0.85,
-            0.70,
+            0.90,
+            0.78,
             True,
             "where both sound; pitch from harmonic summation, so the synth's timbre doesn't matter",
         ).judge(),
@@ -193,7 +199,7 @@ def transcription_gates(
             "octave_doubts",
             "Notes with a doubtful octave",
             len(doubts) / max(1, len(notes)),
-            0.0,
+            0.01,
             0.05,
             False,
             "share of notes whose octave the spectrum contradicts",
@@ -202,8 +208,8 @@ def transcription_gates(
             "second_model_pitch",
             "Same pitch as Basic Pitch",
             sec_pitch,
-            0.80,
-            0.60,
+            0.90,
+            0.70,
             True,
             "independent model on the same stem, where both sound",
         ).judge(),
@@ -211,8 +217,8 @@ def transcription_gates(
             "second_model_onsets",
             "Note starts shared with Basic Pitch",
             sec_onset,
-            0.60,
-            0.40,
+            0.75,
+            0.50,
             True,
             "onset F-measure within 50 ms, same note name",
         ).judge(),
@@ -220,8 +226,8 @@ def transcription_gates(
             "grid_offset_ms",
             "Median distance of note starts from the 16th grid",
             float(np.median(offsets) * 1000),
-            25.0,
-            40.0,
+            32.0,
+            50.0,
             False,
             "ms; large means the beat grid or tempo is off",
         ).judge(),
@@ -229,8 +235,8 @@ def transcription_gates(
             "meter_fit",
             "Downbeats that fit 4/4",
             meter_fit,
-            0.85,
-            0.65,
+            0.80,
+            None,
             True,
             "share of the beat tracker's downbeats that fall on one beat in four; low means 3/4, 6/8 or a changing "
             "meter, which the 4/4 score cannot show",
@@ -240,8 +246,8 @@ def transcription_gates(
             "grid_eighths",
             "Notes on 8th-note positions",
             eighths,
-            0.75,
-            0.55,
+            0.60,
+            None,
             True,
             "rock bass sits mostly on beats and 'ands'; low suggests a wrong pulse level, a shifted grid or swing",
         ).judge(),
@@ -249,8 +255,8 @@ def transcription_gates(
             "uncertain_notes",
             "Notes flagged uncertain",
             uncertain,
-            0.10,
-            0.25,
+            0.06,
+            0.20,
             False,
             "pitch trackers disagreed, or the octave was corrected",
         ).judge(),
@@ -308,8 +314,8 @@ def transcription_gates(
             "check_bars",
             "Bars that need an ear check",
             sum(s >= CHECK_SEVERITY for s in severity.values()) / n_bars,
-            0.15,
-            0.30,
+            0.06,
+            0.25,
             False,
             f"share of bars with notes where independent checks disagree (severity ≥ {CHECK_SEVERITY})",
         ).judge()
