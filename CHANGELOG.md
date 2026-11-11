@@ -4,6 +4,10 @@
 
 Measured against ground truth for the first time; the numbers are in `docs/evaluation.md`.
 
+- **Judging on your own songs.** `bass2sheet-judge` sets each of the tool's choices against its alternative on short passages of your songs, by ear and by eye, without saying which version is which. Picks decide the defaults, and a judged passage comes back when a later change alters it. See `docs/judging.md`.
+- **Choices you can make per run.** `--replucks every|clear`, `--rhythm literal|simple` (stray sixteenths onto eighths, short rests closed) and `--tab low|position` (the hand kept in one position).
+- **Line times** in the score follow the tracked beats; they assumed a steady tempo before.
+- **File names.** "(Official Video)" and the like are dropped from the title and the output folder.
 - **Evaluation.** `bass2sheet-eval` scores the tool on BabySlakh/Slakh2100 (exact notes and beats), MDB-bass-synth (exact f0 on real mixes) and RWC Popular (aligned MIDI on real recordings), with an error breakdown, a gate-vs-accuracy table and a baseline regression check.
 - **Note starts** move to where the pluck begins to sound, at 1 ms resolution. Frame-level starts were 15–25 ms late.
 - **Beats and downbeats** come from the Beat This! model. The built-in tracker chose the wrong pulse level on about half of the BabySlakh songs.

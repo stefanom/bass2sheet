@@ -55,9 +55,20 @@ bass2sheet SONG [-o OUT_DIR] [--title T] [--artist A] [--strict]
 
 Exit codes: `0` the sheet was written (PASS or WARN); `2` the result failed its gates (the sheet is marked DRAFT, or not written with `--strict`); `1` error (unreadable input, no bass found).
 
-Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--beat-tracker auto|beat_this|librosa`, `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
+Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--beat-tracker auto|beat_this|librosa`, `--replucks every|clear`, `--rhythm literal|simple`, `--tab low|position`, `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
 
 A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
+
+## Judge it on your own songs
+
+Accuracy numbers cannot tell whether the sheet suits you. `bass2sheet-judge` can: it transcribes your songs under each of the tool's choices and its alternative, and shows you short passages where the two differ. You hear the record with each version's bass in place of the real one, read both scores, and pick, without being told which is which.
+
+```
+bass2sheet-judge build SONG... --dir judging
+bass2sheet-judge serve --dir judging        # then open http://localhost:8765
+```
+
+The choices are which model isolates the bass, whether a re-plucked note is one note or two, whether the rhythm is written as played or simplified, where the bar lines fall, and whether the tab stays low on the neck or in one position. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
 
 ## How it works
 
@@ -127,7 +138,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 
 ## Development
 
-`uv run pytest` runs the unit tests and an end-to-end run on a synthesized song in under a minute, with no model download. [CONTRIBUTING.md](CONTRIBUTING.md) covers the test tiers, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
+`uv run pytest` runs the unit tests and end-to-end runs on a synthesized song in about a minute, with no model download. [CONTRIBUTING.md](CONTRIBUTING.md) covers the test tiers, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
 
 ## Credits and licenses
 
