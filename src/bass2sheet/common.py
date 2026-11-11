@@ -19,6 +19,24 @@ FLATS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
 log = logging.getLogger("bass2sheet")
 
 
+# The tool's standing choices. Each has one alternative; `bass2sheet-judge` puts the two in front of the person
+# who plays from the sheet, and their picks decide what stands here (docs/judging.md).
+DEFAULTS = dict(
+    separator="roformer",  # or "demucs": which model isolates the bass first
+    replucks="every",  # or "clear": a repeated pitch is a new note at every pluck heard, or only at a bright one
+    rhythm="literal",  # or "simple": the rhythm as played, or stray sixteenths on eighths and short rests closed
+    beat_tracker="beat_this",  # or "librosa": where the beats and bar lines come from
+    tab="low",  # or "position": the tab low on the neck with open strings, or with the hand in one position
+)
+ALTERNATIVES = dict(
+    separator=("roformer", "demucs"),
+    replucks=("every", "clear"),
+    rhythm=("literal", "simple"),
+    beat_tracker=("beat_this", "librosa"),
+    tab=("low", "position"),
+)
+
+
 class Bass2SheetError(Exception):
     """A failure the user can act on; the message says what went wrong and what to do."""
 

@@ -38,6 +38,7 @@ dependencies = [
 [project.scripts]
 bass2sheet = "bass2sheet.cli:main"
 bass2sheet-eval = "bass2sheet.evaluate:main"
+bass2sheet-judge = "bass2sheet.judge:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
@@ -57,6 +58,7 @@ ignore = ["E731", "E741", "B905"]  # small lambdas, short math names, zip() over
 
 [tool.ruff.lint.per-file-ignores]
 "src/bass2sheet/report.py" = ["E501"]  # the HTML template
+"src/bass2sheet/judge_server.py" = ["E501"]  # the page: HTML, CSS and script
 "dev/*" = ["E402", "E501", "B023"]
 
 [build-system]

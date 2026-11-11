@@ -177,3 +177,55 @@ def test_lines_start_where_the_bass_comes_in():
     doc = xml.dom.minidom.parseString(_xml(notes=notes, chords=[], check_bars={}))
     breaks = [m.getAttribute("number") for m in doc.getElementsByTagName("measure") if m.getElementsByTagName("print")]
     assert breaks == ["4", "8"]  # four-bar lines counted from bar 4, after the first line's lead-in
+
+
+def _n(g, length, pitch):
+    return dict(
+        start=g * 0.125,
+        end=(g + length) * 0.125,
+        pitch=pitch,
+        grid_start=g,
+        grid_len=length,
+        bar=g // 16 + 1,
+        flag=None,
+    )
+
+
+def _measures(text):
+    return xml.dom.minidom.parseString(text).getElementsByTagName("measure")
+
+
+def test_tab_styles_low_uses_open_strings_and_position_keeps_the_hand_in_place():
+    line = [33, 35, 36, 38, 33, 31, 33]  # A B C D A G A, from the open A string up
+    low, pos = score.frets(line, "low"), score.frets(line, "position")
+    assert low[0] == (1, 0) and (2, 0) in low  # the open A and D strings
+    assert all(f > 0 for _, f in pos)
+    assert max(f for _, f in pos) - min(f for _, f in pos) <= 4
+    for (s, f), pitch in zip(low + pos, line + line):
+        assert score.STRINGS[s] + f == pitch
+    with pytest.raises(ValueError, match="tab style"):
+        score.frets(line, "sideways")
+
+
+def test_a_snippet_is_the_same_bars_with_the_same_fingering_and_no_title():
+    notes = [_n(k * 4, 4, 40 + k % 5) for k in range(24)]  # six bars of quarter notes
+    full = _xml(notes=notes, chords=[], check_bars={})
+    snip = _xml(notes=notes, chords=[], check_bars={}, bars=(3, 4))
+    assert "<movement-title>" in full and "<movement-title>" not in snip
+    assert [m.getAttribute("number") for m in _measures(snip)] == ["3", "4"]
+    assert "new-system" not in snip
+    frets_of = lambda text, bar: [
+        f.firstChild.data
+        for m in _measures(text)
+        if m.getAttribute("number") == bar
+        for f in m.getElementsByTagName("fret")
+    ]
+    assert frets_of(snip, "3") == frets_of(full, "3") != []
+    held = _xml(notes=[_n(0, 40, 40)], chords=[], check_bars={}, bars=(2, 2))  # tied in from bar 1, out to bar 3
+    assert "<tie" not in held
+
+
+def test_line_times_follow_the_given_bar_times():
+    notes = [_n(k * 16, 16, 40) for k in range(8)]
+    text = _xml(notes=notes, chords=[], check_bars={}, bar_times={k: 10.0 * k for k in range(1, 9)})
+    assert ">0:10<" in text and ">0:50<" in text  # bars 1 and 5 start the two lines

@@ -89,3 +89,39 @@ def test_grid_from_model_beats_needs_enough_beats_and_tolerates_no_downbeats():
     with pytest.raises(ValueError):
         rhythm.grid_from_model_beats(np.arange(10) * 0.5, np.array([0.0]))
     assert rhythm.grid_from_model_beats(np.arange(40) * 0.5, np.array([]))[3:] == (0, None)
+
+
+def _q(g0, length, pitch=40):
+    return dict(start=g0 * 0.125, end=(g0 + length) * 0.125, pitch=pitch, grid_start=g0, grid_len=length, flag=False)
+
+
+def _written(notes):
+    return [(n["grid_start"], n["grid_len"], n["pitch"]) for n in notes]
+
+
+def test_simplify_moves_an_anticipation_onto_the_eighth_and_closes_the_gap_before_it():
+    bar = [_q(0, 4), _q(4, 3), _q(7, 5, 43), _q(12, 4, 45)]  # the G leans a sixteenth into beat 3
+    assert _written(rhythm.simplify(bar)) == [(0, 4, 40), (4, 4, 40), (8, 4, 43), (12, 4, 45)]
+
+
+def test_simplify_leaves_a_sixteenth_note_line_alone():
+    bar = [_q(k, 1, 40 + k % 3) for k in range(16)]
+    assert _written(rhythm.simplify(bar)) == _written(bar)
+
+
+def test_simplify_closes_rests_up_to_an_eighth_but_not_longer_ones():
+    notes = [_q(0, 1), _q(2, 1), _q(4, 2), _q(8, 1), _q(12, 4)]  # rests of 1, 1, 2 and 3 sixteenths
+    assert _written(rhythm.simplify(notes)) == [(0, 2, 40), (2, 2, 40), (4, 4, 40), (8, 1, 40), (12, 4, 40)]
+
+
+def test_simplify_moves_a_short_note_back_or_drops_it_when_the_eighth_is_taken():
+    free = [_q(0, 2), _q(3, 1, 43), _q(4, 4, 45), _q(8, 8)]
+    assert _written(rhythm.simplify(free)) == [(0, 2, 40), (2, 2, 43), (4, 4, 45), (8, 8, 40)]
+    taken = [_q(0, 2), _q(2, 1, 41), _q(3, 1, 43), _q(4, 4, 45), _q(8, 8)]
+    assert _written(rhythm.simplify(taken)) == [(0, 2, 40), (2, 2, 41), (4, 4, 45), (8, 8, 40)]
+
+
+def test_simplify_keeps_bar_and_beat_in_step_with_the_new_place():
+    out = rhythm.simplify([_q(16, 4), _q(20, 3), _q(23, 5, 43), _q(28, 4)])
+    moved = next(n for n in out if n["pitch"] == 43)
+    assert (moved["grid_start"], moved["bar"], moved["beat"], moved["sixteenth"]) == (24, 2, 3, 1)

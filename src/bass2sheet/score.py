@@ -79,20 +79,33 @@ def rest_pieces(p, e):
     return out
 
 
-def frets(pitches):
+TAB_STYLES = ("low", "position")
+
+
+def frets(pitches, style="low"):
     """(string index, fret) per note: Viterbi over playable positions, each state remembering the fretting hand's
-    position (open strings leave it in place); stretches beyond 3 frets cost more, frets 0-4 are preferred."""
+    position (open strings leave it in place); stretches beyond 3 frets cost more.
+
+    `low` keeps to the first frets and open strings, where the notes are easiest to find. `position` keeps the
+    hand in one place: it does not favour low frets, and it frets a note rather than play it on an open string
+    unless that would mean a large shift."""
+    if style not in TAB_STYLES:
+        raise ValueError(f"unknown tab style {style!r}; expected one of {', '.join(TAB_STYLES)}")
     if not pitches:
         return []
+    low = style == "low"
     opts = [
         [(s, m - o) for s, o in enumerate(STRINGS) if 0 <= m - o <= MAX_FRET] or [(0, max(0, m - 28))] for m in pitches
     ]
 
+    def place(f):  # what a fret costs wherever the hand is
+        return 0.02 * f + 0.3 * max(0, f - 4) if low else 0.005 * f + (1.2 if f == 0 else 0.0)
+
     def step(hand, s0, s, f):
         reach = 0.0 if f == 0 else 0.1 * abs(f - hand) + 1.0 * max(0, abs(f - hand) - 3)
-        return reach + 0.1 * abs(s - s0) + 0.02 * f + 0.3 * max(0, f - 4), (hand if f == 0 else f)
+        return reach + 0.1 * abs(s - s0) + place(f), (hand if f == 0 else f)
 
-    states = [(0.02 * f, (f or 2), s) for s, f in opts[0]]
+    states = [(place(f), (f or 2), s) for s, f in opts[0]]
     back = []
     for k in range(1, len(opts)):
         new, bk = [], []
@@ -126,11 +139,48 @@ def pitch_xml(midi, name):
     )
 
 
+def written_events(notes, tab_style="low"):
+    """What the score shows for quantized notes, in order: each note with `grace` (it shares its sixteenth with the
+    next note), its written span `g0`..`g1` in sixteenths (held to the next note across a gap of one sixteenth, cut
+    where the next note starts) and its place on the neck (`string` 1 = G ... 4 = E, `fret`)."""
+    notes = sorted(notes, key=lambda n: (n["grid_start"], n["start"]))
+    events = []
+    for k, nt in enumerate(notes):  # notes sharing a 16th: all but the last become grace notes
+        nxt = notes[k + 1]["grid_start"] if k + 1 < len(notes) else None
+        if nxt is not None and nxt == nt["grid_start"]:
+            events.append(dict(nt, grace=True, g0=nt["grid_start"], g1=nt["grid_start"]))
+            continue
+        end = nt["grid_start"] + nt["grid_len"]
+        if nxt is not None and (nxt < end or nxt - end <= 1):
+            end = nxt
+        events.append(dict(nt, grace=False, g0=nt["grid_start"], g1=max(end, nt["grid_start"] + 1)))
+    for e, (s, f) in zip(events, frets([e["pitch"] for e in events], tab_style)):
+        e["string"], e["fret"] = 4 - s, f  # MusicXML strings count from the highest (G = 1)
+    return events
+
+
 def musicxml(
-    notes, chords, key, tempo, first_downbeat, title, artist, check_bars, draft, phrase_start=None, bars_per_line=4
+    notes,
+    chords,
+    key,
+    tempo,
+    first_downbeat,
+    title,
+    artist,
+    check_bars,
+    draft,
+    phrase_start=None,
+    bars_per_line=4,
+    tab_style="low",
+    bars=None,
+    bar_times=None,
 ):
     """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check").
-    Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes)."""
+    Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes).
+
+    `bars=(first, last)` writes only those bars as one line with no title: a snippet of the same score, with the
+    same fingering. `bar_times` maps a bar to where it starts in the recording, for the time printed at each line
+    start; without it the times assume a steady tempo from `first_downbeat`."""
     key_name, key_root, key_major = key
     chord_of = {c["bar"]: c for c in chords}
     rel_major = key_root if key_major else (key_root + 3) % 12
@@ -143,24 +193,14 @@ def musicxml(
             return c["names"][nt["pitch"] % 12]
         return key_names[nt["pitch"] % 12]
 
-    notes = sorted(notes, key=lambda n: (n["grid_start"], n["start"]))
-    events = []
-    for k, nt in enumerate(notes):  # notes sharing a 16th: all but the last become grace notes
-        nxt = notes[k + 1]["grid_start"] if k + 1 < len(notes) else None
-        if nxt is not None and nxt == nt["grid_start"]:
-            events.append(dict(nt, grace=True))
-            continue
-        end = nt["grid_start"] + nt["grid_len"]
-        if nxt is not None and (nxt < end or nxt - end <= 1):
-            end = nxt
-        events.append(dict(nt, grace=False, g0=nt["grid_start"], g1=max(end, nt["grid_start"] + 1)))
-    for e, (s, f) in zip(events, frets([e["pitch"] for e in events])):
-        e["string"], e["fret"] = 4 - s, f  # MusicXML strings count from the highest (G = 1)
-
+    events = written_events(notes, tab_style)
     first_bar = min(1, min(e["grid_start"] // 16 + 1 for e in events))
     if phrase_start is None:  # lines of `bars_per_line` bars start where the bass comes in
         phrase_start = max(1, min(e["grid_start"] // 16 + 1 for e in events))
     last_bar = max((e["g1"] - 1) // 16 + 1 for e in events if not e["grace"])
+    snippet = bars is not None
+    if snippet:
+        first_bar, last_bar = bars
     by_bar = {}
     for e in events:
         if e["grace"]:
@@ -175,6 +215,9 @@ def musicxml(
 
     bar_s = 4 * 60 / tempo
     mmss = lambda s: f"{int(max(s, 0) // 60)}:{int(max(s, 0) % 60):02d}"
+    bar_time = lambda bar: (
+        bar_times[bar] if bar_times is not None and bar in bar_times else first_downbeat + (bar - 1) * bar_s
+    )
     flagged = any(e["flag"] for e in events)
 
     def note_xml(staff, e, d, tie_start, tie_stop, grace=False):
@@ -211,7 +254,9 @@ def musicxml(
     M, prev_chord = [], None
     for bar in range(first_bar, last_bar + 1):
         x = f'<measure number="{bar}">'
-        line_start = bar == first_bar or (bar >= phrase_start and (bar - phrase_start) % bars_per_line == 0)
+        line_start = bar == first_bar or (
+            not snippet and bar >= phrase_start and (bar - phrase_start) % bars_per_line == 0
+        )
         if line_start and bar != first_bar:
             x += '<print new-system="yes"/>'
         if bar == first_bar:
@@ -237,7 +282,7 @@ def musicxml(
                 f'<sound tempo="{tempo:.0f}"/></direction>'
             )
         if line_start:
-            x += words(mmss(first_downbeat + (bar - 1) * bar_s))
+            x += words(mmss(bar_time(bar)))
         if bar in check_bars:
             x += words("check", size=8, style="normal", color="#C62828")
         c = chord_of.get(bar)
@@ -261,6 +306,8 @@ def musicxml(
                 continue
             cur = 0
             for p, end, e, tie_stop, tie_start in items:
+                if snippet:  # a snippet shows no ties to notes outside it
+                    tie_stop, tie_start = tie_stop and bar > first_bar, tie_start and bar < last_bar
                 if end == 0:  # grace note
                     if p > cur:
                         x += "".join(rest_xml(staff, d) for _, d in rest_pieces(cur, p))
@@ -293,14 +340,19 @@ def musicxml(
             ],
         )
     )
+    head = (
+        ""
+        if snippet
+        else f"<movement-title>{escape(title)}</movement-title>"
+        f'<identification><creator type="composer">{escape(artist)}</creator>'
+        f'<creator type="lyricist">{escape(sub)}</creator><rights>{escape(foot)}</rights></identification>'
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
         '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" '
         '"http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0">'
-        f"<movement-title>{escape(title)}</movement-title>"
-        f'<identification><creator type="composer">{escape(artist)}</creator>'
-        f'<creator type="lyricist">{escape(sub)}</creator><rights>{escape(foot)}</rights></identification>'
-        '<part-list><score-part id="P1"><part-name>Bass</part-name>'
+        + head
+        + '<part-list><score-part id="P1"><part-name>Bass</part-name>'
         '<score-instrument id="P1-I1"><instrument-name>Electric Bass</instrument-name></score-instrument>'
         '<midi-instrument id="P1-I1"><midi-program>34</midi-program></midi-instrument></score-part></part-list>'
         '<part id="P1">' + "".join(M) + "</part></score-partwise>\n"

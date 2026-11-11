@@ -19,6 +19,7 @@ class SegParams:
     attack_db: float = 3.0  # a repeated pitch is a new note only if the low-band energy jumps this much
     flux_support: float = 1.0  # splitting a held note also needs this much spectral flux at the jump (0 = no)
     flux_thr: float = 3.0  # ... or the spectral flux alone reaches this (0 = never): a re-pluck of a ringing note
+    strict_replucks: bool = False  # a repeated pitch is a new note only on a bright pluck: fewer, longer notes
     split_held: bool = True  # split a held note at each pluck inside it: repeated notes the tracker saw as one
     split_min_frames: int = 8  # ... when both parts last at least this long (shorter cuts are the note's own attack)
     merge_gap_frames: int = 10  # same-pitch notes closer than 100 ms without a new pluck are one note
@@ -128,7 +129,7 @@ def segment_notes(feat, bass_mono, p=None):
     # saw as separate needs less: a jump in level is enough, as it always was.
     bright_level = np.minimum(level, flux_near / p.flux_support) if p.flux_support > 0 else level
     pluck = np.maximum(bright_level, strong_flux)
-    attack = np.maximum(level, strong_flux)
+    attack = pluck if p.strict_replucks else np.maximum(level, strong_flux)
     floor = np.percentile(rms_db, 99) - 30
     voiced = (rms_db > floor) & (per_c > p.enter_per)
     midi_c = np.where(voiced, librosa.hz_to_midi(np.maximum(f0_c, 1e-6)), np.nan)

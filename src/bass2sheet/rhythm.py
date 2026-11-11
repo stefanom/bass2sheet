@@ -135,6 +135,65 @@ def quantize(notes, grid, origin):
     return out
 
 
+def place(nt, g0, g1):
+    """A copy of a quantized note written at sixteenths g0..g1 (counted from bar 1)."""
+    return dict(nt, grid_start=g0, grid_len=g1 - g0, bar=g0 // 16 + 1, beat=(g0 % 16) // 4 + 1, sixteenth=g0 % 4 + 1)
+
+
+def simplify(notes, busy=0.34, close=2):
+    """The same line written for easy reading: in a bar that moves in eighths, the few notes on an odd sixteenth
+    are moved to an eighth, and rests of up to `close` sixteenths are closed by holding the note before them.
+
+    A bar where more than `busy` of the notes start on odd sixteenths is a sixteenth-note line and keeps its
+    onsets. Elsewhere a held note that anticipates the next eighth moves onto it; a one-sixteenth note moves back
+    to the eighth before it, or is dropped when another note already starts there. Pitches never change."""
+    notes = sorted(notes, key=lambda n: (n["grid_start"], n["start"]))
+    spans = []  # [g0, g1, note]: cut where the next note starts, as the score does
+    for k, nt in enumerate(notes):
+        nxt = notes[k + 1]["grid_start"] if k + 1 < len(notes) else None
+        if nxt is not None and nxt == nt["grid_start"]:
+            continue  # the earlier of two notes on one sixteenth is an ornament: not kept
+        end = nt["grid_start"] + nt["grid_len"]
+        spans.append([nt["grid_start"], max(nt["grid_start"] + 1, end if nxt is None else min(end, nxt)), nt])
+    by_bar = {}
+    for sp in spans:
+        by_bar.setdefault(sp[0] // 16, []).append(sp)
+    taken = {sp[0] for sp in spans}
+    kept = []
+    for bar in sorted(by_bar):
+        group = by_bar[bar]
+        odd = [sp for sp in group if sp[0] % 2 == 1]
+        if not odd or len(odd) > busy * len(group):
+            kept += group
+            continue
+        for sp in group:
+            g0, g1, _ = sp
+            if g0 % 2 == 0:
+                kept.append(sp)
+            elif g1 - g0 >= 2 and g0 + 1 not in taken:  # an anticipation: onto the eighth it leans on
+                taken.discard(g0)
+                taken.add(g0 + 1)
+                sp[0] = g0 + 1
+                kept.append(sp)
+            elif g0 - 1 not in taken:  # a short note: back onto the eighth before it
+                taken.discard(g0)
+                taken.add(g0 - 1)
+                sp[0], sp[1] = g0 - 1, max(g1, g0 + 1)
+                kept.append(sp)
+            else:  # no room on either eighth: a passing sixteenth, left out
+                taken.discard(g0)
+    kept.sort(key=lambda sp: sp[0])
+    out = []
+    for k, (g0, g1, nt) in enumerate(kept):
+        nxt = kept[k + 1][0] if k + 1 < len(kept) else None
+        if nxt is not None and (g1 > nxt or nxt - g1 <= close):
+            g1 = nxt
+        if out and out[-1]["pitch"] == nt["pitch"] and out[-1]["grid_start"] == g0:
+            continue
+        out.append(place(nt, g0, max(g1, g0 + 1)))
+    return out
+
+
 TRIADS = {"": (0, 4, 7), "m": (0, 3, 7)}
 
 

@@ -9,7 +9,17 @@ import soundfile as sf
 
 from . import __version__, render, report
 from .audio import decode, validate
-from .common import SR, Bass2SheetError, atomic_write_text, clean_name, clock, log, sha1_file
+from .common import (
+    ALTERNATIVES,
+    DEFAULTS,
+    SR,
+    Bass2SheetError,
+    atomic_write_text,
+    clean_name,
+    clock,
+    log,
+    sha1_file,
+)
 from .notes import SegParams, segment_notes
 from .pitch import features
 from .quality import CHECK_SEVERITY, check_list, gates_json, stem_gates, transcription_gates, verdict
@@ -21,6 +31,7 @@ from .rhythm import (
     grid_from_model_beats,
     model_beats,
     quantize,
+    simplify,
 )
 from .score import engrave, find_mscore, musicxml
 from .second_opinion import basic_pitch_notes
@@ -39,6 +50,13 @@ def guess_title(path):
 
 
 BEAT_TRACKERS = ("auto", "beat_this", "librosa")
+
+
+def seg_params(replucks):
+    """Note segmentation for a re-pluck policy (see DEFAULTS)."""
+    if replucks not in ALTERNATIVES["replucks"]:
+        raise Bass2SheetError(f"unknown re-pluck policy {replucks!r}; expected 'every' or 'clear'")
+    return SegParams(strict_replucks=replucks == "clear", split_held=replucks == "every")
 
 
 def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
@@ -107,6 +125,11 @@ def transcribe(
     )
 
 
+def bar_times(grid, origin):
+    """{bar: where it starts in the recording, in seconds}, following the tracked beats rather than one tempo."""
+    return {k + 1: float(grid[i]) for k, i in enumerate(range(origin, len(grid), 16))}
+
+
 def rank_candidate(gates):
     """Sort key for results from different separators: lowest is best.
 
@@ -137,8 +160,14 @@ def run(
     stems_dir=None,
     crepe_model="full",
     beat_tracker="auto",
+    replucks=None,
+    rhythm=None,
+    tab=None,
 ):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
+
+    `replucks`, `rhythm` and `tab` default to the standing choices in DEFAULTS, as do the first separator and
+    the beat tracker when those are left on "auto".
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
     for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
@@ -168,9 +197,16 @@ def run(
 
         device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
-    methods = ["given stems"] if stems_dir else ["roformer", "demucs"] if separator == "auto" else [separator]
+    replucks, rhythm, tab = (replucks or DEFAULTS["replucks"], rhythm or DEFAULTS["rhythm"], tab or DEFAULTS["tab"])
+    for name, value in (("rhythm", rhythm), ("tab", tab)):
+        if value not in ALTERNATIVES[name]:
+            raise Bass2SheetError(f"unknown {name} {value!r}; expected one of {', '.join(ALTERNATIVES[name])}")
+    if beat_tracker == "auto" and DEFAULTS["beat_tracker"] == "librosa":
+        beat_tracker = "librosa"
+    order = [DEFAULTS["separator"]] + [m for m in ALTERNATIVES["separator"] if m != DEFAULTS["separator"]]
+    methods = ["given stems"] if stems_dir else order if separator == "auto" else [separator]
     attempts, candidates = [], []
-    params = SegParams()
+    params = seg_params(replucks)
     for i, method in enumerate(methods):
         last = i == len(methods) - 1
         t0 = time.time()
@@ -241,6 +277,8 @@ def run(
     v = verdict(best["gates"])
     notes, grid, origin, tempo = best["notes"], best["grid"], best["origin"], best["tempo"]
     checks = check_list(best["checks"], grid, origin)
+    if rhythm == "simple":  # the gates above judged the notes as heard; the sheet shows them written for reading
+        notes = simplify(notes)
 
     # ---- outputs
     t0 = time.time()
@@ -264,6 +302,8 @@ def run(
             artist or "",
             {c["bar"]: c["reasons"] for c in checks if c["severity"] >= CHECK_SEVERITY},
             draft=v == "FAIL",
+            tab_style=tab,
+            bar_times=bar_times(grid, origin),
         )
         atomic_write_text(path("bass.musicxml"), xml)
         files["bass.musicxml"] = "the score, editable in MuseScore"
@@ -312,6 +352,7 @@ def run(
                 first_downbeat_s=float(grid[origin]),
                 tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter",
                 beat_tracker=best["beat_tracker"],
+                written=dict(replucks=replucks, rhythm=rhythm, tab=tab),
                 params=params.as_dict(),
             ),
             indent=1,

@@ -46,6 +46,21 @@ def main(argv=None):
         help="auto: the Beat This! model, falling back to the built-in tracker when it is unavailable",
     )
     ap.add_argument(
+        "--replucks",
+        choices=["every", "clear"],
+        help="a repeated pitch is a new note at every pluck heard (default), or only at a clear, bright one",
+    )
+    ap.add_argument(
+        "--rhythm",
+        choices=["literal", "simple"],
+        help="write the rhythm as played (default), or move stray sixteenths onto eighths and close short rests",
+    )
+    ap.add_argument(
+        "--tab",
+        choices=["low", "position"],
+        help="tab low on the neck with open strings (default), or with the hand kept in one position",
+    )
+    ap.add_argument(
         "--crepe-model",
         choices=["full", "tiny"],
         default="full",
@@ -101,6 +116,9 @@ def main(argv=None):
             stems_dir=args.stems,
             crepe_model=args.crepe_model,
             beat_tracker=args.beat_tracker,
+            replucks=args.replucks,
+            rhythm=args.rhythm,
+            tab=args.tab,
         )
     except Bass2SheetError as e:
         print(f"bass2sheet: {e}", file=sys.stderr)
