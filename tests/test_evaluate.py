@@ -188,6 +188,9 @@ def test_baseline_check_flags_a_regression_only_beyond_the_allowed_drop():
     problems = ev.check_baseline([_row("T1", "mix", 0.80), _row("T2", "mix", 0.80)], base, 0.02)
     assert problems and "mean f fell from 0.850 to 0.800" in problems[0]
     assert ev.check_baseline([_row("T9", "mix", 0.9)], base, 0.02) == ["mix: no tracks in common with the baseline"]
+    assert ev.check_baseline([_row("T1", "stem", 0.1)], base, 0.02) == []  # the baseline has no stem condition
+    both = ev.baseline_of([_row("T1", "mix", 0.9), _row("T1", "stem", 0.9)])
+    assert ev.check_baseline([_row("T1", "mix", 0.9)], both, 0.02) == []  # ...and a run may leave a condition out
 
 
 def test_f0_scores_reward_right_notes_and_expose_octave_errors():

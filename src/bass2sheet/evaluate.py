@@ -718,7 +718,9 @@ def check_baseline(rows, baseline, max_drop):
     problems = []
     now = baseline_of(rows)["conditions"]
     for cond, base_tracks in baseline.get("conditions", {}).items():
-        shared = sorted(set(base_tracks) & set(now.get(cond, {})))
+        if cond not in now:  # a condition this run did not include is not a regression
+            continue
+        shared = sorted(set(base_tracks) & set(now[cond]))
         if not shared:
             problems.append(f"{cond}: no tracks in common with the baseline")
             continue
