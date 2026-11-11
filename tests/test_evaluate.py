@@ -140,6 +140,7 @@ def _row(track, cond, f, verdict="PASS", gate=0.97):
         ref_notes=10,
         est_notes=10,
         f=f,
+        score=f,
         precision=f,
         recall=f,
         f_note_name=f,
@@ -255,3 +256,22 @@ def test_unknown_dataset_is_refused(tmp_path):
     with pytest.raises(Bass2SheetError, match="not a dataset"):
         ev.load_dataset(str(tmp_path))
     assert ev.main([str(tmp_path), "--out", str(tmp_path / "run")]) == 1
+
+
+def test_no_run_scores_what_exists_and_merges_rows(slakh_dir, tmp_path, capsys):
+    root, sounding = slakh_dir
+    run = tmp_path / "run"
+    assert ev.main([root, "--out", str(run), "--no-run", "--conditions", "mix"]) == 1  # nothing there yet
+    out = run / "Track00001" / "mix"
+    out.mkdir(parents=True)
+    notes = [dict(start=s, end=e, pitch=p, grid_start=k * 8, bar=k // 2 + 1) for k, (s, e, p) in enumerate(sounding)]
+    (out / "notes.json").write_text(json.dumps(dict(notes=notes, tempo_bpm=120.0)))
+    gate = dict(name="coverage", value=1.0, status="pass")
+    (out / "report.json").write_text(
+        json.dumps(dict(verdict="PASS", ear_checks=[], check_severity=3, gates=[gate], summary=dict(separator="given")))
+    )
+    (run / "results.jsonl").write_text(json.dumps(_row("Other", "mix", 0.5)) + "\n")  # a row from another process
+    assert ev.main([root, "--out", str(run), "--no-run", "--conditions", "mix"]) == 0
+    rows = [json.loads(line) for line in (run / "results.jsonl").read_text().splitlines()]
+    assert [(r["track"], r["f"]) for r in rows] == [("Other", 0.5), ("Track00001", 1.0)]
+    assert "mean F 0.750" in capsys.readouterr().out

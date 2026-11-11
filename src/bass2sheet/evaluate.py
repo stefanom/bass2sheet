@@ -445,8 +445,9 @@ def score_f0(ref_t, ref_hz, est):
 # ---------------------------------------------------------------- runner
 
 
-def run_one(track, cond, out_dir, force, cache_dir):
-    """Run the tool for one track and condition (unless already done) and score it."""
+def run_one(track, cond, out_dir, force, cache_dir, run=True):
+    """Run the tool for one track and condition (unless already done) and score it. With `run=False` nothing is
+    run: the result is None for a track without outputs."""
     from . import pipeline
 
     notes_path, report_path = os.path.join(out_dir, "notes.json"), os.path.join(out_dir, "report.json")
@@ -458,8 +459,11 @@ def run_one(track, cond, out_dir, force, cache_dir):
         bass_stems=len(track["bass"]),
     )
     err_path = os.path.join(out_dir, "error.txt")
+    done = os.path.exists(notes_path) and os.path.exists(report_path) or os.path.exists(err_path)
+    if not run and not done:
+        return None
     os.makedirs(out_dir, exist_ok=True)
-    if force or not (os.path.exists(notes_path) and os.path.exists(report_path) or os.path.exists(err_path)):
+    if run and (force or not done):
         for p in (notes_path, report_path, err_path):
             if os.path.exists(p):
                 os.remove(p)
@@ -747,6 +751,9 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, help="use the first N tracks")
     ap.add_argument("--force", action="store_true", help="re-run tracks that already have results")
     ap.add_argument(
+        "--no-run", action="store_true", help="run nothing: score and summarize what the run directory holds"
+    )
+    ap.add_argument(
         "--multi-bass",
         action="store_true",
         help="include tracks with more than one bass stem (two bass parts at once are outside the tool's scope)",
@@ -783,10 +790,24 @@ def main(argv=None):
         return 1
     os.makedirs(args.out, exist_ok=True)
     conds = [c for c in args.conditions.split(",") if c == "mix" or tracks[0]["bass"][0]["audio"]]
+    # rows of earlier or parallel invocations on the same run directory are kept: several processes may share it
+    results_path = os.path.join(args.out, "results.jsonl")
+
+    def merged(new_rows):
+        rows = {}
+        if os.path.exists(results_path):
+            for line in open(results_path):
+                r = json.loads(line)
+                rows[(r["track"], r["condition"])] = r
+        rows.update({(r["track"], r["condition"]): r for r in new_rows})
+        return [rows[k] for k in sorted(rows)]
+
     rows = []
     for k, t in enumerate(tracks):
         for cond in conds:
-            row = run_one(t, cond, os.path.join(args.out, t["id"], cond), args.force, args.cache_dir)
+            row = run_one(t, cond, os.path.join(args.out, t["id"], cond), args.force, args.cache_dir, not args.no_run)
+            if row is None:
+                continue
             rows.append(row)
             detail = (
                 f"F {row['f']:.2f}  P {row['precision']:.2f}  R {row['recall']:.2f}  "
@@ -800,9 +821,11 @@ def main(argv=None):
                 f"{row.get('error', '')}",
                 flush=True,
             )
-            atomic_write_text(
-                os.path.join(args.out, "results.jsonl"), "".join(json.dumps(r, default=float) + "\n" for r in rows)
-            )
+            atomic_write_text(results_path, "".join(json.dumps(r, default=float) + "\n" for r in merged(rows)))
+    rows = merged(rows)
+    if not rows:
+        print(f"bass2sheet-eval: nothing has been run in {args.out}", file=sys.stderr)
+        return 1
     summary, md = summarize(rows)
     summary["dataset"] = kind
     atomic_write_text(os.path.join(args.out, "summary.json"), json.dumps(summary, indent=1, default=float))
