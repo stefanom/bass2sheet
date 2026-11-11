@@ -84,6 +84,29 @@ def _demucs(wav, device):
     return {"bass": s["bass"], "drums": s["drums"], "harmony": s["other"], "vocals": s["vocals"]}
 
 
+STEM_FILES = {"bass": ("bass",), "drums": ("drums",), "harmony": ("harmony", "other", "guitar", "piano"),
+              "vocals": ("vocals",)}
+
+
+def load_stems(stems_dir, n):
+    """Stems the user already has: a directory with bass.* and drums.* and, optionally, harmony.* (or other.*,
+    guitar.*, piano.*, which are summed) and vocals.*. Any audio format; each is fitted to `n` samples."""
+    from .audio import decode
+
+    def find(name):
+        hits = sorted(p for p in os.listdir(stems_dir) if os.path.splitext(p)[0].lower() == name and not p.startswith("."))
+        return os.path.join(stems_dir, hits[0]) if hits else None
+
+    zeros = np.zeros((2, n), np.float32)
+    out = {}
+    for stem, names in STEM_FILES.items():
+        parts = [_fit(decode(p), n) for p in map(find, names) if p]
+        if not parts and stem in ("bass", "drums"):
+            raise Bass2SheetError(f"no {stem} stem in {stems_dir!r} (expected {stem}.wav or another audio format)")
+        out[stem] = sum(parts) if parts else zeros
+    return out
+
+
 def separate(method, wav, mix_path, audio_id, cache_dir, device):
     """Stems {bass, drums, harmony, vocals}, each (2, n) float32 aligned with `wav`."""
     if method not in METHODS:

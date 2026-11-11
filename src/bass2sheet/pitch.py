@@ -9,13 +9,16 @@ import torch
 from .common import FMAX, FMIN, HOP, HOP_S, SR, atomic_savez, log, sha1_array
 
 
-def track_crepe(mono, device="cpu"):
+CREPE_MODELS = ("full", "tiny")
+
+
+def track_crepe(mono, device="cpu", model="full"):
     import torchcrepe
 
     y16 = librosa.resample(mono, orig_sr=SR, target_sr=16000)
     audio = torch.from_numpy(y16)[None]
     # CREPE's lowest bin is about 32 Hz; a lower fmin masks every bin (output: flat 31.7 Hz, NaN periodicity)
-    pitch, periodicity = torchcrepe.predict(audio, 16000, hop_length=160, fmin=33.0, fmax=FMAX, model="full",
+    pitch, periodicity = torchcrepe.predict(audio, 16000, hop_length=160, fmin=33.0, fmax=FMAX, model=model,
                                             decoder=torchcrepe.decode.viterbi, return_periodicity=True,
                                             batch_size=2048, device=device)
     periodicity = torchcrepe.filter.median(periodicity, 3)
@@ -28,10 +31,12 @@ def track_pyin(mono):
     return f0
 
 
-def features(bass_mono, cache_dir, device="cpu"):
-    """Per-10 ms features of the bass stem: CREPE f0 + periodicity, pYIN f0, RMS (dB), onsets, CQT."""
+def features(bass_mono, cache_dir, device="cpu", crepe_model="full"):
+    """Per-10 ms features of the bass stem: CREPE f0 + periodicity, pYIN f0, RMS (dB), onsets, CQT.
+
+    `crepe_model` is "full" (the default, most accurate) or "tiny" (several times faster, for tests)."""
     stem_id = sha1_array(bass_mono)
-    path = os.path.join(cache_dir, f"tracks-{stem_id[:16]}.npz")
+    path = os.path.join(cache_dir, f"tracks-{stem_id[:16]}{'' if crepe_model == 'full' else '-' + crepe_model}.npz")
     if os.path.exists(path):
         log.info("pitch tracking: cached")
         tr = np.load(path)
@@ -43,12 +48,12 @@ def features(bass_mono, cache_dir, device="cpu"):
         with ThreadPoolExecutor(1) as pool:
             pyin = pool.submit(track_pyin, bass_mono)
             try:  # CREPE on the GPU (MPS/CUDA) is ~10x faster than on the CPU and matches it within 0.4 semitone
-                f0_c, per_c = track_crepe(bass_mono, device)
+                f0_c, per_c = track_crepe(bass_mono, device, crepe_model)
             except Exception as e:
                 if device == "cpu":
                     raise
                 log.warning("CREPE on %s failed (%s); using the CPU", device, e)
-                f0_c, per_c = track_crepe(bass_mono, "cpu")
+                f0_c, per_c = track_crepe(bass_mono, "cpu", crepe_model)
             f0_p = pyin.result()
         atomic_savez(path, f0_c=f0_c, per_c=per_c, f0_p=f0_p)
     rms_db = librosa.amplitude_to_db(librosa.feature.rms(y=bass_mono, frame_length=2048, hop_length=HOP)[0] + 1e-9)

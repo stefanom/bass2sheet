@@ -1,7 +1,7 @@
 """Quality gates: every run measures its own result, and a verdict decides whether the sheet can be trusted.
 
 There is no reference transcription, so each gate is a proxy; none is trusted alone. They cover the stem
-(is there bass, how much drum bleed), the transcription against the stem (coverage, notes cut short), the
+(is there any bass), the transcription against the stem (coverage, notes cut short), the
 transcription rendered back to audio against the stem (gaps, pitch), octave sanity, an independent model
 (Basic Pitch) on the same stem, and the rhythm grid. Bars where the checks disagree go on an ear-check list.
 """
@@ -50,23 +50,17 @@ def _cqt(y):
 
 
 def stem_gates(stems, mix):
-    """Cheap checks on the separated bass before spending minutes on pitch tracking."""
+    """A cheap check on the separated bass before spending minutes on pitch tracking: is there any bass at all?
+
+    There is deliberately no drum-bleed gate. The obvious proxy (how closely the stem's high-band onsets follow the
+    drums) fires on perfectly clean bass stems, because bass and drums play on the same beats; on BabySlakh it
+    scored clean stems as high as separated ones. A bad stem shows up in the transcription gates instead (coverage,
+    the audio-level match, agreement with the second model)."""
     bass = stems["bass"].mean(0)
     level = 20 * np.log10((np.sqrt(np.mean(bass ** 2)) + 1e-12) / (np.sqrt(np.mean(mix ** 2)) + 1e-12))
-    sr = 22050
-    b = librosa.resample(bass, orig_sr=SR, target_sr=sr)
-    d = librosa.resample(stems["drums"].mean(0), orig_sr=SR, target_sr=sr)
-    S = np.abs(librosa.stft(b, n_fft=2048, hop_length=220))
-    f = librosa.fft_frequencies(sr=sr, n_fft=2048)
-    hi = librosa.onset.onset_strength(S=librosa.amplitude_to_db(S[(f > 500) & (f < 4000)] + 1e-9), sr=sr, hop_length=220)
-    de = librosa.onset.onset_strength(y=d, sr=sr, hop_length=220)
-    n = min(len(hi), len(de))
-    bleed = float(np.corrcoef(hi[:n], de[:n])[0, 1]) if n > 10 and hi[:n].std() > 0 and de[:n].std() > 0 else 0.0
     return [
         Gate("bass_level", "Bass stem level vs the mix", float(level), -25.0, -35.0, True,
              "dB; very low means the separator found little or no bass").judge(),
-        Gate("drum_bleed", "Drum bleed in the bass stem", bleed, 0.15, 0.30, False,
-             "correlation of the stem's 500-4000 Hz onsets with the drum stem's; high means kick/snare leak into the bass").judge(),
     ]
 
 
@@ -95,8 +89,8 @@ def transcription_gates(stems, feat, notes, grid, origin, synth_bass, second, se
     n = len(rms_db)
     playing = rms_db > np.percentile(rms_db, 99) - 20
     cover = np.zeros(n, bool)
-    for nt in notes:
-        cover[int(nt["start"] * 100):int(nt["end"] * 100)] = True
+    for nt in notes:  # widened by the RMS window's half-length (23 ms): a note's energy reaches that far in rms_db
+        cover[max(0, int(nt["start"] * 100) - 2):int(nt["end"] * 100) + 3] = True
     coverage = float((cover & playing).sum() / max(1, playing.sum()))
     cut = []
     for a, b in zip(notes, notes[1:]):

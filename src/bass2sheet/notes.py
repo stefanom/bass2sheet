@@ -23,6 +23,11 @@ class SegParams:
     attack_look: int = 1  # look for that rise within this many frames of a note start
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
+    refine_onsets: bool = True  # move each note start to where its pluck begins to sound (1 ms resolution)
+    refine_rise_db: float = 6.0  # a pluck: the envelope rises at least this much from the trough before it
+    refine_level: float = 0.1  # the start is where the envelope has made this share of that rise
+    refine_back_s: float = 0.06  # how far before / after the frame-level start to look
+    refine_ahead_s: float = 0.05
 
     def as_dict(self):
         return asdict(self)
@@ -39,6 +44,51 @@ def attack_rise(low_db, before, after):
     n = len(low_db)
     pad = np.pad(low_db, (before, after), mode="edge")
     return sliding_window_view(pad[before:], after + 1).max(1) - sliding_window_view(pad[:n + before], before + 1).min(1)
+
+
+def refine_onsets(notes, bass_mono, p):
+    """Move note starts from the 10 ms analysis frames to where the pluck starts to sound.
+
+    Frame-level starts come from an onset detector and from CREPE's pitch changes; both see a note only once it
+    fills a good part of their window, which puts starts some 15-25 ms late. Here each start moves to the point
+    where a 1 ms envelope has made `refine_level` of its rise from the trough before the pluck to the pluck's
+    peak. Notes without such a rise (slides, hammer-ons, legato pitch changes) keep their start. Sets
+    nt["plucked"] and keeps the previous note from overlapping the new start."""
+    from scipy.ndimage import uniform_filter1d
+
+    step = 44  # samples: about 1 ms
+    env = np.sqrt(np.maximum(uniform_filter1d(bass_mono.astype(np.float64) ** 2, size=353), 0))[::step]  # 8 ms window
+    at = lambda t: int(round(t * SR / step))
+    ratio = 10 ** (p.refine_rise_db / 20)
+    for i, nt in enumerate(notes):
+        ts = nt["start"]
+        lo = max(0, at(ts - p.refine_back_s), at(notes[i - 1]["start"] + 0.03) if i else 0)
+        hi = min(len(env) - 1, at(ts + p.refine_ahead_s))
+        nt["plucked"] = False
+        if hi - lo < 5:
+            continue
+        nxt = notes[i + 1]["start"] if i + 1 < len(notes) else ts + 1
+        pk_hi = min(len(env) - 1, at(min(ts + 0.12, nxt + 0.02)))
+        pk_lo = max(lo, at(ts - 0.02))
+        if pk_hi <= pk_lo:
+            continue
+        k_peak = pk_lo + int(np.argmax(env[pk_lo:pk_hi + 1]))
+        end_trough = min(hi, k_peak)
+        if end_trough <= lo:
+            continue
+        k_trough = lo + int(np.argmin(env[lo:end_trough + 1]))
+        base, peak = env[k_trough], env[k_peak]
+        if peak < ratio * max(base, 1e-6) or k_peak <= k_trough:
+            continue
+        seg = env[k_trough:k_peak + 1]
+        k = k_trough + int(np.argmax(seg >= base + p.refine_level * (peak - base)))
+        if lo <= k <= hi:
+            new = k * step / SR
+            if i and notes[i - 1]["end"] > new - 1e-9 or i and abs(notes[i - 1]["end"] - ts) < 0.011:
+                notes[i - 1]["end"] = max(notes[i - 1]["start"] + 0.02, new)  # no overlap; keep legato joins joined
+            nt["start"], nt["plucked"] = new, True
+            nt["end"] = max(nt["end"], new + 0.02)
+    return notes
 
 
 def segment_notes(feat, bass_mono, p=SegParams()):
@@ -117,4 +167,6 @@ def segment_notes(feat, bass_mono, p=SegParams()):
     for nt in merged:
         nt["start"], nt["end"] = nt.pop("s") * HOP_S, nt.pop("e") * HOP_S
         del nt["last"]
+    if p.refine_onsets:
+        refine_onsets(merged, bass_mono, p)
     return merged, midi_c, midi_p

@@ -17,7 +17,7 @@ from .quality import CHECK_SEVERITY, check_list, gates_json, stem_gates, transcr
 from .rhythm import beat_grid, beats_and_downbeats, chords_per_bar, estimate_key, quantize
 from .score import engrave, find_mscore, musicxml
 from .second_opinion import basic_pitch_notes
-from .separate import separate
+from .separate import load_stems, separate
 
 EXIT_OK, EXIT_ERROR, EXIT_FAILED_GATES = 0, 1, 2
 
@@ -31,9 +31,9 @@ def guess_title(path):
     return base, ""
 
 
-def transcribe(stems, cache_dir, params, second_mode, bp_python, device):
+def transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_model="full"):
     bass_mono = stems["bass"].mean(0)
-    feat = features(bass_mono, cache_dir, device)
+    feat = features(bass_mono, cache_dir, device, crepe_model)
     notes, _, _ = segment_notes(feat, bass_mono, params)
     if len(notes) < 8:
         raise Bass2SheetError(f"only {len(notes)} bass notes found; the stem has no clearly pitched bass")
@@ -53,12 +53,14 @@ def transcribe(stems, cache_dir, params, second_mode, bp_python, device):
 
 
 def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=False, cache_dir=None, mscore=None,
-        renders=True, second_mode="auto", bp_python=None, device=None, bass_stem=None, pdf=True):
+        renders=True, second_mode="auto", bp_python=None, device=None, bass_stem=None, pdf=True, stems_dir=None,
+        crepe_model="full"):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
     for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
-    error comes from separation."""
+    error comes from separation. `stems_dir` skips separation altogether and reads the stems from a directory
+    (see separate.load_stems)."""
     t_start = time.time()
     timings, warnings = {}, []
     tick = lambda name, t0: timings.__setitem__(name, timings.get(name, 0) + time.time() - t0)
@@ -83,15 +85,18 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
 
         device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
-    methods = ["roformer", "demucs"] if separator == "auto" else [separator]
+    methods = ["given stems"] if stems_dir else ["roformer", "demucs"] if separator == "auto" else [separator]
     attempts, candidates = [], []
     params = SegParams()
     for i, method in enumerate(methods):
         last = i == len(methods) - 1
         t0 = time.time()
         try:
-            stems = separate(method, wav, mix_path, audio_id, cache_dir, device)
+            stems = (load_stems(stems_dir, wav.shape[1]) if stems_dir
+                     else separate(method, wav, mix_path, audio_id, cache_dir, device))
         except Exception as e:  # a missing model, a download failure, an unsupported op
+            if stems_dir:  # the given stems are the only source: nothing to fall back to
+                raise
             attempts.append(dict(method=method, outcome=f"separation failed: {e}"))
             log.warning("separation with %s failed: %s", method, e)
             continue
@@ -103,15 +108,14 @@ def run(audio_path, out_dir, title=None, artist=None, separator="auto", strict=F
             stems = dict(stems, bass=np.pad(b[:, :n], ((0, 0), (0, max(0, n - b.shape[1])))))
             method = f"{method} + given bass stem"
         sg = stem_gates(stems, mix)
-        no_bass = any(g.name == "bass_level" and g.status == "fail" for g in sg)
-        if verdict(sg) == "FAIL" and (no_bass or not last):
-            attempts.append(dict(method=method, outcome="stem failed its gates (" + ", ".join(
-                f"{g.label}: {g.value:.2f}" for g in sg if g.status == "fail") + ")" + ("" if last else
-                                                                                       "; trying the next separator")))
+        if verdict(sg) == "FAIL":  # no bass in the stem: nothing to transcribe
+            attempts.append(dict(method=method, outcome="no bass found (" + ", ".join(
+                f"{g.label}: {g.value:.1f} dB" for g in sg if g.status == "fail") + ")" + ("" if last else
+                                                                                           "; trying the next separator")))
             continue
         t0 = time.time()
         try:
-            c = transcribe(stems, cache_dir, params, second_mode, bp_python, device)
+            c = transcribe(stems, cache_dir, params, second_mode, bp_python, device, crepe_model)
         except Bass2SheetError as e:
             attempts.append(dict(method=method, outcome=str(e)))
             continue

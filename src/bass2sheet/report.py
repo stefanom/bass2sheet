@@ -20,14 +20,12 @@ def fmt(g):
         return "–"
     if g["name"] in ("bass_level", "grid_offset_ms"):
         return f"{v:.1f}"
-    if g["name"] == "drum_bleed":
-        return f"{v:.2f}"
     return f"{v:.0%}"
 
 
 def threshold(g):
     op = "≥" if g["higher_is_better"] else "≤"
-    f = (lambda x: f"{x:.0%}") if g["name"] not in ("bass_level", "grid_offset_ms", "drum_bleed") else (lambda x: f"{x:g}")
+    f = (lambda x: f"{x:.0%}") if g["name"] not in ("bass_level", "grid_offset_ms") else (lambda x: f"{x:g}")
     return f"pass {op} {f(g['warn'])}; fail beyond {f(g['fail'])}"
 
 

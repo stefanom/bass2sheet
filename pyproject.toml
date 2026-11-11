@@ -25,6 +25,22 @@ dependencies = [
 bass2sheet = "bass2sheet.cli:main"
 bass2sheet-eval = "bass2sheet.evaluate:main"
 
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["full: needs the separation models (and optionally an evaluation dataset); enable with BASS2SHEET_FULL_E2E=1"]
+filterwarnings = ["ignore::UserWarning", "ignore::DeprecationWarning", "ignore::FutureWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E731", "E741"]  # small lambdas and short math names are used on purpose
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

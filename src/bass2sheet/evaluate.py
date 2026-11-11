@@ -391,6 +391,39 @@ def summarize(rows):
     return out, "\n".join(L) + "\n"
 
 
+BASELINE_KEYS = ("f", "f_note_name", "f_with_offsets", "bar_position_acc")
+
+
+def baseline_of(rows):
+    """What a later run is compared with: per-track scores by condition."""
+    out = {}
+    for r in rows:
+        out.setdefault(r["condition"], {})[r["track"]] = {k: r.get(k) for k in BASELINE_KEYS}
+    return dict(conditions=out)
+
+
+def check_baseline(rows, baseline, max_drop):
+    """Regressions against a baseline: for each condition and score, the mean over the tracks both runs share may
+    not fall by more than `max_drop`. Returns a list of messages (empty = no regression)."""
+    problems = []
+    now = baseline_of(rows)["conditions"]
+    for cond, base_tracks in baseline.get("conditions", {}).items():
+        shared = sorted(set(base_tracks) & set(now.get(cond, {})))
+        if not shared:
+            problems.append(f"{cond}: no tracks in common with the baseline")
+            continue
+        for key in BASELINE_KEYS:
+            pairs = [(base_tracks[t].get(key), now[cond][t].get(key)) for t in shared]
+            pairs = [(b, n) for b, n in pairs if b is not None and n is not None]
+            if not pairs:
+                continue
+            b, n = float(np.mean([p[0] for p in pairs])), float(np.mean([p[1] for p in pairs]))
+            if n < b - max_drop:
+                problems.append(f"{cond}: mean {key} fell from {b:.3f} to {n:.3f} over {len(pairs)} tracks "
+                                f"(allowed drop {max_drop})")
+    return problems
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bass2sheet-eval", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dataset", help="Slakh-layout dataset directory")
@@ -402,6 +435,9 @@ def main(argv=None):
     ap.add_argument("--multi-bass", action="store_true",
                     help="include tracks with more than one bass stem (two bass parts at once are outside the tool's scope)")
     ap.add_argument("--cache-dir", default="~/.cache/bass2sheet")
+    ap.add_argument("--baseline", help="JSON written by --write-baseline: exit 3 if the scores regress against it")
+    ap.add_argument("--max-drop", type=float, default=0.02, help="allowed fall of a mean score against the baseline")
+    ap.add_argument("--write-baseline", help="write this run's per-track scores as a baseline JSON")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(levelname)s %(message)s",
@@ -436,6 +472,15 @@ def main(argv=None):
         print(f"{cond}: mean F {agg['f']['mean']:.3f}, median {agg['f']['median']:.3f}, min {agg['f']['min']:.3f} "
               f"({agg['tracks']} tracks, {agg['errors']} errors)")
     print(f"summary: {os.path.join(args.out, 'summary.md')}")
+    if args.write_baseline:
+        atomic_write_text(args.write_baseline, json.dumps(baseline_of(rows), indent=1, default=float))
+    if args.baseline:
+        problems = check_baseline(rows, json.load(open(args.baseline)), args.max_drop)
+        for p in problems:
+            print(f"REGRESSION {p}", file=sys.stderr)
+        if problems:
+            return 3
+        print("no regression against the baseline")
     return 0
 
 
