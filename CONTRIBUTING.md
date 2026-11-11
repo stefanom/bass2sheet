@@ -31,7 +31,7 @@ Accuracy claims need ground truth. Before and after a change to separation, pitc
 
 1. Run the evaluation (see [docs/evaluation.md](docs/evaluation.md)): `uv run bass2sheet-eval <dataset> --out <run dir> --baseline eval/baselines/<dataset>.json`. It exits 3 when a mean score falls by more than 0.02.
 2. For quick iteration on note segmentation, `python dev/seg_eval.py <BabySlakh dir> 'param=value' ...` re-scores cached stems and pitch tracks in seconds.
-3. Tune on BabySlakh or Slakh's validation split only. Keep the other datasets for checking, so the thresholds don't overfit to them.
+3. Tune on BabySlakh or Slakh's validation split first, and keep the other datasets for checking. When a failure shows only on real recordings, a few songs of another dataset may guide the fix: name them, and report their scores apart from the rest (docs/evaluation.md does this for the nine RWC songs behind the re-pluck splitting).
 4. When a change improves the scores on purpose, update the baseline with `--write-baseline` and say so in the pull request.
 
 Quality-gate thresholds follow the same rule: a gate should be shown to track real accuracy (the evaluation report has a gate-vs-accuracy table) before it can fail a run.
