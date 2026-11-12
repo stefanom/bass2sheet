@@ -80,37 +80,40 @@ Version 0.2.0 on an Apple M4 Max, full mixes in, default settings. `eval/baselin
 
 | Condition | F | P | R | F name | F 100ms | F+off | 8va↓ | bias | beat pos | bar pos |
 |---|---|---|---|---|---|---|---|---|---|---|
-| mix, mean | 0.91 | 0.90 | 0.92 | 0.94 | 0.92 | 0.74 | 0.03 | +16 ms | 0.95 | 0.66 |
-| mix, median | 0.95 | 0.94 | 0.96 | 0.95 | 0.96 | 0.84 | 0.00 | +11 ms | 0.98 | 0.77 |
-| stem, mean | 0.93 | 0.91 | 0.96 | 0.94 | 0.94 | 0.74 | 0.00 | +13 ms | 0.95 | 0.66 |
+| mix, mean | 0.91 | 0.91 | 0.92 | 0.94 | 0.92 | 0.73 | 0.03 | +15 ms | 0.95 | 0.66 |
+| mix, median | 0.96 | 0.95 | 0.96 | 0.96 | 0.97 | 0.83 | 0.00 | +11 ms | 0.98 | 0.77 |
+| stem, mean | 0.94 | 0.92 | 0.95 | 0.94 | 0.94 | 0.74 | 0.00 | +13 ms | 0.95 | 0.66 |
 | stem, median | 0.95 | 0.94 | 0.97 | 0.95 | 0.95 | 0.78 | 0.00 | +11 ms | 0.98 | 0.78 |
 
-- 12 of 16 songs score F ≥ 0.90 from the mix, and all but one score above 0.84. Of the reference's notes, 92% are right, 3% missed, 3% an octave off, 1% merged into a neighbour; of ours, 90% are right, 2% are re-attacks that are not there, 2% ghosts.
-- Separation costs 0.02 of mean F, all of it on one song: Track00019 scores 0.50 from the mix and 0.87 from the clean stem. The difference is notes an octave low. A sawtooth synth plays below the bass guitar there, 9 dB louder at the octave under the bass's notes, and the separator puts both in the bass track. The pitch tracker then follows the synth: the lowest line of the song, but not the reference's.
-- Track00009, whose notes last about 100 ms, scores 0.85 from the mix and 0.79 from the clean stem. It scored 0.45 and 0.55 while the pitch path could not jump: most of its notes then had no pitch.
+- 12 of 16 songs score F ≥ 0.90 from the mix, and all but one score above 0.84. Of the reference's notes, 92% are right, 2% missed, 3% an octave off, 1% merged into a neighbour; of ours, 91% are right, 2% are re-attacks that are not there, 1% ghosts.
+- Separation costs 0.02 of mean F, all of it on one song: Track00019 scores 0.49 from the mix and 0.89 from the clean stem. The difference is notes an octave low. A sawtooth synth plays below the bass guitar there, 9 dB louder at the octave under the bass's notes, and the separator puts both in the bass track. The pitch tracker then follows the synth: the lowest line of the song, but not the reference's.
+- Track00009, whose notes last about 100 ms, scores 0.85 from the mix and 0.80 from the clean stem. It scored 0.45 and 0.55 while the pitch path could not jump: most of its notes then had no pitch.
 - The grid is measured on the 11 songs whose MIDI has a 4/4 time signature throughout. Tempo is within 2% on 10 of them. Bar position is 0.95 or more on 5. On the others the bar lines are off for part or all of the song; the meter gate (the share of the beat tracker's downbeats that fit one 4/4 phase) is low on those songs, and its rank correlation with bar position is +0.84.
 
 ### MDB-bass-synth (24 of 71 songs, evenly spaced through the list)
 
 | | OA | RPA | RCA | note acc | 8va err | voicing recall | voicing false alarm |
 |---|---|---|---|---|---|---|---|
-| mean | 0.82 | 0.78 | 0.79 | 0.78 | 0.01 | 0.94 | 0.06 |
-| median | 0.85 | 0.81 | 0.82 | 0.81 | 0.00 | 0.97 | 0.03 |
+| mean | 0.81 | 0.77 | 0.78 | 0.77 | 0.01 | 0.93 | 0.06 |
+| median | 0.84 | 0.80 | 0.80 | 0.80 | 0.00 | 0.97 | 0.03 |
 
-Note acc ranges from 0.47 to 0.96. The five lowest are TablaBreakbeatScience_WhoIsIt (0.47), MusicDelta_Disco (0.50), TheSoSoGlos_Emergency (0.52), EthanHein_BluesForNofi (0.61) and Creepoid_OldTree (0.70); why has not been looked into. From the dataset's own bass track the mean is 0.84, so separation costs 0.06 here.
+Note acc ranges from 0.44 to 0.96. The five lowest are MusicDelta_Disco (0.44), TablaBreakbeatScience_WhoIsIt (0.47), TheSoSoGlos_Emergency (0.52), EthanHein_BluesForNofi (0.59) and Creepoid_OldTree (0.68); why has not been looked into. From the dataset's own bass track the mean is 0.82, so separation costs 0.05 here.
+
+These scores are 0.01 lower than before slides stopped being written as notes (see the last section): this set is scored frame by frame against the pitch curve, so a slide written as the pitches it passes through counts as right, and a slide written as the note before it does not.
 
 ### RWC Popular (24 of the 75 songs with one bass track, evenly spaced)
 
 | | F | P | R | F name | F 100ms | F+off | bias | bar pos |
 |---|---|---|---|---|---|---|---|---|
-| mean | 0.70 | 0.71 | 0.70 | 0.73 | 0.76 | 0.44 | +15 ms | 1.00 |
-| median | 0.64 | 0.67 | 0.68 | 0.69 | 0.71 | 0.37 | +13 ms | 1.00 |
+| mean | 0.71 | 0.73 | 0.70 | 0.74 | 0.77 | 0.45 | +15 ms | 1.00 |
+| median | 0.67 | 0.71 | 0.68 | 0.72 | 0.73 | 0.37 | +14 ms | 1.00 |
 
-- 6 songs score F 100ms ≥ 0.90 and 4 score below 0.60.
-- Of the reference's notes, 70% are right, 12% merged (a repeated note we wrote as one), 6% covered by a note of another pitch, 6% the wrong pitch, 2% missed, 3% an octave off. Of ours, 71% are right, 9% are re-attacks the reference does not have, 8% start inside a reference note of another pitch, 6% are the wrong pitch.
+- 7 songs score F 100ms ≥ 0.90 and 3 score below 0.60.
+- Of the reference's notes, 70% are right, 12% merged (a repeated note we wrote as one), 7% covered by a note of another pitch, 6% the wrong pitch, 2% missed, 3% an octave off. Of ours, 73% are right, 9% are re-attacks the reference does not have, 6% start inside a reference note of another pitch, 6% are the wrong pitch.
 - Of the 777 reference notes that follow a jump up of a fifth or more, 62% are written right; 53% were while the pitch path could not jump.
 - Bar position is 0.98 or more on all 21 songs with a 4/4 reference. Beat This! was trained on RWC Popular, so this is not a test of the grid.
-- Nine of these songs were used to choose how held notes are split at re-plucks. They average F 100ms 0.79; the other fifteen average 0.73.
+- Nine of these songs were used to choose how held notes are split at re-plucks. They average F 100ms 0.80; the other fifteen average 0.75.
+- The scores are of the notes as heard (`--lowest none`). With the tool's default, which writes nothing below the E string of a four-string bass, the mean F is 0.02 lower: 4% of these songs' notes are below E1, played on five-string or synth basses.
 
 ### Real bass guitar played alone (IDMT-SMT-Bass-Single-Track, 17 lines, 948 notes)
 
@@ -118,15 +121,15 @@ Note acc ranges from 0.47 to 0.96. The five lowest are TablaBreakbeatScience_Who
 
 | Note finder | F | P | R | F 100ms | An octave off | Other wrong pitch | Jumps |
 |---|---|---|---|---|---|---|---|
-| bass2sheet | 0.78 | 0.70 | 0.89 | 0.82 | 1% | 3% | 79% |
-| bass2sheet before the pitch path could jump | 0.76 | 0.70 | 0.84 | 0.80 | 2% | 2% | 46% |
-| bass2sheet without splitting held notes at re-plucks | 0.85 | 0.82 | 0.88 | 0.89 | 0% | 1% | 77% |
+| bass2sheet | 0.79 | 0.71 | 0.89 | 0.83 | 1% | 3% | 78% |
+| bass2sheet two days earlier, before the pitch path could jump | 0.76 | 0.70 | 0.84 | 0.80 | 2% | 2% | 46% |
+| bass2sheet without splitting held notes at re-plucks | 0.86 | 0.86 | 0.87 | 0.91 | 0% | 2% | 76% |
 | Basic Pitch | 0.70 | 0.62 | 0.81 | 0.76 | 4% | 5% | 78% |
 | YourMT3+ (YPTF.MoE+Multi, no pitch shift) | 0.77 | 0.80 | 0.75 | 0.78 | 5% | 10% | 79% |
 
 - **Lines that jump were written too low.** torchcrepe's Viterbi decoder lets the pitch move by a few bins per frame and no further. After a jump of a fifth or more the path lagged or stayed on the note before, where CREPE's probability is low, so the new note counted as unpitched and the old, lower note was held over it. A second cause sat in the octave rule: when CREPE and pYIN were an octave apart it took the lower note whenever that octave had a third of the energy, and it has whenever the note before still rings. pYIN smooths too, so on all 21 such notes in this set CREPE was right and pYIN was on the old note. The path may now leap (`pitch.decode_pitch`), and CREPE's octave stands when it is confident (`SegParams.trust_per`).
-- **By plucking style**, the share of notes found: finger 94%, muted 95%, pick 93%, slap with the thumb 80%, slap pops 72% (36 of 50; 9 of 50 before).
-- **Splitting held notes at re-plucks costs 0.07 here**: 14% of our notes are re-attacks that are not in the reference. On RWC Popular the same rule gains 0.02, because there the separated bass smears repeated notes into one. The default has not changed; `--replucks clear` is the stricter policy, and the judging page asks which you prefer on your own songs.
+- **By plucking style**, the share of notes found: finger 94%, muted 95%, pick 93%, slap with the thumb 81%, slap pops 66% (33 of 50; 9 of 50 before the pitch path could jump, and 36 of 50 before slides stopped being written as notes: three pops are short enough to pass for one).
+- **Splitting held notes at re-plucks costs 0.07 here**: 13% of our notes are re-attacks that are not in the reference. On RWC Popular the same rule gains 0.02, because there the separated bass smears repeated notes into one. The default has not changed; `--replucks clear` is the stricter policy, and the judging page asks which you prefer on your own songs.
 - **YourMT3+** places notes cleanly (almost no extra notes) but names the wrong pitch three times as often, and its spectrogram starts at 50 Hz, below which the lowest five notes of a bass have their fundamental. On bass tracks separated from six commercial recordings it was not usable: 14 notes for a whole song with a dark, sustained bass, a bass line labelled as guitar throughout, some 2,700 notes for a distorted one, and no note below B1 in any of them. It was trained on Slakh and on RWC Popular, so it cannot be compared on those.
 
 ### Notes played together
@@ -142,7 +145,7 @@ None of the datasets has them to speak of: 4 pairs in BabySlakh's 6,099 referenc
 | The first line, one note at a time (`--together single`) | 77 | 0 | 65 | 12 | | 0 of 73 |
 
 - **About three pairs in four are found, and what is found is right.** The pitch trackers alone write one of the two notes (more often the upper one, which is not the bass note) or nothing at all.
-- **Where there are none, few are written.** On the bass tracks separated from BabySlakh and RWC Popular, 6 of 6,363 and 14 of 14,738 notes come out as two (0.09%). The note finder's scores there do not move (F 0.911 and 0.690 with and without).
+- **Where there are none, few are written.** On the bass tracks separated from BabySlakh and RWC Popular, 7 of 6,289 and 16 of 13,988 notes come out as two (0.11%). The note finder's scores there are the same with it and without, to within 0.001.
 - **Slap playing draws false pairs**: 9 of 1,207 notes on the IDMT lines (0.7%), most of them on the slap tracks.
 - A second note must pass four tests (`together.py`): it is a note of its own in the spectrum, with two partials the first note cannot explain; it starts with the first (a note still ringing does not); it lasts with it (the pluck's noise does not); and it is louder in the bass track than in the rest of the record (a kick drum or a piano note that leaked into the bass track is not). On one of the six songs judged by ear the last test turned down 14 of 38 candidates.
 - Mixed single notes are not a double stop played by a hand: the two strings of a real one start within a few milliseconds of each other and share the instrument's resonances. Recordings of real double stops with exact notes would be the better test.
@@ -153,11 +156,11 @@ The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.
 
 | Verdict | Runs | Mean score | Lowest | Runs at 0.85 or more |
 |---|---|---|---|---|
-| PASS | 15 | 0.96 | 0.89 | 100% |
-| WARN | 49 | 0.85 | 0.57 | 51% |
-| FAIL | 16 | 0.65 | 0.47 | 12% |
+| PASS | 15 | 0.96 | 0.90 | 100% |
+| WARN | 50 | 0.84 | 0.52 | 54% |
+| FAIL | 15 | 0.66 | 0.44 | 7% |
 
-The gate thresholds and the "five warnings fail" rule were set on the runs of the version before the pitch path could jump, which gave nearly the same table, so this is close to in-sample. The gate that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.79 on BabySlakh, +0.76 on MDB, +0.57 on RWC). The meter gate does not track note accuracy; it tracks bar position, which is what it is for. Notes in bars marked "check" are right 69% of the time on BabySlakh, against 88% in other bars; on RWC, 42% against 70%.
+The gate thresholds and the "five warnings fail" rule were set on runs of an earlier version, which gave nearly the same table, so this is close to in-sample. The gate that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.79 on BabySlakh, +0.76 on MDB, +0.57 on RWC). The meter gate does not track note accuracy; it tracks bar position, which is what it is for. Notes in bars marked "check" are right 69% of the time on BabySlakh, against 88% in other bars; on RWC, 42% against 70%.
 
 ### Choosing between the two separators
 
@@ -173,5 +176,6 @@ When the BS-RoFormer result fails its gates, Demucs is tried and one of the two 
 
 - **Note starts** are placed where the pluck begins to sound. 0.1.0 found the same notes 15–25 ms late, which is why its F at 100 ms was already 0.89. This accounts for most of the gain in F (0.75 to 0.88).
 - **A pitch path that can jump** accounts for the rest (0.88 to 0.91 on BabySlakh, 0.68 to 0.70 on RWC, 0.77 to 0.78 on MDB): notes after a large jump, and very short notes, had no pitch before. See the real-bass section above for the cause.
+- **Slides, dying notes and pluck thumps are not notes.** Between two notes the pitch tracker reports the pitches a slide passes through, the pitch sinking as a note is let go, and a few frames of something else at a pluck. Each came out as a note of 70 to 130 ms, a step or two from its neighbour. A short stretch without a pluck of its own now joins the note before it when it is a step away or much quieter, and a short one at a pluck joins the note after it. RWC goes from 0.70 to 0.71 (precision 0.71 to 0.73, recall unchanged) and the real-bass set from 0.77 to 0.79. MDB, scored frame by frame, goes from 0.78 to 0.77. Its exact pitch curve says what the 1,646 stretches no longer written there were: 63% the pitch passing through or bending, 15% nothing the reference has, and 22% a steady pitch for a median 80 ms, which is a real short note lost (a hammer-on, a grace note). Requiring the pitch to move within the stretch saves some of those and keeps as many slides; it was not adopted.
 - **Beat This!** replaced the built-in beat tracker, which chose the wrong pulse level on 7 BabySlakh songs.
 - **Held notes are split at re-plucks.** Measured on the same stems, this moved mean F on the 24 RWC songs from 0.66 to 0.68 (0.72 to 0.75 at 100 ms) and on BabySlakh from 0.888 to 0.884. The gain is concentrated in songs with driving repeated notes.
