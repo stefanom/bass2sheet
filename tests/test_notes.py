@@ -224,3 +224,40 @@ def test_what_is_heard_below_the_instrument_is_written_an_octave_up():
     assert [n["pitch"] for n in five_string] == [38, 26, 28]
     as_heard, _, _ = N.segment_notes(feat, y, N.SegParams(together=False, lowest=0))
     assert [n["pitch"] for n in as_heard] == [38, 26, 28]
+
+
+def _partials(amps, f0, start, dur, seconds):
+    """A note built from its partials: `amps[k]` is the amplitude of partial k + 1."""
+    t = np.arange(int(seconds * SR)) / SR
+    env = (
+        ((t >= start) & (t < start + dur))
+        * np.exp(-np.maximum(t - start, 0) * 2.0)
+        * np.minimum(1, (t - start) / 0.005)
+    )
+    return sum(a * np.sin(2 * np.pi * (k + 1) * f0 * t) for k, a in enumerate(amps)) * np.clip(env, 0, 1)
+
+
+def _octave_case(under):
+    """An E2 with something an octave under it; CREPE is sure of the lower octave, pYIN of the upper."""
+    e1, e2 = librosa.midi_to_hz(28), librosa.midi_to_hz(40)
+    y = (_partials([0.4, 0.2, 0.13, 0.1], e2, 0.5, 0.8, 2.0) + _partials(under, e1, 0.5, 0.8, 2.0)).astype(np.float32)
+    feat = _features(y, [(0.5, 0.8, 28)])
+    feat["f0_p"] = np.where(feat["per_c"] > 0.5, e2, feat["f0_p"])
+    return feat, y
+
+
+def test_a_faint_octave_under_a_note_is_not_the_note():
+    feat, y = _octave_case([0.08])  # 14 dB under the E2 and nothing else: an effect, or the note before ringing
+    out, _, _ = N.segment_notes(feat, y)
+    assert [(n["pitch"], n["flag"]) for n in out] == [(40, "octave")]
+    as_it_was, _, _ = N.segment_notes(feat, y, N.SegParams(trust_low=True))
+    assert [n["pitch"] for n in as_it_was] == [28]
+
+
+def test_two_octaves_sounding_together_are_written_as_the_lower_one():
+    feat, y = _octave_case([0.1, 0.0, 0.08])  # the lower note is soft too, but it has its own third partial
+    out, _, _ = N.segment_notes(feat, y)
+    assert [(n["pitch"], n["flag"]) for n in out] == [(28, None)]
+    feat, y = _octave_case([0.3])  # ...or it is loud
+    out, _, _ = N.segment_notes(feat, y)
+    assert [(n["pitch"], n["flag"]) for n in out] == [(28, None)]

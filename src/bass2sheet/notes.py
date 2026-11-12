@@ -26,12 +26,12 @@ class SegParams:
     rise_before: int = 2  # pluck rise: peak in the next rise_after frames minus trough in the last rise_before
     rise_after: int = 3
     attack_look: int = 1  # look for that rise within this many frames of a note start
-    trust_per: float = 0.5  # CREPE's median periodicity over a note from which its octave stands against pYIN's
+    trust_per: float = 0.5  # CREPE's median periodicity from which its upper octave stands against pYIN's
+    trust_low: bool = False  # ... and its lower octave too, unchecked (as it was: low where a faint octave sounds)
+    third_db: float = 20.0  # its lower octave stands if that note's third partial is within this of the louder octave
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
-    lowest: int = (
-        LOWEST_NOTE  # the instrument's lowest note: what is heard below it is written an octave up (0: no limit)
-    )
+    lowest: int = LOWEST_NOTE  # the instrument's lowest note: lower ones are written an octave up (0: no limit)
     glide_frames: int = 13  # an unplucked stretch shorter than this, a step from the note beside it, is a slide
     tail_db: float = 8.0  # ... and so is one this much quieter than the note before it: that note dying away
     thump_frames: int = 10  # a plucked stretch shorter than this, right before a note with no pluck: its attack
@@ -170,15 +170,25 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
         agree = float(np.mean(np.abs(alt - pitch) <= 0.5)) if len(alt) else 0.0
         flag = None
         sure = float(np.median(per_c[idx])) >= p.trust_per
-        if p_med is not None and abs(p_med - pitch) == 12 and not sure:  # the trackers disagree by an octave
-            # ...and CREPE is not confident. (When it is, its octave stands: pYIN smooths over jumps and stays on
-            # the note before, and the energy test below sides with the lower note whenever that note still rings.)
+        if p_med is not None and abs(p_med - pitch) == 12 and not (sure and (pitch > p_med or p.trust_low)):
+            # The trackers disagree by an octave. When CREPE is confident of the upper one, it stands: pYIN
+            # smooths over jumps and stays on the note before, and the energy test below sides with the lower
+            # note whenever that note still rings.
             low, high = min(p_med, pitch), max(p_med, pitch)
             frames = slice(idx[0], idx[-1] + 1)
-            e_low = cqt[low - 21, frames].mean() if 0 <= low - 21 < 60 else 0
-            e_high = cqt[high - 21, frames].mean() if 0 <= high - 21 < 60 else 0
-            pitch = low if low >= 28 and e_low >= 0.3 * e_high else high
-            flag = "octave"
+            level = lambda m: cqt[m - 21, frames].mean() if 0 <= m - 21 < cqt.shape[0] else 0.0  # noqa: B023
+            e_low, e_high = level(low), level(high)
+            if sure and pitch == low:
+                # CREPE is confident of the lower one. It follows a faint octave under a note (the note before
+                # ringing on, an effect) as readily as a note, so the lower note stands only if it is loud or
+                # has a partial the upper note cannot give it: its third, a twelfth above it. Then both octaves
+                # sound, and the lower is the one written.
+                third = level(low + 19) >= 10 ** (-p.third_db / 20) * max(e_low, e_high)
+                pitch = low if e_low >= 0.3 * e_high or third else high
+                flag = None if pitch == low else "octave"
+            else:
+                pitch = low if low >= 28 and e_low >= 0.3 * e_high else high
+                flag = "octave"
         elif agree < 0.5:
             pc = np.array([cqt[k::12, idx].sum(0) for k in range(12)])
             if np.mean((pc.argmax(0) + 9) % 12 == pitch % 12) < 0.6:  # CQT bin 0 is A
