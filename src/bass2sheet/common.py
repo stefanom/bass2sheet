@@ -100,6 +100,20 @@ def note_name(midi, names=NOTE_NAMES):
     return f"{names[midi % 12]}{midi // 12 - 1}"
 
 
+LOWEST_NOTE = 28  # E1, the lowest string of a four-string bass in standard tuning
+
+
+def note_number(name):
+    """MIDI number of a note name such as E1, Bb0 or F#2 (C4 = 60)."""
+    import re
+
+    m = re.fullmatch(r"([A-Ga-g])([#b]?)(-?\d+)", name.strip())
+    if not m:
+        raise Bass2SheetError(f"{name!r} is not a note name (examples: E1, Bb0, F#2)")
+    base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}[m.group(1).upper()]
+    return base + {"": 0, "#": 1, "b": -1}[m.group(2)] + 12 * (int(m.group(3)) + 1)
+
+
 def spelling(key_root, key_major):
     """Sharps for sharp keys (G, D, A, E, B, F# major and their relative minors), flats otherwise."""
     relative_major = key_root if key_major else (key_root + 3) % 12

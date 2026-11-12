@@ -13,7 +13,7 @@ import sys
 import warnings
 
 from . import __version__
-from .common import Bass2SheetError, clean_name
+from .common import Bass2SheetError, clean_name, note_number
 
 
 def main(argv=None):
@@ -54,6 +54,13 @@ def main(argv=None):
         "--together",
         choices=["write", "single"],
         help="write two notes where two are played together (default), or one note at a time",
+    )
+    ap.add_argument(
+        "--lowest",
+        metavar="NOTE",
+        default="E1",
+        help="the lowest note of the instrument: what is heard below it is written an octave up. E1 (default) is "
+        "a four-string bass in standard tuning; B0 a five-string; D1 drop-D; 'none' writes the notes as heard",
     )
     ap.add_argument(
         "--rhythm",
@@ -123,6 +130,7 @@ def main(argv=None):
             beat_tracker=args.beat_tracker,
             replucks=args.replucks,
             together=args.together,
+            lowest=0 if args.lowest.lower() == "none" else note_number(args.lowest),
             rhythm=args.rhythm,
             tab=args.tab,
         )

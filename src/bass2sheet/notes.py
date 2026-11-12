@@ -7,7 +7,7 @@ import librosa
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-from .common import HOP, HOP_S, SR
+from .common import HOP, HOP_S, LOWEST_NOTE, SR
 
 
 @dataclass
@@ -29,7 +29,11 @@ class SegParams:
     trust_per: float = 0.5  # CREPE's median periodicity over a note from which its octave stands against pYIN's
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
+    lowest: int = (
+        LOWEST_NOTE  # the instrument's lowest note: what is heard below it is written an octave up (0: no limit)
+    )
     glide_frames: int = 13  # an unplucked stretch shorter than this, a step from the note beside it, is a slide
+    tail_db: float = 8.0  # ... and so is one this much quieter than the note before it: that note dying away
     thump_frames: int = 10  # a plucked stretch shorter than this, right before a note with no pluck: its attack
     together: bool = True  # look for two notes played together (see together.py)
     together_min_s: float = 0.12  # ... in stretches at least this long: a shorter spectrum cannot tell notes apart
@@ -188,12 +192,15 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
         ):
             pitch += 12
             flag = "octave"
+        while p.lowest and pitch < p.lowest:
+            pitch += 12  # below the instrument: an effect's or another instrument's octave under the note played
         start = s if idx[0] - s <= 8 else idx[0]
         notes.append(dict(s=start, last=idx[-1] + 1, pitch=pitch, agree=agree, flag=flag))
-    # Two things the pitch tracker reports between notes are not notes. The slide from one note to the next (a
+    # Three things the pitch tracker reports between notes are not notes. The slide from one note to the next (a
     # finger moving, a synth gliding) passes through the pitches in between: a short stretch without a pluck, a
-    # step from the note beside it, belongs to the note before. And the thump of a pluck can read as a pitch of
-    # its own for a few frames: a short stretch at a pluck, right before a note that has none, is that note's start.
+    # step from the note beside it, belongs to the note before. So does a short, much quieter stretch right
+    # after a note: the pitch sinks as the note is let go. And the thump of a pluck can read as a pitch of its
+    # own for a few frames: a short stretch at a pluck, right before a note that has none, is that note's start.
     if p.glide_frames or p.thump_frames:
         plucked_at = lambda t: attack[max(0, t - p.attack_look) : t + p.attack_look + 1].max() >= 1.0
         kept, k = [], 0
@@ -205,7 +212,12 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
             beside = [o["pitch"] for o in (prev, nxt) if o is not None]
             a_step_away = any(0 < abs(q - nt["pitch"]) <= 2 for q in beside)
             own_pluck = plucked_at(nt["s"])
-            if length < p.glide_frames and not own_pluck and a_step_away:
+            dying = (
+                p.tail_db > 0
+                and prev is not None
+                and np.median(rms_db[nt["s"] : nt["last"]]) <= np.median(rms_db[prev["s"] : prev["last"]]) - p.tail_db
+            )
+            if length < p.glide_frames and not own_pluck and (a_step_away or dying):
                 if prev is not None:
                     prev["last"] = nt["last"]
             elif length < p.thump_frames and own_pluck and nxt is not None and not plucked_at(nxt["s"]):
@@ -243,6 +255,8 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
                 own = own[np.isfinite(own)]
                 if cuts and len(own) >= 3:
                     part["pitch"] = int(round(np.median(own)))
+                    while p.lowest and part["pitch"] < p.lowest:
+                        part["pitch"] += 12
                 split.append(part)
         notes = split
     # a repeated pitch without a new pluck continues the previous note
@@ -268,6 +282,9 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
 
         plucked = lambda t: attack[max(0, t - p.attack_look) : t + p.attack_look + 1].max() >= 1.0
         merged = find_together(merged, bass_mono, rms_db > floor, onsets, plucked, p, rest)
+        for nt in merged:  # a pair found below the instrument moves up whole
+            while p.lowest and nt["pitch"] < p.lowest:
+                nt["pitch"], nt["also"] = nt["pitch"] + 12, [q + 12 for q in nt.get("also", [])]
     if p.refine_onsets:
         refine_onsets(merged, bass_mono, p)
     return merged, midi_c, midi_p

@@ -488,6 +488,7 @@ def run_one(track, cond, out_dir, force, cache_dir, run=True):
                 pdf=False,
                 bass_stem=stem,
                 cache_dir=cache_dir,
+                lowest=0,  # the datasets' basses are not all four-string: score the notes as heard
             )
         except Bass2SheetError as e:
             atomic_write_text(err_path, str(e))

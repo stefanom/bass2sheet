@@ -12,6 +12,7 @@ from .audio import decode, validate
 from .common import (
     ALTERNATIVES,
     DEFAULTS,
+    LOWEST_NOTE,
     SR,
     Bass2SheetError,
     atomic_write_text,
@@ -52,14 +53,20 @@ def guess_title(path):
 BEAT_TRACKERS = ("auto", "beat_this", "librosa")
 
 
-def seg_params(replucks, together=None):
-    """Note segmentation for a re-pluck policy and for whether notes played together are written (see DEFAULTS)."""
+def seg_params(replucks, together=None, lowest=LOWEST_NOTE):
+    """Note segmentation for a re-pluck policy, for whether notes played together are written (see DEFAULTS) and
+    for the instrument's lowest note (a MIDI number; 0 for no limit)."""
     together = together or DEFAULTS["together"]
     if replucks not in ALTERNATIVES["replucks"]:
         raise Bass2SheetError(f"unknown re-pluck policy {replucks!r}; expected 'every' or 'clear'")
     if together not in ALTERNATIVES["together"]:
         raise Bass2SheetError(f"unknown choice for notes played together {together!r}; expected 'write' or 'single'")
-    return SegParams(strict_replucks=replucks == "clear", split_held=replucks == "every", together=together == "write")
+    return SegParams(
+        strict_replucks=replucks == "clear",
+        split_held=replucks == "every",
+        together=together == "write",
+        lowest=int(lowest or 0),
+    )
 
 
 def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
@@ -175,11 +182,14 @@ def run(
     rhythm=None,
     tab=None,
     together=None,
+    lowest=LOWEST_NOTE,
 ):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
     `replucks`, `together`, `rhythm` and `tab` default to the standing choices in DEFAULTS, as do the first
-    separator and the beat tracker when those are left on "auto".
+    separator and the beat tracker when those are left on "auto". `lowest` is the instrument's lowest note as a
+    MIDI number (E1 by default, for the four-string bass the tab is written for): what is heard below it is
+    written an octave up; 0 leaves the notes as heard.
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
     for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
@@ -219,7 +229,7 @@ def run(
     order = [DEFAULTS["separator"]] + [m for m in ALTERNATIVES["separator"] if m != DEFAULTS["separator"]]
     methods = ["given stems"] if stems_dir else order if separator == "auto" else [separator]
     attempts, candidates = [], []
-    params = seg_params(replucks, together)
+    params = seg_params(replucks, together, lowest)
     for i, method in enumerate(methods):
         last = i == len(methods) - 1
         t0 = time.time()

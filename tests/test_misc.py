@@ -169,3 +169,18 @@ def test_the_choice_for_notes_played_together_reaches_the_note_finder():
     assert seg_params("clear", "write").strict_replucks
     with pytest.raises(Bass2SheetError):
         seg_params("every", "both")
+
+
+def test_note_names_parse_to_midi_numbers():
+    import pytest
+
+    from bass2sheet.common import LOWEST_NOTE, Bass2SheetError, note_name, note_number
+    from bass2sheet.pipeline import seg_params
+
+    assert [note_number(x) for x in ("E1", "B0", "D1", "F#2", "Bb0", "C4", "e1")] == [28, 23, 26, 42, 22, 60, 28]
+    assert all(note_number(note_name(m)) == m for m in range(20, 70))
+    for bad in ("H2", "E", "1E", ""):
+        with pytest.raises(Bass2SheetError):
+            note_number(bad)
+    assert LOWEST_NOTE == 28 and seg_params("every").lowest == 28
+    assert seg_params("every", lowest=23).lowest == 23 and seg_params("every", lowest=0).lowest == 0

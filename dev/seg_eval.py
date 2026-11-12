@@ -54,7 +54,7 @@ for t in ev.load_dataset(dataset, annotations)[1]:
     feats[t["id"]] = (features(mono, cache), mono, ref)
 print(f"{len(feats)} tracks with cached stems and pitch tracks ({cond})")
 for spec in specs or [""]:
-    p = SegParams()
+    p = SegParams(lowest=0)  # the datasets' basses are not all four-string
     for kv in filter(None, spec.split(",")):
         k, v = kv.split("=")
         setattr(p, k, type(getattr(p, k))(eval(v)))

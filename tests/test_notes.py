@@ -194,3 +194,33 @@ def test_the_thump_of_a_pluck_is_the_start_of_its_note():
     assert [n["pitch"] for n in out] == [37, 40] and abs(out[1]["start"] - 1.0) < 0.02
     kept, _, _ = N.segment_notes(feat, y, N.SegParams(thump_frames=0))
     assert [n["pitch"] for n in kept] == [37, 34, 40]
+
+
+def test_the_pitch_sinking_as_a_note_dies_away_is_not_a_note():
+    spec = [(0.5, 0.4, 37), (1.0, 0.5, 40)]  # C#2, let go at 0.9 s, then E2
+    y = _stem(spec, 2.0)
+    heard = [(0.5, 0.4, 37), (0.9, 0.08, 34), (1.0, 0.5, 40)]  # 80 ms of Bb1 in the silence after the C#2
+    feat = _features(y, heard, lag_frames=0)
+    feat["onsets"] = np.array([50, 100])
+    feat["rms_db"][90:98] = feat["rms_db"][55:85].mean() - 12  # the sound there is the C#2 fading
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out] == [37, 40]
+    kept, _, _ = N.segment_notes(feat, y, N.SegParams(tail_db=0.0))
+    assert [n["pitch"] for n in kept] == [37, 34, 40]
+    feat["rms_db"][90:98] = feat["rms_db"][55:85].mean()  # as loud as the note before: a note of its own
+    loud, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in loud] == [37, 34, 40]
+
+
+def test_what_is_heard_below_the_instrument_is_written_an_octave_up():
+    spec = [(0.5, 0.45, 38), (1.0, 0.45, 40), (1.5, 0.45, 28)]  # D2, E2, E1
+    y = _stem(spec, 2.5)
+    heard = [(0.5, 0.45, 38), (1.0, 0.45, 26), (1.5, 0.45, 28)]  # the tracker follows a D1 under the second note
+    feat = _features(y, heard)
+    feat["f0_p"] = feat["f0_c"].copy()
+    out, _, _ = N.segment_notes(feat, y, N.SegParams(together=False))
+    assert [n["pitch"] for n in out] == [38, 38, 28]  # D1 is under a four-string bass: written as D2
+    five_string, _, _ = N.segment_notes(feat, y, N.SegParams(together=False, lowest=23))
+    assert [n["pitch"] for n in five_string] == [38, 26, 28]
+    as_heard, _, _ = N.segment_notes(feat, y, N.SegParams(together=False, lowest=0))
+    assert [n["pitch"] for n in as_heard] == [38, 26, 28]
