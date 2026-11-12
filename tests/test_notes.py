@@ -153,3 +153,44 @@ def test_an_unsure_tracker_still_defers_to_the_spectrum_on_the_octave():
     feat["f0_c"][:] = np.where(feat["per_c"] > 0.4, librosa.midi_to_hz(40), feat["f0_c"])  # an octave high
     out, _, _ = N.segment_notes(feat, y)
     assert [(n["pitch"], n["flag"]) for n in out] == [(28, "octave")]
+
+
+def test_the_slide_between_two_notes_is_not_a_note():
+    spec = [(0.5, 0.5, 40), (1.0, 0.5, 37)]  # E2 then C#2
+    y = _stem(spec, 2.0)
+    heard = [(0.5, 0.4, 40), (0.9, 0.1, 39), (1.0, 0.5, 37)]  # the tracker reads Eb2 for 100 ms on the way down
+    feat = _features(y, heard, lag_frames=0)
+    feat["onsets"] = np.array([50, 100])
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out] == [40, 37] and abs(out[0]["end"] - out[1]["start"]) < 0.03
+    kept, _, _ = N.segment_notes(feat, y, N.SegParams(glide_frames=0))
+    assert [n["pitch"] for n in kept] == [40, 39, 37]
+
+
+def test_a_short_plucked_note_a_step_away_is_kept():
+    spec = [(0.5, 0.5, 40), (1.0, 0.1, 39), (1.1, 0.5, 37)]  # here the Eb2 is played: it has its own pluck
+    y = _stem(spec, 2.0)
+    out, _, _ = N.segment_notes(_features(y, spec), y)
+    assert [n["pitch"] for n in out] == [40, 39, 37]
+
+
+def test_a_slide_longer_than_a_slide_is_a_note():
+    spec = [(0.5, 0.5, 40), (1.2, 0.5, 37)]
+    y = _stem(spec, 2.0)
+    heard = [(0.5, 0.5, 40), (1.0, 0.2, 39), (1.2, 0.5, 37)]  # 200 ms on Eb2 with no pluck: a hammered note
+    feat = _features(y, heard, lag_frames=0)
+    feat["onsets"] = np.array([50, 120])
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out] == [40, 39, 37]
+
+
+def test_the_thump_of_a_pluck_is_the_start_of_its_note():
+    spec = [(0.5, 0.45, 37), (1.0, 0.5, 40)]
+    y = _stem(spec, 2.0)
+    heard = [(0.5, 0.45, 37), (1.0, 0.07, 34), (1.07, 0.43, 40)]  # 70 ms of Bb1 at the pluck of the E2
+    feat = _features(y, heard, lag_frames=0)
+    feat["onsets"] = np.array([50, 100])
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out] == [37, 40] and abs(out[1]["start"] - 1.0) < 0.02
+    kept, _, _ = N.segment_notes(feat, y, N.SegParams(thump_frames=0))
+    assert [n["pitch"] for n in kept] == [37, 34, 40]

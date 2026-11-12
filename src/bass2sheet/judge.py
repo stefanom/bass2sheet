@@ -156,7 +156,7 @@ def code_id():
     """A hash of the modules that decide what is heard in a song, so results kept from an older tool are not
     taken for the current one's."""
     h = hashlib.sha1()
-    for name in ("audio", "common", "notes", "pipeline", "pitch", "rhythm", "separate"):
+    for name in ("audio", "common", "notes", "pipeline", "pitch", "rhythm", "separate", "together"):
         with open(os.path.join(os.path.dirname(__file__), name + ".py"), "rb") as f:
             h.update(f.read())
     return h.hexdigest()[:8]

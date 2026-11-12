@@ -29,6 +29,8 @@ class SegParams:
     trust_per: float = 0.5  # CREPE's median periodicity over a note from which its octave stands against pYIN's
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
+    glide_frames: int = 13  # an unplucked stretch shorter than this, a step from the note beside it, is a slide
+    thump_frames: int = 10  # a plucked stretch shorter than this, right before a note with no pluck: its attack
     together: bool = True  # look for two notes played together (see together.py)
     together_min_s: float = 0.12  # ... in stretches at least this long: a shorter spectrum cannot tell notes apart
     together_second: float = 0.35  # the second note explains at least this share of what the first one does
@@ -188,6 +190,30 @@ def segment_notes(feat, bass_mono, p=None, rest=None):
             flag = "octave"
         start = s if idx[0] - s <= 8 else idx[0]
         notes.append(dict(s=start, last=idx[-1] + 1, pitch=pitch, agree=agree, flag=flag))
+    # Two things the pitch tracker reports between notes are not notes. The slide from one note to the next (a
+    # finger moving, a synth gliding) passes through the pitches in between: a short stretch without a pluck, a
+    # step from the note beside it, belongs to the note before. And the thump of a pluck can read as a pitch of
+    # its own for a few frames: a short stretch at a pluck, right before a note that has none, is that note's start.
+    if p.glide_frames or p.thump_frames:
+        plucked_at = lambda t: attack[max(0, t - p.attack_look) : t + p.attack_look + 1].max() >= 1.0
+        kept, k = [], 0
+        while k < len(notes):
+            nt = notes[k]
+            length = nt["last"] - nt["s"]
+            prev = kept[-1] if kept and nt["s"] - kept[-1]["last"] <= 3 else None
+            nxt = notes[k + 1] if k + 1 < len(notes) and notes[k + 1]["s"] - nt["last"] <= 3 else None
+            beside = [o["pitch"] for o in (prev, nxt) if o is not None]
+            a_step_away = any(0 < abs(q - nt["pitch"]) <= 2 for q in beside)
+            own_pluck = plucked_at(nt["s"])
+            if length < p.glide_frames and not own_pluck and a_step_away:
+                if prev is not None:
+                    prev["last"] = nt["last"]
+            elif length < p.thump_frames and own_pluck and nxt is not None and not plucked_at(nxt["s"]):
+                nxt["s"] = nt["s"]
+            else:
+                kept.append(nt)
+            k += 1
+        notes = kept
     # hold each note while it still sounds: up to the next note, a decay_db drop, or a long unpitched stretch
     unpitched = per_c < p.stay_per
     for i, nt in enumerate(notes):
