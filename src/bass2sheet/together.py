@@ -116,13 +116,15 @@ def _level(spectrum, f):
     return float(db[near].max()) if near.any() else -120.0
 
 
-def notes_in(mono, start, end, given=None, rise=5.0, hold=20.0, second=0.35, strong=-14.0):
+def notes_in(mono, start, end, given=None, rise=5.0, hold=20.0, second=0.35, strong=-14.0, rest=None, own=3.0):
     """The notes sounding together in mono[start:end], low to high: [] (no pitch to be found), [pitch] or two.
 
     A second note stands only if each of the two has a partial the other cannot explain, and that partial
     was at least `rise` dB quieter just before the stretch (a note still ringing, or another instrument holding
     one, was there before) and has not dropped by more than `hold` dB in the second half of the stretch (the
-    tail of the note before, or the pluck, is gone by then)."""
+    tail of the note before, or the pluck, is gone by then). With `rest`, the record without the bass track,
+    it must also be `own` dB louder in the bass track than there: a kick drum or a piano note that leaked into
+    the bass track is louder where it belongs."""
     peaks = peaks_of(mono, start, end)
     got = sieve(peaks, given, second, strong)
     if len(got) < 2:
@@ -137,16 +139,21 @@ def notes_in(mono, start, end, given=None, rise=5.0, hold=20.0, second=0.35, str
         _spectrum(mono, start - 0.16, start - 0.02),
         _spectrum(mono, middle, stop),
     )
+    whole = _spectrum(mono, start + 0.03, stop)
+    elsewhere = None if rest is None else _spectrum(rest, start + 0.03, stop)
     for note, other in (got, got[::-1]):
         f0 = float(hz(note))
         mine, theirs = explain(peaks, f0), set(explain(peaks, float(hz(other))).values())
-        own = [k for k in (1, 2, 3) if k in mine and mine[k] not in theirs and peaks[mine[k]][1] >= strong - 4]
-        if not own:
+        mine_only = [k for k in (1, 2, 3) if k in mine and mine[k] not in theirs and peaks[mine[k]][1] >= strong - 4]
+        if not mine_only:
             return [other]
-        if early and before and max(_level(early, k * f0) - _level(before, k * f0) for k in own) < rise:
+        if early and before and max(_level(early, k * f0) - _level(before, k * f0) for k in mine_only) < rise:
             return [other]
-        if early and late and max(_level(late, k * f0) - _level(early, k * f0) for k in own) < -hold:
+        if early and late and max(_level(late, k * f0) - _level(early, k * f0) for k in mine_only) < -hold:
             return [other]
+        if whole and elsewhere:
+            if float(np.median([_level(whole, k * f0) - _level(elsewhere, k * f0) for k in mine_only])) < own:
+                return [other]
     return got
 
 
@@ -186,12 +193,13 @@ def join_pieces(notes, bass_mono, rise):
     return out
 
 
-def find_together(notes, bass_mono, sounding, onsets, attacked, p):
+def find_together(notes, bass_mono, sounding, onsets, attacked, p, rest=None):
     """Look at every stretch of the bass track again for two notes played together.
 
     `notes` are the single notes already found ({start, end, pitch, ...}, in order); `sounding` says per 10 ms
     frame whether the track is loud enough to hold a note, `onsets` are the frames where something starts, and
-    `attacked(frame)` whether a pluck starts there. Returns the notes with `also` (the pitches sounding with a
+    `attacked(frame)` whether a pluck starts there; `rest` is the record without the bass track, when there is
+    one (see notes_in). Returns the notes with `also` (the pitches sounding with a
     note, above it) set where two were found:
       - a note with a second one under or over it becomes the lower of the two, with the upper in `also`;
       - notes that follow each other without a new pluck and are the two notes of one pair are one event
@@ -199,7 +207,16 @@ def find_together(notes, bass_mono, sounding, onsets, attacked, p):
       - a stretch that sounds but has no note, because the tracker lost the pitch, gets one if it holds a pair."""
     frame = lambda t: int(round(t / HOP_S))
     look = lambda a, b, given=None: notes_in(
-        bass_mono, a, b, given, p.together_rise, p.together_hold, p.together_second, p.together_strong
+        bass_mono,
+        a,
+        b,
+        given,
+        p.together_rise,
+        p.together_hold,
+        p.together_second,
+        p.together_strong,
+        rest,
+        p.together_own,
     )
     out, k = [], 0
     while k < len(notes):

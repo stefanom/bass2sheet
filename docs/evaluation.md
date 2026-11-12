@@ -129,6 +129,24 @@ Note acc ranges from 0.47 to 0.96. The five lowest are TablaBreakbeatScience_Who
 - **Splitting held notes at re-plucks costs 0.07 here**: 14% of our notes are re-attacks that are not in the reference. On RWC Popular the same rule gains 0.02, because there the separated bass smears repeated notes into one. The default has not changed; `--replucks clear` is the stricter policy, and the judging page asks which you prefer on your own songs.
 - **YourMT3+** places notes cleanly (almost no extra notes) but names the wrong pitch three times as often, and its spectrogram starts at 50 Hz, below which the lowest five notes of a bass have their fundamental. On bass tracks separated from six commercial recordings it was not usable: 14 notes for a whole song with a dark, sustained bass, a bass line labelled as guitar throughout, some 2,700 notes for a distorted one, and no note below B1 in any of them. It was trained on Slakh and on RWC Popular, so it cannot be compared on those.
 
+### Notes played together
+
+`python dev/together_eval.py IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
+
+None of the datasets has them to speak of: 4 pairs in BabySlakh's 6,099 reference notes and 37 in RWC's 49,229, half of them octaves. So the test lines are made here, from 218 real notes of the IDMT set played alone, two together (a third to a tenth apart) or an octave apart, which must come out as one note.
+
+| Line | Pairs | Both notes, as one event | One of the two | Nothing | A wrong second note | Single notes and octaves written as two |
+|---|---|---|---|---|---|---|
+| Each note ends where the next begins | 77 | 60 (59 + 1 in pieces) | 13 | 2 | 2 | 0 of 73 |
+| Each note rings on under the next | 67 | 52 (49 + 3 in pieces) | 14 | 1 | 0 | 1 of 83 |
+| The first line, one note at a time (`--together single`) | 77 | 0 | 65 | 12 | | 0 of 73 |
+
+- **About three pairs in four are found, and what is found is right.** The pitch trackers alone write one of the two notes (more often the upper one, which is not the bass note) or nothing at all.
+- **Where there are none, few are written.** On the bass tracks separated from BabySlakh and RWC Popular, 6 of 6,363 and 14 of 14,738 notes come out as two (0.09%). The note finder's scores there do not move (F 0.911 and 0.690 with and without).
+- **Slap playing draws false pairs**: 8 of 1,207 notes on the IDMT lines (0.7%), nearly all on the slap tracks.
+- A second note must pass four tests (`together.py`): it is a note of its own in the spectrum, with two partials the first note cannot explain; it starts with the first (a note still ringing does not); it lasts with it (the pluck's noise does not); and it is louder in the bass track than in the rest of the record (a kick drum or a piano note that leaked into the bass track is not). On one of the six songs judged by ear the last test turned down 14 of 38 candidates, most of them with the kick drum's pitch as the lower note.
+- Mixed single notes are not a double stop played by a hand: the two strings of a real one start within a few milliseconds of each other and share the instrument's resonances. Recordings of real double stops with exact notes would be the better test.
+
 ### Verdicts against measured scores
 
 The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.

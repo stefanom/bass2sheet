@@ -20,9 +20,10 @@ You judge the pipeline in the order the tool runs it, and each step on its own o
 |---|---|---|---|
 | 1. Isolate the bass (`separator`) | BS-RoFormer or Demucs | The two isolated bass tracks; with "What was left behind", the record without each | A pitch picture of each track. Amber marks what sounds in one and hardly in the other |
 | 2. Find the notes (`replucks`) | A repeated pitch is a new note at every pluck heard, or only at a clear, bright one | The isolated bass, and each version's notes as they were heard; with "Real bass left, notes right", both at once | The pitch picture of the isolated bass with the tracked pitch as a line and the notes as boxes. Amber boxes are in that version only |
-| 3. Count the bars (`barlines`) | Beats from the Beat This! model, or from the built-in tracker | The record with each version's count, high on beat 1 | The sheet |
-| 4. Write the rhythm (`rhythm`) | The rhythm as played, or stray sixteenths moved onto eighths and short rests closed | The record with the bass played as each sheet is written | The sheet |
-| 5. Place it on the neck (`tab`) | Tab low on the neck with open strings, or with the hand kept in one position | The same sound for both | The tab |
+| 3. Notes played together (`together`) | Two notes where the tool hears two played together, or one note at a time as the pitch tracker heard it | As in step 2 | As in step 2; the passages are the ones where two notes were heard |
+| 4. Count the bars (`barlines`) | Beats from the Beat This! model, or from the built-in tracker | The record with each version's count, high on beat 1 | The sheet |
+| 5. Write the rhythm (`rhythm`) | The rhythm as played, or stray sixteenths moved onto eighths and short rests closed | The record with the bass played as each sheet is written | The sheet |
+| 6. Place it on the neck (`tab`) | Tab low on the neck with open strings, or with the hand kept in one position | The same sound for both | The tab |
 
 A pitch picture shows what sounds in a bass track: time from left to right, low notes at the bottom, darker where it is louder. The lines marked E1, A1, D2 and G2 are the open strings. The lowest notes are blurred in time; that is the picture, not the track.
 

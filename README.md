@@ -55,7 +55,7 @@ bass2sheet SONG [-o OUT_DIR] [--title T] [--artist A] [--strict]
 
 Exit codes: `0` the sheet was written (PASS or WARN); `2` the result failed its gates (the sheet is marked DRAFT, or not written with `--strict`); `1` error (unreadable input, no bass found).
 
-Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--beat-tracker auto|beat_this|librosa`, `--replucks every|clear`, `--rhythm literal|simple`, `--tab low|position`, `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
+Other options: `--separator auto|roformer|demucs`, `--stems DIR` (use stems you already have and skip separation), `--beat-tracker auto|beat_this|librosa`, `--replucks every|clear`, `--together write|single`, `--rhythm literal|simple`, `--tab low|position`, `--no-audio`, `--no-pdf`, `--second-opinion off`, `--mscore PATH`, `--cache-dir DIR`, `--device mps|cuda|cpu`, `--crepe-model full|tiny`.
 
 A 4-minute song takes about 3 minutes on an M-series MacBook the first time.
 
@@ -68,14 +68,14 @@ bass2sheet-judge build SONG... --dir judging
 bass2sheet-judge serve --dir judging        # then open http://localhost:8765
 ```
 
-The steps are: which model isolates the bass (you hear the two isolated tracks), which notes are found in it, where the bar lines fall, whether the rhythm is written as played or simplified, and whether the tab stays low on the neck or in one position. Each step of a song is built on what you picked before it. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
+The steps are: which model isolates the bass (you hear the two isolated tracks), which notes are found in it, whether two notes played together are written as a chord, where the bar lines fall, whether the rhythm is written as played or simplified, and whether the tab stays low on the neck or in one position. Each step of a song is built on what you picked before it. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
 
 ## How it works
 
 1. **Decode and validate.** Any format to 44.1 kHz stereo. Unreadable, silent, very short or very long input is refused with a message.
 2. **Separate the bass.** BS-RoFormer SW (via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator)) is the default. Demucs `htdemucs_ft` is tried when it fails or its result fails the gates; of the two results, the one with fewer failed gates is kept, then the one whose note starts Basic Pitch confirms more often.
 3. **Track pitch.** CREPE on the GPU, with pYIN as a cross-check. CREPE's output is decoded into a pitch path that moves smoothly within a note and may leap between notes, as a bass line does.
-4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a held note is split where the string is plucked again, and only there; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected.
+4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a held note is split where the string is plucked again, and only there; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected. The pitch trackers follow one note at a time, so every stretch is then looked at again for two notes played together: the spectrum's peaks must hold a second note of their own that starts with the first, lasts with it and is louder in the bass track than in the rest of the record. An octave is never written as two notes.
 5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
 6. **Key and chords.** Rough estimates for the chord symbols and note spelling.
 7. **Engrave.** MusicXML with a tab staff whose fingering comes from a search that keeps the fretting hand in place; MuseScore turns it into the PDF.
@@ -132,7 +132,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 ## Limits
 
 - The score is always written in 4/4 with straight sixteenths. Other meters and swing are not notated; the meter and grid gates flag them. Tempo changes are followed beat by beat, but the score shows one tempo.
-- One bass line. Two basses at once, and chords on the bass, are out of scope.
+- One bass. Two notes played together are written as a chord when the tool is sure of both; it misses about a quarter of them, and an octave is always written as its lower note. Three notes or more, and two basses at once, are out of scope.
 - The tab assumes a 4-string bass in standard tuning.
 - Very short staccato notes (under about 100 ms) are often missed, and fast repeated notes on one pitch can come out as one long note.
 - A bar of another length (a 2/4 bar in a 4/4 song) shifts the bar lines after it.

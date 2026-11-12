@@ -83,7 +83,9 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
     key and the chords. Returns them with the pitch features (`feat`) and the 4/4 fit of the beats (`meter_fit`)."""
     bass_mono = stems["bass"].mean(0)
     feat = features(bass_mono, cache_dir, device, crepe_model)
-    notes, _, _ = segment_notes(feat, bass_mono, params)
+    others = [v.mean(0) for k, v in stems.items() if k != "bass"]
+    rest = sum(v[: len(bass_mono)] for v in others) if others else None  # the record without the bass track
+    notes, _, _ = segment_notes(feat, bass_mono, params, rest)
     if len(notes) < 8:
         raise Bass2SheetError(f"only {len(notes)} bass notes found; the stem has no clearly pitched bass")
     if mix is None:

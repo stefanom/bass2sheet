@@ -105,3 +105,15 @@ def test_a_tracker_that_flips_between_the_two_notes_or_loses_them_still_gives_on
     assert _written(lost) == both
     late = [(0.5, 0.45, 33), (1.25, 0.2, 40), (1.5, 0.45, 36), (2.0, 0.45, 38)]  # ...or only for its second half
     assert _written(late) == both
+
+
+def test_a_note_that_is_louder_in_the_rest_of_the_record_is_not_the_basss():
+    bass = _line([(0.2, 0.5, 33), (0.2, 0.5, 40)], 1.0)  # an E in the bass track beside the bass's A...
+    piano = 3 * _line([(0.2, 0.5, 40)], 1.0)  # ...which the piano plays, 10 dB louder: it leaked
+    assert T.notes_in(bass, 0.2, 0.7, given=33) == [33, 40]
+    assert T.notes_in(bass, 0.2, 0.7, given=33, rest=piano) == [33]
+    assert T.notes_in(bass, 0.2, 0.7, given=40, rest=piano) == [33]  # ...even when the tracker followed it
+    quiet = 0.2 * _line([(0.2, 0.5, 40), (0.2, 0.5, 52)], 1.0)  # a guitar doubling it softly changes nothing
+    assert T.notes_in(bass, 0.2, 0.7, given=33, rest=quiet) == [33, 40]
+    drums = _line([(0.2, 0.3, 26)], 1.0)  # something else entirely in the rest of the record
+    assert T.notes_in(bass, 0.2, 0.7, given=33, rest=drums) == [33, 40]

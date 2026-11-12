@@ -48,7 +48,7 @@ for t in ev.load_dataset(dataset, annotations)[1]:
     mono = bass.mean(0)
     from bass2sheet.common import sha1_array
 
-    if not os.path.exists(os.path.join(cache, f"tracks-{sha1_array(mono)[:16]}.npz")):
+    if not os.path.exists(os.path.join(cache, f"crepe-{sha1_array(mono)[:16]}.npz")):
         continue  # pitch tracks not cached yet: skip rather than spend minutes
     ref = ev.reference(t, os.path.join(cache, f"refoct-{t['id']}.json"))["notes"]
     feats[t["id"]] = (features(mono, cache), mono, ref)

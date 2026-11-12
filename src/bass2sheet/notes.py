@@ -35,6 +35,7 @@ class SegParams:
     together_strong: float = -14.0  # ... with two of its first three partials within this many dB of the loudest
     together_rise: float = 5.0  # ... which were this much quieter just before (dB): it starts with the first
     together_hold: float = 20.0  # ... and lose no more than this by the second half (dB): it lasts with it
+    together_own: float = 3.0  # ... and are this much louder in the bass track than in the rest of the record (dB)
     refine_onsets: bool = True  # move each note start to where its pluck begins to sound (1 ms resolution)
     refine_rise_db: float = 6.0  # a pluck: the envelope rises at least this much from the trough before it
     refine_level: float = 0.1  # the start is where the envelope has made this share of that rise
@@ -117,9 +118,10 @@ def refine_onsets(notes, bass_mono, p):
     return notes
 
 
-def segment_notes(feat, bass_mono, p=None):
+def segment_notes(feat, bass_mono, p=None, rest=None):
     """Notes as dicts {start, end (s), pitch (MIDI), agree, flag}; flag is None, "octave" or "uncertain". A note
-    played together with others has them in `also` (pitches above it); `pitch` is then the lowest."""
+    played together with others has them in `also` (pitches above it); `pitch` is then the lowest. `rest` is the
+    record without the bass track (mono), when there is one: it tells a second note from another instrument's."""
     p = p or SegParams()
     f0_c, per_c, f0_p, rms_db, onsets = feat["f0_c"], feat["per_c"], feat["f0_p"], feat["rms_db"], feat["onsets"]
     cqt = feat["cqt"][:60]  # A0..G#5
@@ -239,7 +241,7 @@ def segment_notes(feat, bass_mono, p=None):
         from .together import find_together
 
         plucked = lambda t: attack[max(0, t - p.attack_look) : t + p.attack_look + 1].max() >= 1.0
-        merged = find_together(merged, bass_mono, rms_db > floor, onsets, plucked, p)
+        merged = find_together(merged, bass_mono, rms_db > floor, onsets, plucked, p, rest)
     if p.refine_onsets:
         refine_onsets(merged, bass_mono, p)
     return merged, midi_c, midi_p
