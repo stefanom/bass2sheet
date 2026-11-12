@@ -42,9 +42,19 @@ def _hat(rng):
     return (noise - np.convolve(noise, np.ones(8) / 8, mode="same")) * np.exp(-t * 120)
 
 
-def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=0.0):
+def _swell(hz, dur, level):
+    """A dull note: no pluck, the tone fades in over 40 ms. Its level rises but its attack has no brightness."""
+    t = np.arange(int(dur * SR)) / SR
+    env = np.minimum(1, t / 0.04) ** 2 * np.exp(-t * 2.5) * np.minimum(1, (dur - t) / 0.02)
+    return level * env * (np.sin(2 * np.pi * hz * t) + 0.3 * np.sin(4 * np.pi * hz * t))
+
+
+def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=0.0, taste=False):
     """Returns dict(mix, stems={bass, drums, harmony}, notes=[(start, end, pitch)], beats, downbeats, tempo, sr).
-    Audio arrays are stereo float32 (2, n). `swing_ms` delays every off-beat eighth of the bass (0 = straight)."""
+    Audio arrays are stereo float32 (2, n). `swing_ms` delays every off-beat eighth of the bass (0 = straight).
+    With `taste` the song has two things that can be written either way: in two bars of three the second note,
+    which repeats the first, has no pluck (the re-pluck policies differ on it), and in every other bar the last
+    note comes a sixteenth early (the rhythm policies differ on that)."""
     rng = np.random.default_rng(seed)
     beat = 60.0 / tempo
     n = int((lead_in_s + bars * 4 * beat + tail_s) * SR)
@@ -63,11 +73,15 @@ def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=
         tt = np.arange(int(4 * beat * SR)) / SR
         pad = sum(np.sin(2 * np.pi * 440 * 2 ** ((m - 69) / 12) * tt) for m in tones)
         _place(harmony, t_bar, 0.05 * pad * np.minimum(1, tt / 0.02) * np.minimum(1, (4 * beat - tt) / 0.05))
-        for s16, len16, up in PATTERN:
+        pattern = PATTERN[:-2] + [(12, 1, 7), (13, 3, 5)] if taste and bar % 2 else PATTERN
+        for s16, len16, up in pattern:
             start = t_bar + s16 * beat / 4 + (swing_ms / 1000 if s16 % 4 == 2 else 0)
             dur = len16 * beat / 4 * 0.95
             pitch = root + up
-            _place(bass, start, 0.5 * pluck(440 * 2 ** ((pitch - 69) / 12), dur, 100))
+            if taste and s16 == 4 and bar % 3:
+                _place(bass, start, _swell(440 * 2 ** ((pitch - 69) / 12), dur, 0.35))
+            else:
+                _place(bass, start, 0.5 * pluck(440 * 2 ** ((pitch - 69) / 12), dur, 100))
             notes.append((start, start + dur, pitch))
     stereo = lambda y: np.stack([y, y]).astype(np.float32)
     stems = dict(bass=stereo(bass), drums=stereo(drums), harmony=stereo(harmony))

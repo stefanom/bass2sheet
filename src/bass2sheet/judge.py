@@ -1074,6 +1074,18 @@ def heard_under(workdir, song, opts, keep=True):
     return lambda settings: make_version(settings, hear(song["path"], settings, keep=folder, **kw))
 
 
+def asked_already(workdir, comps, song, step_id, key, va, vb, bars):
+    """True when a comparison of this step that still counts shows these bars as the two versions write them."""
+    for c in comps:
+        if (c["song"], c["choice"], c.get("base_key"), c["bars_a"]) != (song["id"], step_id, key, list(bars)):
+            continue
+        if not changed_how(load_version(workdir, c["a"]), va, c) and not changed_how(
+            load_version(workdir, c["b"]), vb, c
+        ):
+            return True
+    return False
+
+
 def build_step(workdir, song, step, base, key, comps, opts, rng, say):
     """Make one step's comparisons for one song on `base`: the tool's defaults with what was picked at the
     earlier steps. Returns how many comparisons the step has on this base."""
@@ -1101,6 +1113,8 @@ def build_step(workdir, song, step, base, key, comps, opts, rng, say):
         if old:  # reached before from other earlier picks: its judgment stands
             old["base_key"] = key
             continue
+        if asked_already(workdir, comps, song, step["id"], key, va, vb, w["bars"]):
+            continue  # the tool has changed since, but not what it writes in this passage
         values = (base[setting], alt)
         comp = add_comparison(
             comps, song, step["id"], step["kind"], va, vb, rel_a, rel_b, w, rng, values, values[0], key, count
@@ -1185,6 +1199,30 @@ def forget_unjudged_steps(song, comps, judged):
                 del built[key]
 
 
+def retire_unsettled(workdir, song, judged, live, version, now):
+    """Set aside the comparisons of a song that are not settled (not judged yet, or judged "neither") and whose
+    passage the tool now writes differently under either version's settings. Their step is built again, by the
+    tool as it is now; a pick for A, B or "no difference" is not touched here (see update). Returns how many
+    were set aside."""
+    gone = 0
+    for c in live:
+        if c["song"] != song["id"] or c["kind"] == "stem" or c["choice"] == "change":
+            continue
+        if judged.get(c["id"], {}).get("pick") in ("A", "B", "same"):
+            continue
+        for side in ("a", "b"):
+            was = load_version(workdir, c[side])
+            name = json.dumps(was["settings"], sort_keys=True)
+            if name not in now:
+                now[name] = version(was["settings"])
+            if changed_how(was, now[name], c):
+                song.get("built", {}).get(c["choice"], {}).pop(c.get("base_key"), None)
+                c["base_key"] = f"(set aside) {c.get('base_key')}"  # counts no more; its step is open again
+                gone += 1
+                break
+    return gone
+
+
 def changed_how(picked, now, c):
     """None when the tool still writes comparison `c`'s passage as the picked version did; otherwise what differs
     now, which decides how the two are compared: the count ("bars"), the notes heard, or only the writing."""
@@ -1200,10 +1238,11 @@ def update(workdir, say=None):
     """After the tool has changed: transcribe every song again and look at each judged passage.
 
     A passage the tool still writes as the picked version did needs nothing. One it now writes differently,
-    under the same settings, comes back as a new comparison between the pick and the new writing. Steps nobody
-    has judged yet are built again. Returns (passages kept, picks the tool's defaults do not follow, passages
-    that changed and wait for a new pick). Isolated bass tracks are not looked at: they change only with the
-    separation models."""
+    under the same settings, comes back as a new comparison between the pick and the new writing. What is not
+    settled is built again by the tool as it is now: steps nobody has judged yet, and passages that were not
+    judged or where neither version was right, if they changed. Returns (passages kept, picks the tool's
+    defaults do not follow, passages that changed and wait for a new pick). Isolated bass tracks are not looked
+    at: they change only with the separation models."""
     say = say or (lambda text: print(text, flush=True))
     opts, songs = read_settings(workdir), read_json(workdir, "songs.json", {})
     comps, judged = load_comparisons(workdir), load_judgments(workdir)
@@ -1215,13 +1254,14 @@ def update(workdir, say=None):
         if c["id"] in judged
     )
     rng = random.Random(len(comps) + 1)
-    kept = new = 0
+    kept = new = aside = 0
     for song in songs.values():
         forget_unjudged_steps(song, comps, judged)  # built again below, by the tool as it is now
         mine = [
             c for c in live if c["song"] == song["id"] and judged.get(c["id"], {}).get("pick") in ("A", "B", "same")
         ]
         version, audio_for, now = heard_under(workdir, song, opts), audio_source(song, opts), {}
+        aside += retire_unsettled(workdir, song, judged, live, version, now)
         for c in mine:
             if c["kind"] == "stem":
                 kept += 1
@@ -1251,6 +1291,8 @@ def update(workdir, say=None):
         f"{kept} judged passages are still written as you picked; {new} changed and wait for a new pick; "
         f"{stray} of your picks are for an alternative the tool does not use by default"
     )
+    if aside:
+        say(f"{aside} passages that were open or had no right version are written differently now: built again")
     return kept, stray, new
 
 

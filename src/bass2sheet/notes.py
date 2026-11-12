@@ -26,6 +26,7 @@ class SegParams:
     rise_before: int = 2  # pluck rise: peak in the next rise_after frames minus trough in the last rise_before
     rise_after: int = 3
     attack_look: int = 1  # look for that rise within this many frames of a note start
+    trust_per: float = 0.5  # CREPE's median periodicity over a note from which its octave stands against pYIN's
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
     refine_onsets: bool = True  # move each note start to where its pluck begins to sound (1 ms resolution)
@@ -153,7 +154,10 @@ def segment_notes(feat, bass_mono, p=None):
         p_med = int(round(np.median(alt))) if len(alt) else None
         agree = float(np.mean(np.abs(alt - pitch) <= 0.5)) if len(alt) else 0.0
         flag = None
-        if p_med is not None and abs(p_med - pitch) == 12:  # the trackers disagree by an octave
+        sure = float(np.median(per_c[idx])) >= p.trust_per
+        if p_med is not None and abs(p_med - pitch) == 12 and not sure:  # the trackers disagree by an octave
+            # ...and CREPE is not confident. (When it is, its octave stands: pYIN smooths over jumps and stays on
+            # the note before, and the energy test below sides with the lower note whenever that note still rings.)
             low, high = min(p_med, pitch), max(p_med, pitch)
             frames = slice(idx[0], idx[-1] + 1)
             e_low = cqt[low - 21, frames].mean() if 0 <= low - 21 < 60 else 0

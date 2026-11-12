@@ -86,11 +86,11 @@ def atomic_write_text(path, text):
     _publish(tmp, path)
 
 
-def atomic_savez(path, **arrays):
+def atomic_savez(path, compressed=False, **arrays):
     d = os.path.dirname(os.path.abspath(path))
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-", suffix=".npz")
     os.close(fd)
-    np.savez(tmp, **arrays)
+    (np.savez_compressed if compressed else np.savez)(tmp, **arrays)
     _publish(tmp, path)
 
 

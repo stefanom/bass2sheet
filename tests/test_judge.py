@@ -471,10 +471,10 @@ def test_the_first_step_is_judged_on_the_isolated_bass_tracks_themselves(tmp_pat
 
 
 @pytest.fixture(scope="module")
-def built(song_files, cache_dir, tmp_path_factory):
-    """The synthetic song with its stems given (so there is no separator to judge) and three later steps that
+def built(taste_song_files, cache_dir, tmp_path_factory):
+    """A synthetic song with its stems given (so there is no separator to judge) and three later steps that
     need no model download. The tests below walk through it in order."""
-    mix, stems = song_files
+    mix, stems = taste_song_files
     workdir = str(tmp_path_factory.mktemp("judging"))
     said = []
     kw = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
@@ -665,3 +665,37 @@ def test_after_a_change_only_passages_written_differently_come_back(built, monke
     live = _live(workdir)
     assert live[0]["choice"] == "change" and judge.progress(workdir)[0]["id"] == "change"
     assert judge.update(workdir, say=quiet)[2] == 0  # asked once, not again
+
+
+def test_after_a_change_what_was_not_settled_is_built_again(taste_song_files, cache_dir, tmp_path, monkeypatch):
+    mix, stems = taste_song_files
+    workdir, quiet = str(tmp_path), lambda _: 0
+    kw = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    judge.build([mix], workdir, ["replucks"], per_song=2, stems_dirs={mix: stems}, say=quiet, **kw)
+    first = _live(workdir)
+    assert len(first) == 2
+    judge.record_judgment(workdir, first[0], "neither")  # both versions wrong there; the other passage is open
+    judge.update(workdir, say=quiet)  # the tool has not changed: nothing moves
+    assert [c["id"] for c in _live(workdir)] == [c["id"] for c in first]
+
+    real = judge.hear
+    kept = lambda n: first[1]["t0"] - 1 <= n["start"] < first[1]["t1"] + 1
+
+    def changed_in_part(*args, **kw):  # a later version of the tool hears other notes, but not in the open passage
+        heard = real(*args, **kw)
+        return dict(heard, notes=[n if kept(n) else dict(n, pitch=n["pitch"] + 5) for n in heard["notes"]])
+
+    monkeypatch.setattr(judge, "hear", changed_in_part)
+    said = []
+    assert judge.update(workdir, say=said.append) == (0, 0, 0)  # no pick for a version: nothing comes back
+    assert any("built again" in line for line in said)
+    live = _live(workdir)  # the passage that had no right version is built again; the open one is asked once
+    assert len(live) == 2 and first[1] in live and first[0]["id"] not in [c["id"] for c in live]
+    again = next(c for c in live if c != first[1])
+    assert again["bars_a"] == first[0]["bars_a"] and again["a"] != first[0]["a"]  # the same bars, as written now
+    assert again["id"] not in judge.load_judgments(workdir)
+    assert judge.progress(workdir) == [dict(id="replucks", name="Find the notes", total=2, judged=0)]
+    aside = next(c for c in judge.load_comparisons(workdir) if c["id"] == first[0]["id"])
+    assert aside["base_key"].startswith("(set aside)")  # kept with its judgment, but it counts no more
+    bars = lambda cs: sorted(c["bars_a"] for c in cs)
+    assert judge.update(workdir, say=quiet) == (0, 0, 0) and bars(_live(workdir)) == bars(live)  # the same passages

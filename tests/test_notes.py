@@ -130,3 +130,26 @@ def test_a_level_jump_alone_keeps_two_notes_the_tracker_saw_apart():
     feat = _features(y, spec)
     out, _, _ = N.segment_notes(feat, y, N.SegParams(flux_support=1e9, flux_thr=1e9))  # flux can prove nothing
     assert [n["pitch"] for n in out] == [40, 40]
+
+
+def test_an_octave_jump_onto_a_ringing_low_note_keeps_its_octave():
+    """E1 rings on while E2 is played over it. The smoothing second tracker still reports the low note; the
+    confident first tracker's octave stands, and the note is not folded back into the E1 before it."""
+    spec = [(0.5, 1.5, 28), (1.0, 0.5, 40)]  # the E1 sounds through the E2
+    y = _stem(spec, 2.5)
+    feat = _features(y, [(0.5, 0.5, 28), (1.0, 0.5, 40), (1.5, 0.5, 28)])
+    feat["f0_p"][:] = np.where(feat["per_c"] > 0.5, librosa.midi_to_hz(28), feat["f0_p"])  # pYIN never leaves E1
+    out, _, _ = N.segment_notes(feat, y)
+    assert [n["pitch"] for n in out][:2] == [28, 40] and out[1]["flag"] is None
+    before, _, _ = N.segment_notes(feat, y, N.SegParams(trust_per=9.0))  # the old rule: the lower note wins
+    assert 40 not in [n["pitch"] for n in before]
+
+
+def test_an_unsure_tracker_still_defers_to_the_spectrum_on_the_octave():
+    spec = [(0.5, 0.8, 28)]
+    y = _stem(spec, 2.0)
+    feat = _features(y, spec)
+    feat["per_c"][:] = np.where(feat["per_c"] > 0.5, 0.47, feat["per_c"])  # pitched, but not confidently
+    feat["f0_c"][:] = np.where(feat["per_c"] > 0.4, librosa.midi_to_hz(40), feat["f0_c"])  # an octave high
+    out, _, _ = N.segment_notes(feat, y)
+    assert [(n["pitch"], n["flag"]) for n in out] == [(28, "octave")]

@@ -31,6 +31,14 @@ def song_files(song, tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def taste_song_files(tmp_path_factory):
+    """(mix path, stems dir) of a synthetic song with passages that can be written either way (see make_song)."""
+    from songsynth import make_song, write_song
+
+    return write_song(make_song(taste=True), str(tmp_path_factory.mktemp("taste_song")))
+
+
+@pytest.fixture(scope="session")
 def cache_dir(tmp_path_factory):
     """A private cache so tests never read or write ~/.cache/bass2sheet."""
     return str(tmp_path_factory.mktemp("cache"))
