@@ -82,13 +82,33 @@ def rest_pieces(p, e):
 TAB_STYLES = ("low", "position")
 
 
-def frets(pitches, style="low"):
+def chord_frets(string, fret, also):
+    """Where the notes played together with one at (string index, fret) go: [(string index, fret)] on the strings
+    above it, one string each, as close to its fret as they can be (an open string is always in reach). None
+    when they do not fit above it within a four-fret stretch."""
+    out, free = [], [s for s in range(len(STRINGS)) if s > string]
+    for m in sorted(also):
+        best = None
+        for s in free:
+            f = m - STRINGS[s]
+            reach = 0 if f == 0 or fret == 0 else abs(f - fret)
+            if 0 <= f <= MAX_FRET and reach <= 4 and (best is None or reach < best[0]):
+                best = (reach, s, f)
+        if best is None:
+            return None
+        out.append(best[1:])
+        free = [s for s in free if s > best[1]]  # a higher note sits on a higher string
+    return out
+
+
+def frets(pitches, style="low", also=None):
     """(string index, fret) per note: Viterbi over playable positions, each state remembering the fretting hand's
     position (open strings leave it in place); stretches beyond 3 frets cost more.
 
     `low` keeps to the first frets and open strings, where the notes are easiest to find. `position` keeps the
     hand in one place: it does not favour low frets, and it frets a note rather than play it on an open string
-    unless that would mean a large shift."""
+    unless that would mean a large shift. `also[k]` lists the pitches played together with note k: that note
+    then goes where they fit on the strings above it."""
     if style not in TAB_STYLES:
         raise ValueError(f"unknown tab style {style!r}; expected one of {', '.join(TAB_STYLES)}")
     if not pitches:
@@ -97,6 +117,9 @@ def frets(pitches, style="low"):
     opts = [
         [(s, m - o) for s, o in enumerate(STRINGS) if 0 <= m - o <= MAX_FRET] or [(0, max(0, m - 28))] for m in pitches
     ]
+    for k, extra in enumerate(also or []):
+        if extra:
+            opts[k] = [o for o in opts[k] if chord_frets(*o, extra) is not None] or opts[k]
 
     def place(f):  # what a fret costs wherever the hand is
         return 0.02 * f + 0.3 * max(0, f - 4) if low else 0.005 * f + (1.2 if f == 0 else 0.0)
@@ -142,7 +165,8 @@ def pitch_xml(midi, name):
 def written_events(notes, tab_style="low"):
     """What the score shows for quantized notes, in order: each note with `grace` (it shares its sixteenth with the
     next note), its written span `g0`..`g1` in sixteenths (held to the next note across a gap of one sixteenth, cut
-    where the next note starts) and its place on the neck (`string` 1 = G ... 4 = E, `fret`)."""
+    where the next note starts) and its place on the neck (`string` 1 = G ... 4 = E, `fret`). A note with others
+    played together (`also`) has their places in `also_tab`."""
     notes = sorted(notes, key=lambda n: (n["grid_start"], n["start"]))
     events = []
     for k, nt in enumerate(notes):  # notes sharing a 16th: all but the last become grace notes
@@ -154,8 +178,12 @@ def written_events(notes, tab_style="low"):
         if nxt is not None and (nxt < end or nxt - end <= 1):
             end = nxt
         events.append(dict(nt, grace=False, g0=nt["grid_start"], g1=max(end, nt["grid_start"] + 1)))
-    for e, (s, f) in zip(events, frets([e["pitch"] for e in events], tab_style)):
+    together = [e.get("also") or [] for e in events]
+    for e, (s, f) in zip(events, frets([e["pitch"] for e in events], tab_style, together)):
         e["string"], e["fret"] = 4 - s, f  # MusicXML strings count from the highest (G = 1)
+        if e.get("also"):  # the notes played with it: [pitch, string, fret], or without a place when none fits
+            where = chord_frets(s, f, e["also"]) or [None] * len(e["also"])
+            e["also_tab"] = [[m, *((4 - w[0], w[1]) if w else (None, None))] for m, w in zip(sorted(e["also"]), where)]
     return events
 
 
@@ -187,11 +215,12 @@ def musicxml(
     fifths = {0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 5: -1, 10: -2, 3: -3, 8: -4, 1: -5}[rel_major]
     key_names = SHARPS if fifths >= 0 else FLATS
 
-    def spell(nt):
+    def spell(nt, pitch=None):
+        pitch = nt["pitch"] if pitch is None else pitch
         c = chord_of.get(nt["bar"])
-        if c and nt["pitch"] % 12 in {(c["root"] + i) % 12 for i in TRIADS[c["quality"]]}:
-            return c["names"][nt["pitch"] % 12]
-        return key_names[nt["pitch"] % 12]
+        if c and pitch % 12 in {(c["root"] + i) % 12 for i in TRIADS[c["quality"]]}:
+            return c["names"][pitch % 12]
+        return key_names[pitch % 12]
 
     events = written_events(notes, tab_style)
     first_bar = min(1, min(e["grid_start"] // 16 + 1 for e in events))
@@ -220,8 +249,9 @@ def musicxml(
     )
     flagged = any(e["flag"] for e in events)
 
-    def note_xml(staff, e, d, tie_start, tie_stop, grace=False):
-        x = "<note>" + ('<grace slash="yes"/>' if grace else "") + pitch_xml(e["pitch"], spell(e))
+    def one_note(staff, e, d, tie_start, tie_stop, grace, pitch, string, fret, chord):
+        x = "<note>" + ('<grace slash="yes"/>' if grace else "") + ("<chord/>" if chord else "")
+        x += pitch_xml(pitch, spell(e, pitch))
         if not grace:
             x += f"<duration>{d}</duration>"
         x += ('<tie type="stop"/>' if tie_stop else "") + ('<tie type="start"/>' if tie_start else "")
@@ -233,8 +263,17 @@ def musicxml(
         x += f"<staff>{staff}</staff>"
         nots = (['<tied type="stop"/>'] if tie_stop else []) + (['<tied type="start"/>'] if tie_start else [])
         if staff == 2:
-            nots.append(f"<technical><string>{e['string']}</string><fret>{e['fret']}</fret></technical>")
+            nots.append(f"<technical><string>{string}</string><fret>{fret}</fret></technical>")
         return x + ("<notations>" + "".join(nots) + "</notations>" if nots else "") + "</note>"
+
+    def note_xml(staff, e, d, tie_start, tie_stop, grace=False):
+        """A note of the line and, as chord notes, those played together with it. In the tab a chord note
+        without a place on the neck (none in reach) is left out; the staff above still shows it."""
+        x = one_note(staff, e, d, tie_start, tie_stop, grace, e["pitch"], e["string"], e["fret"], False)
+        for pitch, string, fret in [] if grace else e.get("also_tab", []):
+            if staff == 1 or string is not None:
+                x += one_note(staff, e, d, tie_start, tie_stop, False, pitch, string, fret, True)
+        return x
 
     def rest_xml(staff, d, whole_bar=False):
         typ, dots = TYPES[d]

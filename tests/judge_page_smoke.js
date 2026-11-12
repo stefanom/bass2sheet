@@ -65,10 +65,10 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.ok(/id="score-A"[^>]*aspect-ratio:1576\/264/.test(els.sheets.html), els.sheets.html);
   assert.strictEqual((els.sheets.html.match(/class="mark"/g) || []).length, 1);
   assert.ok(els.legend.textContent.length > 20);
-  assert.strictEqual(els.stepname.textContent, "Step 1 of 5 · Isolate the bass");
-  assert.deepStrictEqual(kids.steps.map(b => b.dataset.step), ["separator", "replucks", "barlines", "rhythm", "tab"]);
+  assert.strictEqual(els.stepname.textContent, "Step 1 of 6 · Isolate the bass");
+  assert.deepStrictEqual(kids.steps.map(b => b.dataset.step), ["separator", "replucks", "together", "barlines", "rhythm", "tab"]);
   assert.ok(/class="step current" data-step="separator">1 Isolate the bass<span>0\/1</, els.steps.html);
-  assert.ok(els.steps.html.includes('disabled data-step="barlines">3 Count the bars<span>–<'), els.steps.html);
+  assert.ok(els.steps.html.includes('disabled data-step="barlines">4 Count the bars<span>–<'), els.steps.html);
   const left = name => parseFloat(els["cursor-" + name].style.left);
   assert.ok(Math.abs(left("A") - 100 * (216 - 36) / 1576) < 0.01, els["cursor-A"].style.left);
   see("place(1.4)");   // half way between the notes at 0.4 s (x 216) and 2.4 s (x 520)
@@ -144,10 +144,10 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.ok(!hidden("reveal") && els.note.value === "too busy");
 
   // the step bar jumps to a step and shows what is done
-  kids.steps[4].onclick();
+  kids.steps[5].onclick();
   await sleep(300);
   assert.strictEqual(see("current.id"), third);
-  assert.ok(/class="step current done" data-step="tab">5 Place it on the neck<span>1\/1</.test(els.steps.html), els.steps.html);
+  assert.ok(/class="step current done" data-step="tab">6 Place it on the neck<span>1\/1</.test(els.steps.html), els.steps.html);
   kids.steps[0].onclick();
   await sleep(300);
   assert.strictEqual(see("current.id"), first);

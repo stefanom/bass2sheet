@@ -699,3 +699,28 @@ def test_after_a_change_what_was_not_settled_is_built_again(taste_song_files, ca
     assert aside["base_key"].startswith("(set aside)")  # kept with its judgment, but it counts no more
     bars = lambda cs: sorted(c["bars_a"] for c in cs)
     assert judge.update(workdir, say=quiet) == (0, 0, 0) and bars(_live(workdir)) == bars(live)  # the same passages
+
+
+def test_the_step_for_notes_played_together_shows_where_two_were_heard(cache_dir, tmp_path):
+    from songsynth import make_song, write_song
+
+    assert [s["id"] for s in judge.STEPS] == ["separator", "replucks", "together", "barlines", "rhythm", "tab"]
+    song = make_song(double_stops=True)
+    mix, stems = write_song(song, str(tmp_path / "song"))
+    workdir = str(tmp_path / "judging")
+    kw = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    judge.build([mix], workdir, ["together"], per_song=2, stems_dirs={mix: stems}, say=lambda _: 0, **kw)
+    comps = _live(workdir)
+    assert comps and {(c["choice"], c["kind"], c["a_value"], c["b_value"]) for c in comps} == {
+        ("together", "heard", "write", "single")
+    }
+    for c in comps:
+        va, vb = judge.load_version(workdir, c["a"]), judge.load_version(workdir, c["b"])
+        assert any(n.get("also") for n in va["notes"]) and not any(n.get("also") for n in vb["notes"])
+        a, b = c["sheets"]["A"]["roll"]["notes"], c["sheets"]["B"]["roll"]["notes"]
+        both, one = (b, a) if c["flip"] else (a, b)
+        assert len(both) == len(one) + 1  # the pair is two boxes, and the lower one is what the other lacks
+        assert sorted(p for _, _, p, differs in both if differs) == [48]
+        assert sorted(p for _, _, p, differs in one if differs) == []
+    events = judge.events(judge.load_version(workdir, comps[0]["a"]))
+    assert [e["also_tab"] for e in events if e.get("also")][0] == [[55, 1, 12]]  # the G over the C, one string up

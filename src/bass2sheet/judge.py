@@ -66,6 +66,16 @@ STEPS = [
         labels=dict(every="a new note at every re-pluck", clear="a new note only at a clear re-pluck"),
     ),
     dict(
+        id="together",
+        setting="together",
+        kind="heard",
+        name="Notes played together",
+        about="Where the tool hears two notes played together, one version writes both and the other writes one "
+        "note at a time, as the pitch tracker heard it. The passages are the ones where that makes a difference.",
+        ask="Which is what the bass plays?",
+        labels=dict(write="two notes where two are played together", single="one note at a time"),
+    ),
+    dict(
         id="barlines",
         setting="beat_tracker",
         kind="bars",
@@ -184,12 +194,13 @@ def load_song(audio_path, cache_dir=None, device=None, stems_dir=None, separator
 
 
 def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crepe_model="full", keep=None):
-    """The notes heard in a song under `settings` (separator, replucks, beat_tracker), on their beat grid, with
-    the key and the chords, as plain data. Heavy the first time; with stems and pitch tracks in the cache it
+    """The notes heard in a song under `settings` (separator, replucks, together, beat_tracker), on their beat
+    grid, with the key and the chords, as plain data. Heavy the first time; with stems and pitch tracks in the cache it
     takes seconds. `keep` is a directory where results are kept between runs, by settings and by code_id()."""
     from .pipeline import find_notes, seg_params
 
-    parts = [code_id(), "given" if stems_dir else settings["separator"], settings["replucks"]]
+    together = settings.get("together", DEFAULTS["together"])  # versions from before the choice existed
+    parts = [code_id(), "given" if stems_dir else settings["separator"], settings["replucks"], together]
     path = os.path.join(keep, "-".join([*parts, settings["beat_tracker"], crepe_model]) + ".json") if keep else None
     if path and os.path.exists(path):
         with open(path) as f:
@@ -198,7 +209,7 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
     c = find_notes(
         stems,
         cache_dir,
-        seg_params(settings["replucks"]),
+        seg_params(settings["replucks"], together),
         device,
         crepe_model,
         wav.mean(0),
@@ -235,7 +246,7 @@ def version_hash(v):
         v["tab"],
         v["origin"],
         [round(t, 3) for t in v["grid"]],
-        [(n["grid_start"], n["grid_len"], n["pitch"], bool(n.get("flag"))) for n in v["notes"]],
+        [(n["grid_start"], n["grid_len"], n["pitch"], bool(n.get("flag")), *n.get("also", [])) for n in v["notes"]],
     ]
     return hashlib.sha1(json.dumps(core).encode()).hexdigest()[:10]
 
@@ -300,10 +311,10 @@ def grids_agree(va, vb, tol=0.035):
     return share(beats(va), beats(vb)) >= 0.9 and share(bars(va), bars(vb)) >= 0.9
 
 
-KEYS = {
-    "notes": lambda e: (e["pitch"],),
-    "writing": lambda e: (e["pitch"], e["g1"] - e["g0"]),
-    "tab": lambda e: (e["pitch"], e["string"], e["fret"]),
+KEYS = {  # a note played together with others (`also`) is another note than the same one alone
+    "notes": lambda e: (e["pitch"], *e.get("also", [])),
+    "writing": lambda e: (e["pitch"], *e.get("also", []), e["g1"] - e["g0"]),
+    "tab": lambda e: (e["pitch"], e["string"], e["fret"], *(tuple(x) for x in e.get("also_tab", []))),
 }
 
 
@@ -434,7 +445,14 @@ def same_passage(p, q, tol=0.06):
 def written_notes(v):
     """The sheet played exactly as written: each note from its written start to its written end."""
     return [
-        dict(start=g_time(v, e["g0"]), end=g_time(v, e["g1"]), pitch=e["pitch"], flag=e.get("flag")) for e in events(v)
+        dict(
+            start=g_time(v, e["g0"]),
+            end=g_time(v, e["g1"]),
+            pitch=e["pitch"],
+            flag=e.get("flag"),
+            also=e.get("also", []),
+        )
+        for e in events(v)
     ]
 
 
@@ -696,13 +714,16 @@ def roll_view(src, size, length, notes=(), line=()):
 
 def heard_boxes(v, other, w0, w1):
     """The version's notes as heard between w0 and w1, for drawing: [start, end, pitch, differs], where a note
-    differs when the other version has none of that pitch starting within 60 ms of it."""
-    theirs = [(n["start"], n["pitch"]) for n in other["notes"]]
+    differs when the other version has none of that pitch starting within 60 ms of it. Notes played together
+    are one box each."""
+    every = lambda n: (n["pitch"], *n.get("also", []))
+    theirs = [(n["start"], pitch) for n in other["notes"] for pitch in every(n)]
     out = []
     for n in v["notes"]:
         if n["end"] > w0 and n["start"] < w1:
-            alone = not any(p == n["pitch"] and abs(t - n["start"]) <= 0.06 for t, p in theirs)
-            out.append([round(max(n["start"] - w0, 0), 3), round(min(n["end"], w1) - w0, 3), n["pitch"], int(alone)])
+            for pitch in every(n):
+                alone = not any(p == pitch and abs(t - n["start"]) <= 0.06 for t, p in theirs)
+                out.append([round(max(n["start"] - w0, 0), 3), round(min(n["end"], w1) - w0, 3), pitch, int(alone)])
     return out
 
 

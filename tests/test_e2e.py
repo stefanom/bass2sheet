@@ -200,3 +200,33 @@ def test_missing_stems_are_an_error(song_files, cache_dir, tmp_path, capsys):
     empty.mkdir()
     code = cli.main([song_files[0], "-o", str(tmp_path / "out"), "--stems", str(empty), "--cache-dir", cache_dir])
     assert code == 1 and "no bass stem" in capsys.readouterr().err
+
+
+def test_notes_played_together_come_out_as_chords(cache_dir, tmp_path):
+    """A song with three double stops: the sheet, the MIDI and the notes have both notes of each, and no others;
+    with --together single the tracker's one note is written (here the upper, which is not the bass note)."""
+    from songsynth import make_song, write_song
+
+    song = make_song(double_stops=True)
+    mix, stems = write_song(song, str(tmp_path / "song"))
+    kw = dict(stems_dir=stems, second_mode="off", crepe_model=CREPE, beat_tracker="librosa", device="cpu")
+    kw.update(cache_dir=cache_dir, pdf=False, renders=False)
+    out = {}
+    for choice in ("write", "single"):
+        out[choice] = str(tmp_path / choice)
+        assert pipeline.run(mix, out[choice], together=choice, **kw) == 0
+    data = json.load(open(os.path.join(out["write"], "notes.json")))
+    pairs = [(n["start"], [n["pitch"], *n["also"]]) for n in data["notes"] if n.get("also")]
+    assert [p for _, p in pairs] == [p for _, p in song["together"]]
+    assert all(abs(a - b) < 0.03 for (a, _), (b, _) in zip(pairs, song["together"]))
+    assert data["written"]["together"] == "write" and len(data["notes"]) == len(song["notes"])
+    doc = xml.dom.minidom.parse(os.path.join(out["write"], "bass.musicxml"))
+    chords = [n for n in doc.getElementsByTagName("note") if n.getElementsByTagName("chord")]
+    assert len(chords) == 2 * len(song["together"])  # on the staff and in the tab
+    played = pretty_midi.PrettyMIDI(os.path.join(out["write"], "bass_as_played.mid")).instruments[0].notes
+    assert len(played) == len(song["notes"]) + len(song["together"])
+    single = json.load(open(os.path.join(out["single"], "notes.json")))
+    assert not any(n.get("also") for n in single["notes"]) and single["written"]["together"] == "single"
+    at = lambda t: [n["pitch"] for n in single["notes"] if abs(n["start"] - t) < 0.05]
+    assert all(at(t) == [p[1]] for t, p in song["together"])
+    assert "<chord/>" not in open(os.path.join(out["single"], "bass.musicxml")).read()

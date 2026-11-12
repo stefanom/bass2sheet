@@ -229,3 +229,53 @@ def test_line_times_follow_the_given_bar_times():
     notes = [_n(k * 16, 16, 40) for k in range(8)]
     text = _xml(notes=notes, chords=[], check_bars={}, bar_times={k: 10.0 * k for k in range(1, 9)})
     assert ">0:10<" in text and ">0:50<" in text  # bars 1 and 5 start the two lines
+
+
+def test_chord_frets_put_the_notes_played_together_on_the_strings_above():
+    assert score.chord_frets(1, 0, [40]) == [(2, 2)]  # open A with the E above it: D string, 2nd fret
+    assert score.chord_frets(1, 3, [43]) == [(3, 0)]  # C with G: the open G string
+    assert score.chord_frets(1, 3, [44]) == [(3, 1)]  # C with G#: the fret nearest the hand
+    assert score.chord_frets(0, 8, [52]) == [(2, 14)] or score.chord_frets(0, 8, [52]) == [(3, 9)]  # a tenth
+    assert score.chord_frets(3, 2, [50]) is None  # nothing above the G string
+    assert score.chord_frets(0, 1, [52]) is None  # a tenth from the 1st fret: out of reach on any string
+    assert score.chord_frets(0, 3, [38, 43]) == [(2, 0), (3, 0)]  # open strings are always in reach
+
+
+def test_a_note_with_others_goes_where_they_fit_and_the_score_shows_a_chord():
+    line = [_n(0, 4, 33), dict(_n(4, 4, 36), also=[43]), _n(8, 4, 43), dict(_n(12, 4, 43), also=[50])]
+    events = score.written_events(line)
+    assert [e.get("also_tab") for e in events][:3] == [None, [[43, 1, 0]], None]  # the open G string
+    assert (events[1]["string"], events[1]["fret"]) == (3, 3)  # the C on the A string, not where it has no room
+    last = events[3]  # G with the D above: alone the G is the open G string; with the D it moves down a string
+    assert (last["string"], last["fret"]) == (2, 5) and last["also_tab"] == [[50, 1, 7]]
+    for e in events:
+        for pitch, string, fret in e.get("also_tab", []):
+            assert score.STRINGS[4 - string] + fret == pitch and string < e["string"]
+    text = score.musicxml(line, [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False)
+    doc = xml.dom.minidom.parseString(text)
+    chord = [n for n in doc.getElementsByTagName("note") if n.getElementsByTagName("chord")]
+    assert len(chord) == 4  # two chord notes, on the staff and in the tab
+    assert [n.getElementsByTagName("step")[0].firstChild.data for n in chord] == ["G", "D", "G", "D"]
+    assert all(n.firstChild.tagName == "chord" for n in chord)  # MusicXML wants it first
+    total = {"1": 0, "2": 0}
+    for n in doc.getElementsByTagName("note"):
+        if not n.getElementsByTagName("chord"):  # a chord note takes no time of its own
+            total[n.getElementsByTagName("staff")[0].firstChild.data] += int(
+                n.getElementsByTagName("duration")[0].firstChild.data
+            )
+    assert total == {"1": 16, "2": 16}
+
+
+def test_a_chord_note_out_of_reach_stays_on_the_staff_and_out_of_the_tab():
+    line = [dict(_n(0, 8, 29), also=[52])]  # low F with the E an octave and a seventh above
+    e = score.written_events(line)[0]
+    assert e["also_tab"] == [[52, None, None]]
+    doc = xml.dom.minidom.parseString(score.musicxml(line, [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False))
+    chord = [n for n in doc.getElementsByTagName("note") if n.getElementsByTagName("chord")]
+    assert [n.getElementsByTagName("staff")[0].firstChild.data for n in chord] == ["1"]
+
+
+def test_a_held_chord_ties_every_note_of_it():
+    line = [dict(_n(12, 8, 36), also=[43])]  # across the bar line
+    text = score.musicxml(line, [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False)
+    assert text.count('<tie type="start"/>') == text.count('<tie type="stop"/>') == 4  # two notes, two staves

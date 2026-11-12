@@ -51,6 +51,11 @@ def main(argv=None):
         help="a repeated pitch is a new note at every pluck heard (default), or only at a clear, bright one",
     )
     ap.add_argument(
+        "--together",
+        choices=["write", "single"],
+        help="write two notes where two are played together (default), or one note at a time",
+    )
+    ap.add_argument(
         "--rhythm",
         choices=["literal", "simple"],
         help="write the rhythm as played (default), or move stray sixteenths onto eighths and close short rests",
@@ -117,6 +122,7 @@ def main(argv=None):
             crepe_model=args.crepe_model,
             beat_tracker=args.beat_tracker,
             replucks=args.replucks,
+            together=args.together,
             rhythm=args.rhythm,
             tab=args.tab,
         )

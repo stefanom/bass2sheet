@@ -29,6 +29,12 @@ class SegParams:
     trust_per: float = 0.5  # CREPE's median periodicity over a note from which its octave stands against pYIN's
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
+    together: bool = True  # look for two notes played together (see together.py)
+    together_min_s: float = 0.12  # ... in stretches at least this long: a shorter spectrum cannot tell notes apart
+    together_second: float = 0.35  # the second note explains at least this share of what the first one does
+    together_strong: float = -14.0  # ... with two of its first three partials within this many dB of the loudest
+    together_rise: float = 5.0  # ... which were this much quieter just before (dB): it starts with the first
+    together_hold: float = 20.0  # ... and lose no more than this by the second half (dB): it lasts with it
     refine_onsets: bool = True  # move each note start to where its pluck begins to sound (1 ms resolution)
     refine_rise_db: float = 6.0  # a pluck: the envelope rises at least this much from the trough before it
     refine_level: float = 0.1  # the start is where the envelope has made this share of that rise
@@ -112,7 +118,8 @@ def refine_onsets(notes, bass_mono, p):
 
 
 def segment_notes(feat, bass_mono, p=None):
-    """Notes as dicts {start, end (s), pitch (MIDI), agree, flag}; flag is None, "octave" or "uncertain"."""
+    """Notes as dicts {start, end (s), pitch (MIDI), agree, flag}; flag is None, "octave" or "uncertain". A note
+    played together with others has them in `also` (pitches above it); `pitch` is then the lowest."""
     p = p or SegParams()
     f0_c, per_c, f0_p, rms_db, onsets = feat["f0_c"], feat["per_c"], feat["f0_p"], feat["rms_db"], feat["onsets"]
     cqt = feat["cqt"][:60]  # A0..G#5
@@ -228,6 +235,11 @@ def segment_notes(feat, bass_mono, p=None):
     for nt in merged:
         nt["start"], nt["end"] = nt.pop("s") * HOP_S, nt.pop("e") * HOP_S
         del nt["last"]
+    if p.together:
+        from .together import find_together
+
+        plucked = lambda t: attack[max(0, t - p.attack_look) : t + p.attack_look + 1].max() >= 1.0
+        merged = find_together(merged, bass_mono, rms_db > floor, onsets, plucked, p)
     if p.refine_onsets:
         refine_onsets(merged, bass_mono, p)
     return merged, midi_c, midi_p

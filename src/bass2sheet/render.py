@@ -19,7 +19,8 @@ def write_midi(notes, tempo, path, steady):
             e = s + nt["grid_len"] * sixteenth
         else:
             s, e = nt["start"], nt["end"]
-        inst.notes.append(pretty_midi.Note(velocity=64 if nt["flag"] else 96, pitch=nt["pitch"], start=s, end=e))
+        for pitch in (nt["pitch"], *nt.get("also", [])):  # the notes played together with it sound with it
+            inst.notes.append(pretty_midi.Note(velocity=64 if nt["flag"] else 96, pitch=pitch, start=s, end=e))
     pm.instruments.append(inst)
     pm.write(path)
 
@@ -39,10 +40,11 @@ def pluck(freq, dur, velocity):
 def synth(notes, n):
     out = np.zeros(n)
     for nt in notes:
-        w = pluck(pretty_midi.note_number_to_hz(nt["pitch"]), nt["end"] - nt["start"], 64 if nt["flag"] else 96)
-        s = int(nt["start"] * SR)
-        if s < n:
-            out[s : s + len(w)] += w[: n - s]
+        for pitch in (nt["pitch"], *nt.get("also", [])):
+            w = pluck(pretty_midi.note_number_to_hz(pitch), nt["end"] - nt["start"], 64 if nt["flag"] else 96)
+            s = int(nt["start"] * SR)
+            if s < n:
+                out[s : s + len(w)] += w[: n - s]
     return out
 
 

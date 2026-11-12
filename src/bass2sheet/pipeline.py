@@ -52,11 +52,14 @@ def guess_title(path):
 BEAT_TRACKERS = ("auto", "beat_this", "librosa")
 
 
-def seg_params(replucks):
-    """Note segmentation for a re-pluck policy (see DEFAULTS)."""
+def seg_params(replucks, together=None):
+    """Note segmentation for a re-pluck policy and for whether notes played together are written (see DEFAULTS)."""
+    together = together or DEFAULTS["together"]
     if replucks not in ALTERNATIVES["replucks"]:
         raise Bass2SheetError(f"unknown re-pluck policy {replucks!r}; expected 'every' or 'clear'")
-    return SegParams(strict_replucks=replucks == "clear", split_held=replucks == "every")
+    if together not in ALTERNATIVES["together"]:
+        raise Bass2SheetError(f"unknown choice for notes played together {together!r}; expected 'write' or 'single'")
+    return SegParams(strict_replucks=replucks == "clear", split_held=replucks == "every", together=together == "write")
 
 
 def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
@@ -169,11 +172,12 @@ def run(
     replucks=None,
     rhythm=None,
     tab=None,
+    together=None,
 ):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
-    `replucks`, `rhythm` and `tab` default to the standing choices in DEFAULTS, as do the first separator and
-    the beat tracker when those are left on "auto".
+    `replucks`, `together`, `rhythm` and `tab` default to the standing choices in DEFAULTS, as do the first
+    separator and the beat tracker when those are left on "auto".
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
     for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
@@ -204,6 +208,7 @@ def run(
         device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 
     replucks, rhythm, tab = (replucks or DEFAULTS["replucks"], rhythm or DEFAULTS["rhythm"], tab or DEFAULTS["tab"])
+    together = together or DEFAULTS["together"]
     for name, value in (("rhythm", rhythm), ("tab", tab)):
         if value not in ALTERNATIVES[name]:
             raise Bass2SheetError(f"unknown {name} {value!r}; expected one of {', '.join(ALTERNATIVES[name])}")
@@ -212,7 +217,7 @@ def run(
     order = [DEFAULTS["separator"]] + [m for m in ALTERNATIVES["separator"] if m != DEFAULTS["separator"]]
     methods = ["given stems"] if stems_dir else order if separator == "auto" else [separator]
     attempts, candidates = [], []
-    params = seg_params(replucks)
+    params = seg_params(replucks, together)
     for i, method in enumerate(methods):
         last = i == len(methods) - 1
         t0 = time.time()
@@ -358,7 +363,7 @@ def run(
                 first_downbeat_s=float(grid[origin]),
                 tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter",
                 beat_tracker=best["beat_tracker"],
-                written=dict(replucks=replucks, rhythm=rhythm, tab=tab),
+                written=dict(replucks=replucks, together=together, rhythm=rhythm, tab=tab),
                 params=params.as_dict(),
             ),
             indent=1,

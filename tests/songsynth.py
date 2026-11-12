@@ -49,17 +49,18 @@ def _swell(hz, dur, level):
     return level * env * (np.sin(2 * np.pi * hz * t) + 0.3 * np.sin(4 * np.pi * hz * t))
 
 
-def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=0.0, taste=False):
+def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=0.0, taste=False, double_stops=False):
     """Returns dict(mix, stems={bass, drums, harmony}, notes=[(start, end, pitch)], beats, downbeats, tempo, sr).
     Audio arrays are stereo float32 (2, n). `swing_ms` delays every off-beat eighth of the bass (0 = straight).
     With `taste` the song has two things that can be written either way: in two bars of three the second note,
     which repeats the first, has no pluck (the re-pluck policies differ on it), and in every other bar the last
-    note comes a sixteenth early (the rhythm policies differ on that)."""
+    note comes a sixteenth early (the rhythm policies differ on that). With `double_stops` the note on beat 3
+    of every fourth bar is played together with the fifth above it; `together` lists those as (start, [pitches])."""
     rng = np.random.default_rng(seed)
     beat = 60.0 / tempo
     n = int((lead_in_s + bars * 4 * beat + tail_s) * SR)
     bass, drums, harmony = np.zeros(n), np.zeros(n), np.zeros(n)
-    notes, beats, downbeats = [], [], []
+    notes, beats, downbeats, together = [], [], [], []
     for bar in range(bars):
         t_bar = lead_in_s + bar * 4 * beat
         downbeats.append(t_bar)
@@ -83,6 +84,9 @@ def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=
             else:
                 _place(bass, start, 0.5 * pluck(440 * 2 ** ((pitch - 69) / 12), dur, 100))
             notes.append((start, start + dur, pitch))
+            if double_stops and s16 == 8 and bar % 4 == 1:
+                _place(bass, start, 0.5 * pluck(440 * 2 ** ((pitch + 7 - 69) / 12), dur, 100))
+                together.append((start, [pitch, pitch + 7]))
     stereo = lambda y: np.stack([y, y]).astype(np.float32)
     stems = dict(bass=stereo(bass), drums=stereo(drums), harmony=stereo(harmony))
     mix = sum(stems.values())
@@ -92,6 +96,7 @@ def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=
         mix=mix * scale,
         stems={k: v * scale for k, v in stems.items()},
         notes=notes,
+        together=together,
         beats=np.array(beats),
         downbeats=np.array(downbeats),
         tempo=tempo,

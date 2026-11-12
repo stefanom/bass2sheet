@@ -135,3 +135,37 @@ def test_candidates_rank_by_failures_then_confirmed_note_starts_then_coverage():
     assert best(gates(fails=1, onsets=0.9), gates(fails=0, onsets=0.5)) == 1  # a failed gate outweighs the rest
     assert best(gates(warns=5, onsets=0.70), gates(warns=3, onsets=0.58)) == 0  # warnings are not counted
     assert best(gates(coverage=0.90), gates(coverage=0.95)) == 1  # no second model: coverage decides
+
+
+def test_notes_played_together_sound_and_are_exported_together(tmp_path):
+    import pretty_midi
+
+    from bass2sheet import render
+
+    notes = [
+        dict(start=0.5, end=1.0, pitch=33, also=[40], flag=None, grid_start=0, grid_len=4),
+        dict(start=1.0, end=1.5, pitch=36, flag=None, grid_start=4, grid_len=4),
+    ]
+    for steady in (False, True):
+        path = str(tmp_path / f"{steady}.mid")
+        render.write_midi(notes, 120.0, path, steady)
+        got = sorted((round(n.start, 2), n.pitch) for n in pretty_midi.PrettyMIDI(path).instruments[0].notes)
+        t0 = 0.0 if steady else 0.5
+        assert got == [(t0, 33), (t0, 40), (t0 + 0.5, 36)]
+    both, alone = render.synth(notes, 2 * 44100), render.synth([dict(notes[0], also=[]), notes[1]], 2 * 44100)
+    first = slice(int(0.5 * 44100), int(1.0 * 44100))
+    assert (both[first] ** 2).sum() > 1.5 * (alone[first] ** 2).sum()
+    assert (both[int(1.1 * 44100) :] == alone[int(1.1 * 44100) :]).all()
+
+
+def test_the_choice_for_notes_played_together_reaches_the_note_finder():
+    import pytest
+
+    from bass2sheet.common import ALTERNATIVES, DEFAULTS, Bass2SheetError
+    from bass2sheet.pipeline import seg_params
+
+    assert DEFAULTS["together"] == "write" and ALTERNATIVES["together"] == ("write", "single")
+    assert seg_params("every").together and not seg_params("every", "single").together
+    assert seg_params("clear", "write").strict_replucks
+    with pytest.raises(Bass2SheetError):
+        seg_params("every", "both")

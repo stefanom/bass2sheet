@@ -130,6 +130,8 @@ def quantize(notes, grid, origin):
             prev["end"] = nt["end"]
             prev["grid_len"] = max(1, int(np.argmin(np.abs(grid - nt["end"]))) - (prev["grid_start"] + origin))
             prev["flag"] = prev["flag"] or nt["flag"]
+            if nt.get("also") or prev.get("also"):
+                prev["also"] = sorted({*prev.get("also", []), *nt.get("also", [])})
             continue
         out.append(nt)
     return out

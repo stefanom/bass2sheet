@@ -501,8 +501,8 @@ def run_one(track, cond, out_dir, force, cache_dir, run=True):
         row.update(score(ref["notes"], []) if ref["notes"] is not None else score_f0(*ref["f0"], []))
     else:
         data, rep = json.load(open(notes_path)), json.load(open(report_path))
-        est = [(n["start"], n["end"], n["pitch"]) for n in data["notes"]]
-        est_grid = [(n["grid_start"], n["bar"]) for n in data["notes"]]
+        est = [(n["start"], n["end"], pitch) for n in data["notes"] for pitch in (n["pitch"], *n.get("also", []))]
+        est_grid = [(n["grid_start"], n["bar"]) for n in data["notes"] for _ in (n["pitch"], *n.get("also", []))]
         check_bars = {c["bar"] for c in rep["ear_checks"] if c["severity"] >= rep["check_severity"]}
         row.update(
             status="ok",
