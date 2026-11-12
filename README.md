@@ -110,20 +110,22 @@ Version 0.2.0, measured with `bass2sheet-eval`. The full mix goes in, with the s
 
 | Dataset | Songs | Measure | Mean | Median |
 |---|---|---|---|---|
-| BabySlakh: synthetic songs, exact notes | 16 | Notes right: start within 50 ms, exact pitch (F-measure) | 0.88 | 0.95 |
-| | 16 | The same, given the dataset's clean bass track | 0.92 | 0.95 |
+| BabySlakh: synthetic songs, exact notes | 16 | Notes right: start within 50 ms, exact pitch (F-measure) | 0.91 | 0.95 |
+| | 16 | The same, given the dataset's clean bass track | 0.93 | 0.95 |
 | | 11 | Correct notes written on the right sixteenth of the bar | 0.66 | 0.77 |
-| MDB-bass-synth: real multitrack songs, exact pitch curve | 24 of 71 | Share of the time the bass plays that has the right note | 0.77 | 0.81 |
-| RWC Popular: studio pop, bass transcribed by ear | 24 of 100 | Notes right, start within 100 ms (F-measure) | 0.75 | 0.70 |
-| | | Notes right, start within 50 ms | 0.68 | 0.63 |
+| MDB-bass-synth: real multitrack songs, exact pitch curve | 24 of 71 | Share of the time the bass plays that has the right note | 0.78 | 0.81 |
+| RWC Popular: studio pop, bass transcribed by ear | 24 of 100 | Notes right, start within 100 ms (F-measure) | 0.76 | 0.71 |
+| | | Notes right, start within 50 ms | 0.70 | 0.64 |
+| IDMT-SMT-Bass-Single-Track: a real bass guitar played alone, exact notes | 17 lines | Notes right: start within 50 ms, exact pitch (F-measure); no separation involved | 0.78 | 0.81 |
 
 What that means in practice:
 
-- **Clean material mostly comes out right.** 12 of the 16 BabySlakh songs score 0.90 or more. Two do badly: one played in very short staccato notes (0.45), and one where over a third of the notes from the separated bass land an octave low (0.49, against 0.87 from the dataset's clean bass track).
-- **Real recordings are harder.** On RWC about a third of the notes differ from the reference: repeated notes written as one long note (12% of the reference's notes), re-attacks the reference does not have (10% of ours) and wrong pitches (6%). The reference was transcribed by ear, so part of the difference is its own.
+- **Clean material mostly comes out right.** 12 of the 16 BabySlakh songs score 0.90 or more and all but one score above 0.84. The one is a song where a synth plays an octave below the bass guitar: the separated bass track holds both, and over a third of the notes are written an octave low (0.50, against 0.87 from the dataset's clean bass track).
+- **A real bass guitar is harder than a sampled one.** Played alone, with nothing to separate, 89% of the notes are found, but 14% of what the tool writes are re-attacks that were not played, and slap pops are found 72% of the time. Lines that jump a fifth or more upward are written right 79% of the time.
+- **Real recordings are harder.** On RWC about a third of the notes differ from the reference: repeated notes written as one long note (12% of the reference's notes), re-attacks the reference does not have (9% of ours) and wrong pitches (6%). The reference was transcribed by ear, so part of the difference is its own.
 - **Pitch is more reliable than rhythmic detail.** Octave errors are 1–3% of the notes.
 - **Tempo is right on nearly every song; bar lines are not.** On BabySlakh, 5 of 11 songs have their notes on the right sixteenth of the bar throughout. On the others the bar lines are off for part or all of the song: finding the downbeat is the hard part, and the fixed 4/4 grid cannot follow a song whose bars change length. RWC scores 1.00 here, but the beat tracker was trained on RWC, so that number says little.
-- **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.90, WARN 0.85 and FAIL 0.60. The thresholds were set on these same runs, so expect a looser relation on new songs.
+- **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.89, WARN 0.85 and FAIL 0.65. The thresholds were set on these same runs, so expect a looser relation on new songs.
 
 How to reproduce these numbers, and what each dataset can and cannot tell you, is in [docs/evaluation.md](docs/evaluation.md).
 
