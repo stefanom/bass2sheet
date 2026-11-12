@@ -143,8 +143,8 @@ None of the datasets has them to speak of: 4 pairs in BabySlakh's 6,099 referenc
 
 - **About three pairs in four are found, and what is found is right.** The pitch trackers alone write one of the two notes (more often the upper one, which is not the bass note) or nothing at all.
 - **Where there are none, few are written.** On the bass tracks separated from BabySlakh and RWC Popular, 6 of 6,363 and 14 of 14,738 notes come out as two (0.09%). The note finder's scores there do not move (F 0.911 and 0.690 with and without).
-- **Slap playing draws false pairs**: 8 of 1,207 notes on the IDMT lines (0.7%), nearly all on the slap tracks.
-- A second note must pass four tests (`together.py`): it is a note of its own in the spectrum, with two partials the first note cannot explain; it starts with the first (a note still ringing does not); it lasts with it (the pluck's noise does not); and it is louder in the bass track than in the rest of the record (a kick drum or a piano note that leaked into the bass track is not). On one of the six songs judged by ear the last test turned down 14 of 38 candidates, most of them with the kick drum's pitch as the lower note.
+- **Slap playing draws false pairs**: 9 of 1,207 notes on the IDMT lines (0.7%), most of them on the slap tracks.
+- A second note must pass four tests (`together.py`): it is a note of its own in the spectrum, with two partials the first note cannot explain; it starts with the first (a note still ringing does not); it lasts with it (the pluck's noise does not); and it is louder in the bass track than in the rest of the record (a kick drum or a piano note that leaked into the bass track is not). On one of the six songs judged by ear the last test turned down 14 of 38 candidates.
 - Mixed single notes are not a double stop played by a hand: the two strings of a real one start within a few milliseconds of each other and share the instrument's resonances. Recordings of real double stops with exact notes would be the better test.
 
 ### Verdicts against measured scores
