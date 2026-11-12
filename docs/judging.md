@@ -46,7 +46,7 @@ You can stop at any time; picks are saved as you make them. The bar under the ti
 
 - **They decide what each song's later steps are built on**, as above.
 - **They decide the defaults.** The standing choices are `DEFAULTS` in `src/bass2sheet/common.py`. `report` shows how often each alternative was picked and which songs took one; changing a default is then a one-line change, and the command-line flags (`--separator`, `--replucks`, `--rhythm`, `--beat-tracker`, `--tab`) choose the other alternative for one run.
-- **They become tests.** Every judged passage is kept with the version you picked. After a change to the tool, `update` transcribes your songs again under the settings each pick was made with. A passage that still reads as you picked needs nothing; one that now comes out differently returns to the page, ahead of everything else, as a comparison between your pick and what the tool writes now. Steps nobody has judged are built again.
+- **They become tests.** Every judged passage is kept with the version you picked. After a change to the tool, `update` transcribes your songs again under the settings each pick was made with. A passage that still reads as you picked needs nothing; one that now comes out differently returns to the page, ahead of everything else, as a comparison between your pick and what the tool writes now. What is not settled is built again by the tool as it is now: steps nobody has judged, and passages that are still open or where you found neither version right, if they come out differently.
 
 ## The working directory
 

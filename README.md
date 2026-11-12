@@ -74,7 +74,7 @@ The steps are: which model isolates the bass (you hear the two isolated tracks),
 
 1. **Decode and validate.** Any format to 44.1 kHz stereo. Unreadable, silent, very short or very long input is refused with a message.
 2. **Separate the bass.** BS-RoFormer SW (via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator)) is the default. Demucs `htdemucs_ft` is tried when it fails or its result fails the gates; of the two results, the one with fewer failed gates is kept, then the one whose note starts Basic Pitch confirms more often.
-3. **Track pitch.** CREPE (Viterbi decoding) on the GPU, with pYIN as a cross-check.
+3. **Track pitch.** CREPE on the GPU, with pYIN as a cross-check. CREPE's output is decoded into a pitch path that moves smoothly within a note and may leap between notes, as a bass line does.
 4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a held note is split where the string is plucked again, and only there; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected.
 5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
 6. **Key and chords.** Rough estimates for the chord symbols and note spelling.

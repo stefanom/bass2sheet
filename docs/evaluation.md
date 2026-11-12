@@ -23,12 +23,15 @@ Run at most two or three evaluation processes at once on one machine. Separation
 | Slakh2100-redux | 1,710 such songs at 44.1 kHz | The same | CC BY 4.0 | [zenodo.org/records/4599666](https://zenodo.org/records/4599666), 104 GB in one archive |
 | MDB-bass-synth | 71 real multitrack songs (MedleyDB) whose bass was replaced by a resynthesis | The exact f0 curve of the bass; no note list | CC BY-NC 4.0 | [zenodo.org/records/1481165](https://zenodo.org/records/1481165), 3 GB |
 | RWC Popular | 100 studio pop songs | MIDI transcribed by ear, aligned to the audio at the beat level; beats | CC BY-NC 4.0 | Audio: [zenodo.org/records/17177919](https://zenodo.org/records/17177919), 13 GB. Annotations: [github.com/rwc-music/rwc-annotations](https://github.com/rwc-music/rwc-annotations) |
+| IDMT-SMT-Bass-Single-Track | 17 lines played on a real bass guitar, alone, in five plucking styles | Exact notes (948), with string, fret, plucking and expression style | CC BY-NC-ND 4.0 | [zenodo.org/records/7544099](https://zenodo.org/records/7544099), 20 MB |
 
 ```
 uv run bass2sheet-eval ~/data/babyslakh_16k   --out runs/babyslakh
 uv run bass2sheet-eval ~/data/MDB-bass-synth  --out runs/mdb --sample 24
 uv run bass2sheet-eval ~/data/RWC/RWC-P       --out runs/rwc --annotations ~/data/rwc-annotations --sample 25
 ```
+
+The last one has no mix, so it does not go through `bass2sheet-eval`: `python dev/idmt_eval.py ~/data/idmt-bass` runs the note finder on the bass tracks as they are.
 
 None of these datasets is redistributed here, and the non-commercial ones are for research and evaluation only.
 
@@ -45,6 +48,7 @@ None of these datasets is redistributed here, and the non-commercial ones are fo
   - The MIDI was transcribed by ear and aligned by dynamic time warping, so notes can be missing, extra or tens of milliseconds off. Read the 100 ms score beside the 50 ms one.
   - There is no clean stem, so the reference's octave convention cannot be measured. `F 8va-fit` is the score after shifting by the track's commonest whole-octave difference; a large gap between it and `F` means a convention difference or a whole-song octave error, which this dataset cannot tell apart.
   - Only songs whose MIDI has exactly one bass track are used.
+- **IDMT-SMT-Bass-Single-Track** is the only one with a real bass guitar and exact notes. It tests the note finder alone: what it does with slaps, pops, muted notes and lines that jump. It says nothing about separation, and its lines are short (20 s).
 
 ## Scores
 
@@ -82,7 +86,7 @@ Version 0.2.0 on an Apple M4 Max, full mixes in, default settings. `eval/baselin
 | stem, median | 0.95 | 0.94 | 0.95 | 0.95 | 0.96 | 0.79 | 0.00 | +12 ms | 0.98 | 0.77 |
 
 - 12 of 16 songs score F ≥ 0.90 from the mix. Of the reference's notes, 88% are right, 7% missed, 3% an octave off, 1% merged into a neighbour; of ours, 91% are right, 2% are re-attacks that are not there, 1% ghosts.
-- Separation costs 0.03 of mean F, three quarters of it on one song: Track00019 scores 0.49 from the mix and 0.87 from the clean stem. The difference is notes an octave low, not yet explained.
+- Separation costs 0.03 of mean F, three quarters of it on one song: Track00019 scores 0.49 from the mix and 0.87 from the clean stem. The difference is notes an octave low. A sawtooth synth plays below the bass guitar there, 9 dB louder at the octave under the bass's notes, and the separator puts both in the bass track. The pitch tracker then follows the synth: the lowest line of the song, but not the reference's.
 - Track00009 scores 0.45 from the mix and 0.55 from the clean stem. Its notes last about 100 ms, and the pitch tracker reports no pitch on most of them.
 - The grid is measured on the 11 songs whose MIDI has a 4/4 time signature throughout. Tempo is within 2% on 10 of them. Bar position is 0.95 or more on 5. On the others the bar lines are off for part or all of the song; the meter gate (the share of the beat tracker's downbeats that fit one 4/4 phase) is low on those songs, and its rank correlation with bar position is +0.84.
 
@@ -106,6 +110,23 @@ Note acc ranges from 0.46 to 0.96. The five lowest are TablaBreakbeatScience_Who
 - Of the reference's notes, 68% are right, 12% merged (a repeated note we wrote as one), 6% covered by a note of another pitch, 6% the wrong pitch, 4% missed, 3% an octave off. Of ours, 70% are right, 10% are re-attacks the reference does not have, 8% start inside a reference note of another pitch, 6% are the wrong pitch.
 - Bar position is 0.98 or more on all 21 songs with a 4/4 reference. Beat This! was trained on RWC Popular, so this is not a test of the grid.
 - Nine of these songs were used to choose how held notes are split at re-plucks. They average F 100ms 0.78; the other fifteen average 0.73.
+
+### Real bass guitar played alone (IDMT-SMT-Bass-Single-Track, 17 lines, 948 notes)
+
+`python dev/idmt_eval.py DIR --basic-pitch --yourmt3`. "Jumps" is the share of notes that follow a jump up of a fifth or more (91 of them) and are written with the right pitch at the right time.
+
+| Note finder | F | P | R | F 100ms | An octave off | Other wrong pitch | Jumps |
+|---|---|---|---|---|---|---|---|
+| bass2sheet | 0.78 | 0.70 | 0.89 | 0.82 | 1% | 3% | 79% |
+| bass2sheet before the pitch path could jump | 0.76 | 0.70 | 0.84 | 0.80 | 2% | 2% | 46% |
+| bass2sheet without splitting held notes at re-plucks | 0.85 | 0.82 | 0.88 | 0.89 | 0% | 1% | 77% |
+| Basic Pitch | 0.70 | 0.62 | 0.81 | 0.76 | 4% | 5% | 78% |
+| YourMT3+ (YPTF.MoE+Multi, no pitch shift) | 0.77 | 0.80 | 0.75 | 0.78 | 5% | 10% | 79% |
+
+- **Lines that jump were written too low.** torchcrepe's Viterbi decoder lets the pitch move by a few bins per frame and no further. After a jump of a fifth or more the path lagged or stayed on the note before, where CREPE's probability is low, so the new note counted as unpitched and the old, lower note was held over it. A second cause sat in the octave rule: when CREPE and pYIN were an octave apart it took the lower note whenever that octave had a third of the energy, and it has whenever the note before still rings. pYIN smooths too, so on all 21 such notes in this set CREPE was right and pYIN was on the old note. The path may now leap (`pitch.decode_pitch`), and CREPE's octave stands when it is confident (`SegParams.trust_per`).
+- **By plucking style**, the share of notes found: finger 94%, muted 95%, pick 93%, slap with the thumb 80%, slap pops 72% (36 of 50; 9 of 50 before).
+- **Splitting held notes at re-plucks costs 0.07 here**: 14% of our notes are re-attacks that are not in the reference. On RWC Popular the same rule gains 0.02, because there the separated bass smears repeated notes into one. The default has not changed; `--replucks clear` is the stricter policy, and the judging page asks which you prefer on your own songs.
+- **YourMT3+** places notes cleanly (almost no extra notes) but names the wrong pitch three times as often, and its spectrogram starts at 50 Hz, below which the lowest five notes of a bass have their fundamental. On bass tracks separated from six commercial recordings it was not usable: 14 notes for a whole song with a dark, sustained bass, a bass line labelled as guitar throughout, some 2,700 notes for a distorted one, and no note below B1 in any of them. It was trained on Slakh and on RWC Popular, so it cannot be compared on those.
 
 ### Verdicts against measured scores
 
