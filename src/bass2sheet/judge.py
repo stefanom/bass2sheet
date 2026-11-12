@@ -1244,6 +1244,24 @@ def retire_unsettled(workdir, song, judged, live, version, now):
     return gone
 
 
+def drop_superseded(workdir, comps, judged, rel_picked, bars, rel_now):
+    """Remove the "changed since you judged" comparisons of a pick's passage that nobody has judged and that
+    show an older state of the tool than `rel_now` (None: the tool writes the passage as picked again)."""
+    import shutil
+
+    old = [
+        c
+        for c in comps
+        if c["choice"] == "change"
+        and c["id"] not in judged
+        and (c["a"], c["bars_a"]) == (rel_picked, bars)
+        and c["b"] != rel_now
+    ]
+    for c in old:
+        shutil.rmtree(os.path.join(workdir, "media", c["id"]), ignore_errors=True)
+    comps[:] = [c for c in comps if c not in old]
+
+
 def changed_how(picked, now, c):
     """None when the tool still writes comparison `c`'s passage as the picked version did; otherwise what differs
     now, which decides how the two are compared: the count ("bars"), the notes heard, or only the writing."""
@@ -1293,11 +1311,12 @@ def update(workdir, say=None):
             if name not in now:
                 now[name] = version(picked["settings"])
             how = changed_how(picked, now[name], c)
+            window = dict(bars=tuple(c[f"bars_{side}"]), weight=None)
+            rel_now = save_version(workdir, song["id"], now[name]) if how else None
+            drop_superseded(workdir, comps, judged, c[side], list(window["bars"]), rel_now)
             if not how:
                 kept += 1
                 continue
-            rel_now = save_version(workdir, song["id"], now[name])
-            window = dict(bars=tuple(c[f"bars_{side}"]), weight=None)
             if any(same_passage_of(x, (song["id"], "change", c[side], rel_now, list(window["bars"]))) for x in comps):
                 continue  # asked already
             comp = add_comparison(

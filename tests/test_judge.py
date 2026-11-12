@@ -666,6 +666,24 @@ def test_after_a_change_only_passages_written_differently_come_back(built, monke
     assert live[0]["choice"] == "change" and judge.progress(workdir)[0]["id"] == "change"
     assert judge.update(workdir, say=quiet)[2] == 0  # asked once, not again
 
+    def changed_again(*args, **kw):  # a still later version hears every C as an E
+        heard = real(*args, **kw)
+        return dict(
+            heard, notes=[dict(n, pitch=n["pitch"] + 4 if n["pitch"] % 12 == 0 else n["pitch"]) for n in heard["notes"]]
+        )
+
+    monkeypatch.setattr(judge, "hear", changed_again)
+    judge.update(workdir, say=quiet)
+    newer = [c for c in judge.load_comparisons(workdir) if c["choice"] == "change"]
+    assert len(newer) == len(fresh) and not {c["id"] for c in newer} & {c["id"] for c in fresh}  # the old ones went
+    assert {c["a"] for c in newer} == {c["a"] for c in fresh} and not {c["b"] for c in newer} & {c["b"] for c in fresh}
+    assert not any(os.path.exists(os.path.join(workdir, "media", c["id"])) for c in fresh)
+    judge.record_judgment(workdir, newer[0], "A")  # a judged one stays, whatever comes later
+    monkeypatch.setattr(judge, "hear", real)  # ...even when the tool writes the passage as picked again
+    judge.update(workdir, say=quiet)
+    left = [c for c in judge.load_comparisons(workdir) if c["choice"] == "change"]
+    assert [c["id"] for c in left] == [newer[0]["id"]]
+
 
 def test_after_a_change_what_was_not_settled_is_built_again(taste_song_files, cache_dir, tmp_path, monkeypatch):
     mix, stems = taste_song_files
