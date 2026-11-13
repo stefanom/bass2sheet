@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>bass2sheet · copilot</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --ink: #1f2328; --soft: #59636e; --line: #d1d9e0; --blue: #0969da; --green: #1a7f37; --amber: #9a6700; --bg: #f6f8fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+  header b { font-size: 16px; }
+  header .spacer { flex: 1; }
+  select, button { font: inherit; color: inherit; }
+  select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 340px; }
+  button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+  button:hover { background: #f3f4f6; }
+  button:disabled { color: #9aa4ae; cursor: default; background: #fff; }
+  button.main { font-weight: 600; min-width: 96px; }
+  button.guess { font-variant-numeric: tabular-nums; }
+  button.guess small { color: var(--soft); margin-right: 5px; }
+  main { padding: 14px 20px 24px; }
+  .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding: 10px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; min-height: 52px; }
+  .bar label { white-space: nowrap; }
+  .group { display: flex; align-items: center; gap: 10px; }
+  .soft { color: var(--soft); }
+  #clock { font-variant-numeric: tabular-nums; min-width: 68px; font-weight: 600; }
+  #status { color: var(--soft); }
+  #status.bad { color: #cf222e; }
+  #rollwrap { background: #fff; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+  #roll { display: block; width: 100%; cursor: default; }
+  #offer { border-color: #bf8700; background: #fff8c5; }
+  #panel b { font-size: 16px; }
+  .hidden { display: none !important; }
+  .keys { color: var(--soft); font-size: 13px; line-height: 1.7; }
+  kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); }
+  a { color: var(--blue); }
+  .legend { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; white-space: nowrap; }
+  .legend i { display: inline-block; width: 18px; height: 10px; border-radius: 2px; border: 1.5px solid; }
+</style>
+</head>
+<body>
+<header>
+  <b>bass2sheet · copilot</b>
+  <select id="song" title="Song"></select>
+  <span id="progress" class="soft"></span>
+  <span class="spacer"></span>
+  <span id="sheetlinks"></span>
+  <button id="undo" title="Undo the last fix (Z)">Undo</button>
+  <button id="sheet">Make the sheet</button>
+</header>
+<main>
+  <div class="bar">
+    <button id="play" class="main">▶ Play</button>
+    <span id="clock">0:00.0</span>
+    <span class="group"><span class="soft">Hear</span>
+      <label><input type="checkbox" id="hearRecord"> Record</label>
+      <label><input type="checkbox" id="hearBass"> Isolated bass</label>
+      <label><input type="checkbox" id="hearNotes"> My notes</label>
+      <label title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
+    </span>
+    <span class="group"><span class="soft">Zoom</span><button id="zoomOut" title="Zoom out (-)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
+    <span id="status"></span>
+  </div>
+  <div id="rollwrap"><canvas id="roll"></canvas></div>
+  <div class="bar" id="panel"></div>
+  <div class="bar hidden" id="offer"></div>
+  <div class="keys">
+    <span class="legend"><i style="border-color:#1a7f37;background:#d4f0db"></i>as the tool heard it</span>
+    <span class="legend"><i style="border-color:#9a6700;background:#fbe9a4"></i>the tool doubts it</span>
+    <span class="legend"><i style="border-color:#0969da;background:#cfe4fb"></i>fixed by you</span>
+    <span class="legend"><i style="border-color:#8c959f;border-style:dashed;background:#fff"></i>where the tool had it</span>
+    <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>played through</span><br>
+    <kbd>Space</kbd> play / stop · <kbd>←</kbd> <kbd>→</kbd> the note before / after · <kbd>1</kbd>–<kbd>6</kbd> take a guess · <kbd>↑</kbd> <kbd>↓</kbd> a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave ·
+    <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo<br>
+    Click a note to select it, drag it up or down to change its pitch, drag an end to move it. Click anywhere else to move the playhead; double-click to add a note. Scroll to move through the song.
+  </div>
+</main>
+
+<script id="logic">
+// What needs no page: tested on its own (tests/copilot_page_logic.js).
+const Logic = (() => {
+  // pitch -> the notes that can lend their sound: single notes of 80 ms or more
+  function indexNotes(notes) {
+    const by = new Map();
+    for (const n of notes) {
+      if ((n.also && n.also.length) || n.end - n.start < 0.08) continue;
+      if (!by.has(n.pitch)) by.set(n.pitch, []);
+      by.get(n.pitch).push(n);
+    }
+    return by;
+  }
+  // The note whose sound plays `pitch` for `note`: never the note itself; of the nearest pitch; one that lasts as
+  // long if there is one, and then the nearest in length. `rate` is how much faster it is played to reach the pitch.
+  function sampleFor(by, note, pitch, reach = 5) {
+    const want = note.end - note.start, len = m => m.end - m.start;
+    for (let d = 0; d <= reach; d++) {
+      let pool = [];
+      for (const p of d ? [pitch - d, pitch + d] : [pitch]) pool = pool.concat((by.get(p) || []).filter(m => m.id !== note.id));
+      if (!pool.length) continue;
+      const lasting = pool.filter(m => len(m) >= want - 0.03);
+      const pick = lasting.length
+        ? lasting.reduce((a, b) => (Math.abs(len(b) - want) < Math.abs(len(a) - want) ? b : a))
+        : pool.reduce((a, b) => (len(b) > len(a) ? b : a));
+      return {from: pick, rate: Math.pow(2, (pitch - pick.pitch) / 12)};
+    }
+    return null;
+  }
+  const inside = (t, spans) => spans.some(([a, b]) => a <= t && t <= b);
+  const total = spans => spans.reduce((s, [a, b]) => s + (b - a), 0);
+  // where a play-through should start: the end of what was played from the beginning, or a second before the first note
+  function resumeAt(notes, checked) {
+    const first = notes.length ? notes[0].start : 0;
+    const span = checked.find(([a, b]) => a <= first + 0.5 && b > first);
+    return span ? span[1] : Math.max(0, first - 1);
+  }
+  const sorted = notes => [...notes].sort((a, b) => a.start - b.start || a.pitch - b.pitch);
+  // the note `step` places after (or before) the note `id`; without one, the last note that began by `t`
+  function neighbour(notes, id, step, t) {
+    const order = sorted(notes);
+    const k = order.findIndex(n => n.id === id);
+    if (k < 0) {
+      const before = order.filter(n => n.start <= t + 1e-6);
+      return step < 0 ? (before.length ? before[before.length - 1].id : null) : ((order.find(n => n.start > t) || {}).id || null);
+    }
+    const m = order[k + step];
+    return m ? m.id : id;
+  }
+  function clock(s) {
+    s = Math.max(0, s);
+    return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60).toFixed(1);
+  }
+  // the bar a moment falls in: [number, seconds into it]
+  function barAt(bars, t) {
+    let at = null;
+    for (const b of bars) { if (b.time <= t + 1e-6) at = b; else break; }
+    return at ? [at.bar, t - at.time] : [0, t];
+  }
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, clock, barAt, sorted};
+})();
+if (typeof module !== "undefined") module.exports = Logic;
+</script>
+
+<script id="app">
+const $ = id => document.getElementById(id);
+const RULER = 20, GUTTER = 46, TILE = 1024;
+let S = null, tiles = [], f0 = null, byPitch = new Map();
+let view = {t0: 0, pps: 150}, row = 12;
+let sel = null, guesses = [], guessesFor = null, offer = null, offerNext = 0;
+let playhead = 0, drag = null, dirty = true;
+const A = {ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
+const hear = Object.assign({record: true, bass: false, notes: true, split: false}, JSON.parse(localStorage.getItem("copilot.hear") || "{}"));
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || ("error " + r.status));
+  return j;
+}
+function say(text, bad) { $("status").textContent = text || ""; $("status").classList.toggle("bad", !!bad); }
+const name = p => (S && S.names[p]) || String(p);
+const note = id => S && S.notes.find(n => n.id === id);
+
+// ---------------------------------------------------------------------------------------------------- loading
+async function start() {
+  const songs = await api("/api/songs");
+  $("song").innerHTML = songs.map(s => `<option value="${s.id}">${s.artist ? s.artist + " – " : ""}${s.title}</option>`).join("");
+  const want = decodeURIComponent(location.hash.slice(1));
+  const id = songs.some(s => s.id === want) ? want : songs[0].id;
+  $("song").value = id;
+  await load(id);
+}
+async function load(id) {
+  stop();
+  say("loading…");
+  S = await api("/api/song?id=" + encodeURIComponent(id));
+  location.hash = id;
+  document.title = S.title + " · copilot";
+  sel = null; guesses = []; guessesFor = null; hideOffer(); tiles = []; f0 = null; A.record = A.bass = null; A.rms.clear();
+  byPitch = Logic.indexNotes(S.notes);
+  playhead = S.at !== null && S.at < S.length - 1 ? S.at : Logic.resumeAt(Logic.sorted(S.notes), S.checked);
+  resize();
+  view.t0 = Math.max(0, playhead - 1);
+  refresh();
+  const base = "/data/" + encodeURIComponent(id) + "/";
+  const bytes = async rel => (await fetch(base + rel)).arrayBuffer();
+  bytes("picture.bin").then(b => { makeTiles(new Uint8Array(b)); dirty = true; });
+  bytes("pitch.bin").then(b => { f0 = new Float32Array(b); dirty = true; });
+  if (!A.ctx) setupAudio();
+  const [rec, bass] = await Promise.all([bytes("audio/record.flac"), bytes("audio/bass.flac")]);
+  const song = S.id;
+  const [r, b] = await Promise.all([A.ctx.decodeAudioData(rec), A.ctx.decodeAudioData(bass)]);
+  if (!S || S.id !== song) return;
+  A.record = r; A.bass = b;
+  const levels = S.notes.slice(0, 400).map(n => rms(n.start, Math.min(n.end, n.start + 0.5))).filter(v => v > 0).sort((x, y) => x - y);
+  A.typical = levels.length ? levels[levels.length >> 1] : 0.05;
+  say("");
+  refresh();
+}
+function makeTiles(data) {
+  const P = S.picture, out = [];
+  for (let c0 = 0; c0 < P.columns; c0 += TILE) {
+    const w = Math.min(TILE + 1, P.columns - c0), cv = document.createElement("canvas");  // one column over the next tile: no seam
+    cv.width = w; cv.height = P.rows;
+    const g = cv.getContext("2d"), img = g.createImageData(w, P.rows), px = img.data;
+    for (let r = 0; r < P.rows; r++) {
+      const src = (P.rows - 1 - r) * P.columns + c0;  // row 0 of the data is the lowest pitch; of the picture, the highest
+      for (let c = 0; c < w; c++) {
+        const u = data[src + c] / 255, v = u * u, k = (r * w + c) * 4;  // squared: the haze under the notes fades
+        px[k] = 255 - v * 205; px[k + 1] = 255 - v * 180; px[k + 2] = 255 - v * 125; px[k + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    out.push(cv);
+  }
+  tiles = out;
+}
+
+// ----------------------------------------------------------------------------------------------------- drawing
+const xOf = t => GUTTER + (t - view.t0) * view.pps;
+const tOf = x => view.t0 + (x - GUTTER) / view.pps;
+const yOf = p => RULER + (S.high - p) * row;
+const pOf = y => S.high - Math.floor((y - RULER) / row);
+function resize() {
+  const c = $("roll"), W = $("rollwrap").clientWidth, rows = S ? S.high - S.low + 1 : 30;
+  row = Math.max(9, Math.min(16, Math.floor(470 / rows)));
+  const H = RULER + rows * row, dpr = window.devicePixelRatio || 1;
+  c.style.height = H + "px";
+  c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+  dirty = true;
+}
+function boxes(n) {  // every pitch of a note, as [pitch, x, y, width]
+  const d = drag && drag.id === n.id ? drag : null;
+  const s = d ? d.start : n.start, e = d ? d.end : n.end, p = d ? d.pitch : n.pitch;
+  const x = xOf(s), w = Math.max(3, (e - s) * view.pps - 1);
+  return [p, ...(n.also || [])].map(q => [q, x, yOf(q), w]);
+}
+function draw() {
+  dirty = false;
+  const c = $("roll"), g = c.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const W = c.width / dpr, H = c.height / dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  if (!S) return;
+  const t1 = tOf(W), rows = S.high - S.low + 1, P = S.picture;
+  g.save(); g.beginPath(); g.rect(GUTTER, RULER, W - GUTTER, H - RULER); g.clip();
+  // what sounds in the bass track
+  g.imageSmoothingEnabled = true;
+  const sy = P.rows - P.per_semitone * (S.high - P.low + 1), sh = P.per_semitone * rows;
+  tiles.forEach((cv, k) => {
+    const a = k * TILE * P.step, b = a + cv.width * P.step;
+    if (b >= view.t0 && a <= t1) g.drawImage(cv, 0, sy, cv.width, sh, xOf(a), RULER, cv.width * P.step * view.pps, rows * row);
+  });
+  // the pitches: a line under each, darker under the open strings
+  for (let p = S.low; p <= S.high; p++) {
+    const open = [28, 33, 38, 43].includes(p);
+    g.strokeStyle = open ? "rgba(31,35,40,.30)" : "rgba(31,35,40,.07)"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(GUTTER, yOf(p) + row - .5); g.lineTo(W, yOf(p) + row - .5); g.stroke();
+  }
+  // the bars, as the tool counts them
+  g.strokeStyle = "rgba(31,35,40,.16)";
+  for (const b of S.bars) { if (b.time < view.t0 - 1 || b.time > t1) continue; const x = Math.round(xOf(b.time)) + .5; g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, H); g.stroke(); }
+  // the pitch the tracker followed
+  if (f0) {
+    g.strokeStyle = "rgba(207,34,46,.75)"; g.lineWidth = 1.2; g.beginPath();
+    let pen = false, last = 0;
+    for (let i = Math.max(0, Math.floor(view.t0 * 100)); i < Math.min(f0.length, Math.ceil(t1 * 100)); i++) {
+      const v = f0[i];
+      if (v !== v) { pen = false; continue; }
+      const x = xOf(i / 100), y = yOf(v) + row / 2;
+      pen && Math.abs(v - last) < 2 ? g.lineTo(x, y) : g.moveTo(x, y);  // a leap is not drawn: it is not a slide
+      pen = true; last = v;
+    }
+    g.stroke();
+  }
+  // the notes
+  g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
+  for (const n of S.notes) {
+    if (n.end < view.t0 - 1 || n.start > t1 + 1) continue;
+    const chosen = n.id === sel, mine = n.state !== "machine";
+    const edge = mine ? "#0969da" : n.doubt ? "#9a6700" : "#1a7f37";
+    const fill = mine ? "rgba(207,228,251,.72)" : n.doubt ? "rgba(251,233,164,.78)" : "rgba(212,240,219,.70)";
+    if (n.was && n.was.pitch !== n.pitch && !(drag && drag.id === n.id)) {  // where the tool had it
+      g.setLineDash([3, 2]); g.strokeStyle = "#8c959f"; g.lineWidth = 1;
+      g.strokeRect(xOf(n.was.start) + .5, yOf(n.was.pitch) + 1.5, Math.max(3, (n.was.end - n.was.start) * view.pps - 1), row - 3); g.setLineDash([]);
+    }
+    const bs = boxes(n);
+    bs.forEach(([q, x, y, w]) => {
+      g.fillStyle = fill; g.fillRect(x, y + 1, w, row - 2);
+      g.strokeStyle = chosen ? "#1f2328" : edge; g.lineWidth = chosen ? 2.5 : 1.3;
+      g.strokeRect(x + .5, y + 1.5, w, row - 3);
+      if (w > 24 && row >= 11) { g.fillStyle = "#1f2328"; g.fillText(name(q), x + 4, y + row / 2 + .5); }
+    });
+    if (bs.length > 1) { g.strokeStyle = edge; g.lineWidth = 1; g.beginPath(); g.moveTo(bs[0][1] + 1.5, Math.min(...bs.map(b => b[2])) + row); g.lineTo(bs[0][1] + 1.5, Math.max(...bs.map(b => b[2]))); g.stroke(); }
+  }
+  // the playhead
+  g.strokeStyle = "#cf222e"; g.lineWidth = 1.5; const px = xOf(playhead);
+  g.beginPath(); g.moveTo(px, RULER); g.lineTo(px, H); g.stroke();
+  g.restore();
+  // the ruler: bar numbers, and what was played through
+  g.fillStyle = "#f6f8fa"; g.fillRect(GUTTER, 0, W - GUTTER, RULER);
+  g.save(); g.beginPath(); g.rect(GUTTER, 0, W - GUTTER, RULER); g.clip();
+  g.fillStyle = "#1a7f37";
+  for (const [a, b] of S.checked) if (b >= view.t0 && a <= t1) g.fillRect(xOf(a), RULER - 5, (b - a) * view.pps, 5);
+  g.fillStyle = "#59636e"; g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "top";
+  let lastX = -99;
+  for (const b of S.bars) { const x = xOf(b.time); if (x < GUTTER - 30 || x > W) continue; if (x - lastX < 34) continue; g.fillText(String(b.bar), x + 3, 2); lastX = x; }
+  g.fillStyle = "#cf222e"; g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, 8); g.fill();
+  g.restore();
+  // the gutter: note names
+  g.fillStyle = "#fff"; g.fillRect(0, 0, GUTTER, H);
+  g.strokeStyle = "#d1d9e0"; g.lineWidth = 1; g.beginPath(); g.moveTo(GUTTER - .5, 0); g.lineTo(GUTTER - .5, H); g.stroke();
+  g.textBaseline = "middle"; g.textAlign = "right";
+  for (let p = S.low; p <= S.high; p++) {
+    const natural = [0, 2, 4, 5, 7, 9, 11].includes(p % 12), open = [28, 33, 38, 43].includes(p);
+    if (!natural && row < 13) continue;
+    g.font = (open ? "600 " : "") + "10px -apple-system, Helvetica, Arial, sans-serif";
+    g.fillStyle = open ? "#1f2328" : natural ? "#59636e" : "#afb8c1";
+    g.fillText(name(p), GUTTER - 6, yOf(p) + row / 2 + .5);
+  }
+  g.textAlign = "left";
+}
+function frame() {
+  if (A.playing) {
+    playhead = position();
+    if (playhead >= (A.stopAt === null ? S.length : A.stopAt)) stop();
+    const span = ($("roll").clientWidth - GUTTER) / view.pps;
+    if (A.counts || playhead < view.t0 || playhead > view.t0 + span) view.t0 = Math.max(-0.2, playhead - 0.3 * span);
+    $("clock").textContent = Logic.clock(playhead);
+    dirty = true;
+  }
+  if (dirty) draw();
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------------------------- the panel
+function refresh() {
+  if (!S) return;
+  const done = Logic.total(S.checked);
+  $("progress").textContent = `played through ${Logic.clock(done)} of ${Logic.clock(S.length)} · ${S.fixes} ${S.fixes === 1 ? "fix" : "fixes"}`;
+  $("undo").disabled = !S.undo;
+  $("clock").textContent = Logic.clock(playhead);
+  $("play").textContent = A.playing ? "■ Stop" : "▶ Play";
+  for (const k of ["record", "bass", "notes", "split"]) $("hear" + k[0].toUpperCase() + k.slice(1)).checked = hear[k];
+  const n = note(sel), panel = $("panel");
+  if (!n) {
+    panel.innerHTML = `<span class="soft">Play the song and stop where a note is wrong. <kbd>←</kbd> then selects the note you just heard.</span>`;
+  } else {
+    const [bar, into] = Logic.barAt(S.bars, n.start);
+    const was = n.was && n.was.pitch !== n.pitch ? ` · the tool had ${name(n.was.pitch)}` : n.state === "added" ? " · added by you" : "";
+    const doubt = n.state === "machine" && n.doubt ? ` · <span style="color:var(--amber)">doubted${n.doubt.better ? ": sounds more like " + name(n.doubt.better) : ""}</span>` : "";
+    const also = (n.also || []).length ? " + " + n.also.map(name).join(" + ") : "";
+    const offers = guessesFor === n.id + ":" + n.pitch
+      ? (guesses.length ? guesses.map((p, k) => `<button class="guess" data-guess="${k}"><small>${k + 1}</small>${name(p)}</button>`).join("") : `<span class="soft">no guess</span>`)
+      : `<span class="soft">…</span>`;
+    panel.innerHTML = `<span><b>${name(n.pitch)}${also}</b> <span class="soft">bar ${bar} · ${Logic.clock(n.start)} · ${(n.end - n.start).toFixed(2)} s${was}${doubt}</span></span>
+      <span class="group"><span class="soft">Or is it</span>${offers}</span>`;
+    panel.querySelectorAll("button.guess").forEach(b => b.onclick = () => takeGuess(+b.dataset.guess));
+  }
+  dirty = true;
+}
+function select(id, quiet) {
+  sel = id;
+  const n = note(id);
+  if (n && !(guessesFor === n.id + ":" + n.pitch)) askGuesses(n);
+  if (n && !quiet) {
+    const span = ($("roll").clientWidth - GUTTER) / view.pps;
+    if (n.start < view.t0 + 0.05 * span || n.end > view.t0 + 0.95 * span) view.t0 = Math.max(-0.2, n.start - 0.3 * span);
+  }
+  refresh();
+}
+async function askGuesses(n) {
+  const key = n.id + ":" + n.pitch;
+  try {
+    const r = await api(`/api/guesses?song=${encodeURIComponent(S.id)}&id=${encodeURIComponent(n.id)}`);
+    const now = note(sel);
+    if (now && now.id + ":" + now.pitch === key) { guesses = r.guesses; guessesFor = key; refresh(); }
+  } catch (e) { /* the note is gone: nothing to offer */ }
+}
+
+// --------------------------------------------------------------------------------------------------- fixing
+async function act(action) {
+  try {
+    const r = await api("/api/act", {song: S.id, action: Object.assign({playhead: +playhead.toFixed(2)}, action)});
+    S.notes = r.notes; S.checked = r.checked; S.undo = r.undo; S.fixes = r.fixes;
+    byPitch = Logic.indexNotes(S.notes); A.rms.clear();
+    if (r.result.offer) showOffer(r.result.offer);
+    say("");
+    return r.result;
+  } catch (e) { say(e.message, true); return null; }
+  finally { refresh(); }
+}
+async function setPitch(n, pitch, how, extra) {
+  if (pitch === n.pitch) return;
+  const r = await act(Object.assign({kind: "pitch", id: n.id, pitch, how}, extra || {}));
+  if (r) { const m = note(n.id); if (m) { askGuesses(m); audition(m); } }
+}
+function takeGuess(k) {
+  const n = note(sel);
+  if (n && guessesFor === n.id + ":" + n.pitch && guesses[k] !== undefined) setPitch(n, guesses[k], "guess", {rank: k + 1, guesses: guesses.slice()});
+}
+async function remove() {
+  const n = note(sel); if (!n) return;
+  const next = Logic.neighbour(S.notes, n.id, 1, n.start);
+  if (await act({kind: "delete", id: n.id})) select(next !== n.id ? next : null, true);
+}
+async function addHere(t, pitch) {
+  const order = Logic.sorted(S.notes), before = order.filter(n => n.start <= t).pop(), after = order.find(n => n.start > t);
+  const end = Math.min(t + 0.25, after ? after.start : S.length);  // a note sounding here ends where the new one starts
+  const r = await act({kind: "add", start: +t.toFixed(3), end: +end.toFixed(3), pitch: pitch !== undefined ? pitch : before ? before.pitch : 40});
+  if (r && r.id) { select(r.id); audition(note(r.id)); }
+}
+async function split() {
+  const n = note(sel); if (!n) return;
+  const at = playhead > n.start + 0.03 && playhead < n.end - 0.03 ? playhead : (n.start + n.end) / 2;
+  const r = await act({kind: "split", id: n.id, at: +at.toFixed(3)});
+  if (r && r.id) select(r.id);
+}
+async function nudge(n, dStart, dEnd) {
+  const r = await act({kind: "move", id: n.id, start: +(n.start + dStart).toFixed(3), end: +(n.end + dEnd).toFixed(3)});
+  if (r) audition(note(n.id));
+}
+function showOffer(o) {
+  offer = o; offerNext = 0;
+  const k = o.ids.length;
+  $("offer").innerHTML = `<span><b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?</span>
+    <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerYes">Fix ${k === 1 ? "it" : "all " + k} <kbd>Y</kbd></button><button id="offerNo">No <kbd>X</kbd></button></span>`;
+  $("offer").classList.remove("hidden");
+  $("offerShow").onclick = offerShow; $("offerYes").onclick = offerYes; $("offerNo").onclick = offerNo;
+}
+function hideOffer() { offer = null; $("offer").classList.add("hidden"); }
+function offerShow() {
+  if (!offer) return;
+  const n = note(offer.ids[offerNext++ % offer.ids.length]);
+  if (n) { select(n.id); audition(n); }
+}
+async function offerYes() {
+  if (!offer) return;
+  const o = offer; hideOffer();
+  await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
+}
+async function offerNo() {
+  if (!offer) return;
+  const o = offer; hideOffer();
+  await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+}
+async function makeSheet() {
+  $("sheet").disabled = true; say("writing the sheet…");
+  try {
+    const r = await api("/api/sheet", {song: S.id});
+    const link = (k, text) => r[k] ? `<a href="${r[k]}?${Date.now()}" target="_blank">${text}</a>` : "";
+    $("sheetlinks").innerHTML = [link("pdf", "PDF"), link("musicxml", "MusicXML"), link("midi", "MIDI")].filter(Boolean).join(" · ");
+    say(r.pdf ? "the sheet is written" : "the MusicXML is written; the PDF needs MuseScore 4");
+  } catch (e) { say(e.message, true); }
+  $("sheet").disabled = false;
+}
+
+// ---------------------------------------------------------------------------------------------------- sound
+function setupAudio() {
+  const ctx = A.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 44100});
+  for (const k of ["record", "bass", "notes"]) {
+    A.bus[k] = ctx.createGain(); A.pan[k] = ctx.createStereoPanner();
+    A.bus[k].connect(A.pan[k]).connect(ctx.destination);
+  }
+  mix();
+}
+function mix() {
+  if (!A.ctx) return;
+  const now = A.ctx.currentTime;
+  for (const k of ["record", "bass", "notes"]) A.bus[k].gain.setTargetAtTime(hear[k] ? 1 : 0, now, 0.01);
+  A.pan.bass.pan.setTargetAtTime(hear.split ? -1 : 0, now, 0.01);
+  A.pan.notes.pan.setTargetAtTime(hear.split ? 1 : 0, now, 0.01);
+  localStorage.setItem("copilot.hear", JSON.stringify(hear));
+}
+function rms(t0, t1) {
+  const key = t0.toFixed(3) + "-" + t1.toFixed(3);
+  if (A.rms.has(key)) return A.rms.get(key);
+  const d = A.bass.getChannelData(0), a = Math.max(0, Math.floor(t0 * A.bass.sampleRate)), b = Math.min(d.length, Math.floor(t1 * A.bass.sampleRate));
+  let s = 0, k = 0;
+  for (let i = a; i < b; i += 3) { s += d[i] * d[i]; k++; }
+  const v = k ? Math.sqrt(s / k) : 0;
+  A.rms.set(key, v);
+  return v;
+}
+const position = () => A.playing ? A.from + (A.ctx.currentTime - A.at) : playhead;
+function voice(n, pitch, when, parts) {  // one pitch of a note, in the sound of another note
+  const s = Logic.sampleFor(byPitch, n, pitch);
+  if (!s) return;
+  const ctx = A.ctx, m = s.from, len = Math.min(n.end - n.start, (m.end - m.start) / s.rate);
+  if (len < 0.02) return;
+  const have = rms(m.start, Math.min(m.end, m.start + 0.5)), want = Math.max(rms(n.start, Math.min(n.end, n.start + 0.5)), 0.3 * A.typical);
+  const level = Math.min(4, Math.max(0.25, have > 0 ? want / have : 1)) / Math.sqrt(parts);
+  const src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = A.bass; src.playbackRate.value = s.rate;
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(level, when + 0.004);
+  g.gain.setValueAtTime(level, when + Math.max(0.005, len - 0.015)); g.gain.linearRampToValueAtTime(0, when + len);
+  src.connect(g).connect(A.bus.notes);
+  src.start(when, Math.max(0, m.start - 0.004), len * s.rate + 0.03);
+  A.live.push(src);
+}
+function schedule() {
+  if (!A.playing) return;
+  const pos = position(), to = pos + 0.4;
+  for (const n of S.notes) {
+    if (n.start < A.until || n.start >= to) continue;
+    const when = A.at + (n.start - A.from), tones = [n.pitch, ...(n.also || [])];
+    tones.forEach(q => voice(n, q, Math.max(when, A.ctx.currentTime), tones.length));
+  }
+  A.until = to;
+  if (A.counts && pos - A.seg > 5) reportPlayed(pos);
+}
+function play(from, stopAt) {
+  if (!A.record || !A.bass) return say("the sound is still loading");
+  stop();
+  const ctx = A.ctx;
+  if (ctx.state === "suspended") ctx.resume();
+  from = Math.max(0, Math.min(from, S.length - 0.05));
+  A.from = from; A.at = ctx.currentTime + 0.06; A.until = from - 0.02; A.stopAt = stopAt === undefined ? null : stopAt;
+  A.counts = stopAt === undefined; A.seg = from; A.playing = true;
+  for (const k of ["record", "bass"]) {
+    const src = ctx.createBufferSource();
+    src.buffer = A[k]; src.connect(A.bus[k]); src.start(A.at, from);
+    A.live.push(src);
+  }
+  mix(); schedule();
+  A.timer = setInterval(schedule, 90);
+  refresh();
+}
+function reportPlayed(pos) {
+  const a = A.seg, b = Math.min(pos, S.length);
+  A.seg = b;
+  if (b - a < 0.3) return;
+  api("/api/checked", {song: S.id, start: +a.toFixed(2), end: +b.toFixed(2)}).then(r => { S.checked = r.checked; refresh(); }).catch(e => say(e.message, true));
+}
+function stop() {
+  if (!A.playing) return;
+  playhead = Math.min(position(), S.length);
+  if (A.counts) reportPlayed(playhead);
+  A.playing = false; clearInterval(A.timer);
+  for (const s of A.live) { try { s.stop(); } catch (e) { /* not started yet */ } }
+  A.live = [];
+  refresh();
+}
+function audition(n) {  // hear a note in its place: from a little before it to a little after
+  if (!n || !A.record) return;
+  playhead = n.start;
+  play(Math.max(0, n.start - 0.8), Math.min(S.length, n.end + 0.6));
+}
+function seek(t) {
+  const was = A.playing && A.counts;
+  stop();
+  playhead = Math.max(0, Math.min(t, S.length));
+  if (was) play(playhead);
+  refresh();
+}
+
+// ------------------------------------------------------------------------------------------- mouse and keys
+function at(e) { const r = $("roll").getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
+function hit(x, y) {
+  for (const n of S.notes) {
+    for (const [q, bx, by, w] of boxes(n)) {
+      if (y < by || y >= by + row || x < bx - 3 || x > bx + w + 3) continue;
+      const edges = w >= 16 && q === n.pitch;
+      return {note: n, mode: edges && x < bx + 5 ? "start" : edges && x > bx + w - 5 ? "end" : "pitch"};
+    }
+  }
+  return null;
+}
+function wire() {
+  const c = $("roll");
+  c.addEventListener("mousedown", e => {
+    if (!S || e.button) return;
+    const {x, y} = at(e);
+    if (y < RULER || x < GUTTER) { if (x >= GUTTER) seek(tOf(x)); return; }
+    const h = hit(x, y);
+    if (!h) { select(null); seek(tOf(x)); return; }
+    select(h.note.id, true);
+    drag = {id: h.note.id, mode: h.mode, x, y, start: h.note.start, end: h.note.end, pitch: h.note.pitch, moved: false};
+  });
+  window.addEventListener("mousemove", e => {
+    if (!S) return;
+    const {x, y} = at(e);
+    if (!drag) { const h = y >= RULER && x >= GUTTER ? hit(x, y) : null; c.style.cursor = h ? (h.mode === "pitch" ? "ns-resize" : "ew-resize") : "default"; return; }
+    const n = note(drag.id); if (!n) { drag = null; return; }
+    if (drag.mode === "pitch") {
+      if (Math.abs(y - drag.y) > 4) drag.moved = true;
+      if (drag.moved) drag.pitch = Math.max(S.low, Math.min(S.high, pOf(y)));
+    } else {
+      if (Math.abs(x - drag.x) > 3) drag.moved = true;
+      const t = tOf(x);
+      if (drag.moved && drag.mode === "start") drag.start = Math.min(t, n.end - 0.03);
+      if (drag.moved && drag.mode === "end") drag.end = Math.max(t, n.start + 0.03);
+    }
+    dirty = true;
+  });
+  window.addEventListener("mouseup", async () => {
+    if (!drag) return;
+    const d = drag, n = note(d.id);
+    if (!n || !d.moved) { drag = null; dirty = true; return; }
+    if (d.mode === "pitch") await setPitch(n, d.pitch, "drag");
+    else { const r = await act({kind: "move", id: n.id, start: +d.start.toFixed(3), end: +d.end.toFixed(3), how: "drag"}); if (r) audition(note(n.id)); }
+    drag = null; dirty = true;
+  });
+  c.addEventListener("dblclick", e => {
+    const {x, y} = at(e);
+    if (S && y >= RULER && x >= GUTTER && !hit(x, y)) addHere(tOf(x), pOf(y));
+  });
+  c.addEventListener("wheel", e => {
+    if (!S) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, at(e).x);
+    else { view.t0 = Math.max(-0.2, Math.min(S.length, view.t0 + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / view.pps)); dirty = true; }
+  }, {passive: false});
+  window.addEventListener("resize", () => { resize(); });
+  $("play").onclick = () => A.playing ? stop() : play(playhead);
+  $("undo").onclick = () => act({kind: "undo"});
+  $("sheet").onclick = makeSheet;
+  $("zoomIn").onclick = () => zoom(1.3); $("zoomOut").onclick = () => zoom(1 / 1.3);
+  $("song").onchange = () => load($("song").value);
+  for (const k of ["record", "bass", "notes", "split"]) $("hear" + k[0].toUpperCase() + k.slice(1)).onchange = e => { hear[k] = e.target.checked; mix(); e.target.blur(); };
+  document.addEventListener("keydown", keys);
+  // a button or a list that was clicked gives the keyboard back: Space is play and stop, never "press that again"
+  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("button"); if (b) b.blur(); });
+  $("song").addEventListener("change", () => $("song").blur());
+}
+function zoom(f, x) {
+  const cx = x === undefined ? xOf(playhead) : x, t = tOf(cx);
+  view.pps = Math.max(30, Math.min(900, view.pps * f));
+  view.t0 = Math.max(-0.2, t - (cx - GUTTER) / view.pps);
+  dirty = true;
+}
+function keys(e) {
+  if (!S || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && e.target.type !== "checkbox")) return;
+  const n = note(sel), k = e.key;
+  const done = () => { e.preventDefault(); };
+  if (e.metaKey || e.ctrlKey) { if (k === "z") { act({kind: "undo"}); done(); } return; }
+  if (k === " ") { A.playing ? stop() : play(playhead); return done(); }
+  if (k === "ArrowLeft" || k === "ArrowRight") {
+    const step = k === "ArrowLeft" ? -1 : 1;
+    if (e.altKey && n) { e.shiftKey ? nudge(n, 0, step * 0.01) : nudge(n, step * 0.01, 0); return done(); }
+    stop();
+    const id = Logic.neighbour(S.notes, sel, step, playhead);
+    if (id) { select(id); playhead = note(id).start; refresh(); }
+    return done();
+  }
+  if (k === "z" || k === "Z") { act({kind: "undo"}); return done(); }
+  if (k === "+" || k === "=") { zoom(1.3); return done(); }
+  if (k === "-" || k === "_") { zoom(1 / 1.3); return done(); }
+  if (k === "a" || k === "A") { stop(); addHere(playhead); return done(); }
+  if (offer && (k === "o" || k === "O")) { offerShow(); return done(); }
+  if (offer && (k === "y" || k === "Y")) { offerYes(); return done(); }
+  if (offer && (k === "x" || k === "X")) { offerNo(); return done(); }
+  if (k === "Escape") { stop(); select(null); return done(); }
+  if (!n) return;
+  if (k === "ArrowUp" || k === "ArrowDown") { stop(); setPitch(n, n.pitch + (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1), "key"); return done(); }
+  if (k >= "1" && k <= "6") { stop(); takeGuess(+k - 1); return done(); }
+  if (k === "Enter") { audition(n); return done(); }
+  if (k === "Backspace" || k === "Delete") { stop(); remove(); return done(); }
+  if (k === "s" || k === "S") { stop(); split(); return done(); }
+  if (k === "m" || k === "M") { stop(); act({kind: "merge", id: n.id}); return done(); }
+}
+
+if (typeof document !== "undefined" && document.getElementById("roll")) {
+  wire();
+  start().catch(e => say(e.message, true));
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

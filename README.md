@@ -72,6 +72,19 @@ bass2sheet-judge serve --dir judging        # then open http://localhost:8765
 
 The steps are: which model isolates the bass (you hear the two isolated tracks), which notes are found in it, whether two notes played together are written as a chord, where the bar lines fall, whether the rhythm is written as played or simplified, and whether the tab stays low on the neck or in one position. Each step of a song is built on what you picked before it. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
 
+## Make the score yours
+
+The machine's sheet is a first draft. `bass2sheet-copilot` puts you in charge of the final one and makes the machine your copilot.
+
+```
+bass2sheet-copilot add SONG... --dir scores
+bass2sheet-copilot serve --dir scores        # then open http://localhost:8770
+```
+
+The song plays through on a timeline: the isolated bass as a picture of pitch against time, the notes the tool heard drawn over it and played in the bass's own sound against the record. You stop where a note is wrong and fix it. For another pitch the tool offers its guesses, best first, and one key takes one; you can also nudge a note, delete it, add one, split one in two or join two. After a fix it offers the other notes that carry the same label and sound the same, and you decide. What you play past untouched counts as right. The sheet is written from your notes.
+
+Every fix is the tool's record of a mistake, with the right answer attached: `bass2sheet-copilot report` lists them by kind. See [docs/copilot.md](docs/copilot.md).
+
 ## How it works
 
 1. **Decode and validate.** Any format to 44.1 kHz stereo. Unreadable, silent, very short or very long input is refused with a message.

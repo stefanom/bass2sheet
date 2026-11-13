@@ -87,19 +87,20 @@ def _moved(rows, semitones):
 class Bank:
     """The single notes of a transcription, as samples of the instrument. `notes` are dicts with start, end and
     pitch; a note with others played together (`also`) is not a sample. Of a pitch with many notes, `most`
-    spread through the song are used."""
+    spread through the song are used. `spectra` is a dict to keep the notes' spectra in between banks of the
+    same track (they are kept by where a note starts, so they outlive a change to the list of notes)."""
 
-    def __init__(self, mono, notes, most=40):
+    def __init__(self, mono, notes, most=40, spectra=None):
         self.mono, self.notes, self.most = mono, notes, most
         self.lasts = [n["end"] - n["start"] - SKIP for n in notes]
         self.by_pitch = {}
         for i, n in enumerate(notes):
             if not n.get("also") and self.lasts[i] >= LENGTHS[0]:
                 self.by_pitch.setdefault(n["pitch"], []).append(i)
-        self._spectra, self._stacks = {}, {}
+        self._spectra, self._stacks = ({} if spectra is None else spectra), {}
 
     def spec(self, i, length):
-        key = (i, length)
+        key = (self.notes[i]["start"], length)
         if key not in self._spectra:
             self._spectra[key] = spectrum(self.mono, self.notes[i]["start"], length)
         return self._spectra[key]

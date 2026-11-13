@@ -202,8 +202,10 @@ def musicxml(
     tab_style="low",
     bars=None,
     bar_times=None,
+    subtitle=None,
 ):
     """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check").
+    `subtitle` replaces the line under the title that says the bass is a machine transcription.
     Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes).
 
     `bars=(first, last)` writes only those bars as one line with no title: a snippet of the same score, with the
@@ -366,9 +368,9 @@ def musicxml(
             x += '<barline location="right"><bar-style>light-heavy</bar-style></barline>'
         M.append(x + "</measure>")
 
-    sub = (
-        "DRAFT: failed quality gates, see report. " if draft else ""
-    ) + "Bass: machine transcription, check it by ear"
+    sub = subtitle or (
+        ("DRAFT: failed quality gates, see report. " if draft else "") + "Bass: machine transcription, check it by ear"
+    )
     foot = " · ".join(
         filter(
             None,
