@@ -247,7 +247,8 @@ def musicxml(
     bar_time = lambda bar: (
         bar_times[bar] if bar_times is not None and bar in bar_times else first_downbeat + (bar - 1) * bar_s
     )
-    flagged = any(e["flag"] for e in events)
+    doubtful = lambda e: bool(e["flag"] or e.get("sounds_like"))  # shown in parentheses
+    flagged = any(doubtful(e) for e in events)
 
     def one_note(staff, e, d, tie_start, tie_stop, grace, pitch, string, fret, chord):
         x = "<note>" + ('<grace slash="yes"/>' if grace else "") + ("<chord/>" if chord else "")
@@ -258,7 +259,7 @@ def musicxml(
         x += "<voice>1</voice>" if staff == 1 else "<voice>5</voice>"
         typ, dots = TYPES[d] if not grace else ("16th", 0)
         x += f"<type>{typ}</type>" + "<dot/>" * dots + ("<stem>none</stem>" if staff == 2 else "")
-        if e["flag"] and staff == 1 and not tie_stop:
+        if doubtful(e) and staff == 1 and not tie_stop:
             x += '<notehead parentheses="yes">normal</notehead>'
         x += f"<staff>{staff}</staff>"
         nots = (['<tied type="stop"/>'] if tie_stop else []) + (['<tied type="start"/>'] if tie_start else [])

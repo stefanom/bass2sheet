@@ -49,6 +49,16 @@ You can stop at any time; picks are saved as you make them. The bar under the ti
 - **They decide the defaults.** The standing choices are `DEFAULTS` in `src/bass2sheet/common.py`. `report` shows how often each alternative was picked and which songs took one; changing a default is then a one-line change, and the command-line flags (`--separator`, `--replucks`, `--rhythm`, `--beat-tracker`, `--tab`) choose the other alternative for one run.
 - **They become tests.** Every judged passage is kept with the version you picked. After a change to the tool, `update` transcribes your songs again under the settings each pick was made with. A passage that still reads as you picked needs nothing; one that now comes out differently returns to the page, ahead of everything else, as a comparison between your pick and what the tool writes now. What is not settled is built again by the tool as it is now: steps nobody has judged, and passages that are still open or where you found neither version right, if they come out differently.
 
+## Without listening: `check`
+
+```
+bass2sheet-judge check --dir judging
+```
+
+Every note the tool finds is also a sample of what the bass sounds like at that pitch in that song. `check` compares each note with the song's other notes of the same pitch and prints, per song, the share that do not sound like them, how many another pitch's notes explain better, and the ten seconds with the most such notes. It uses the settings your picks have settled on. Each run is appended to `checks.jsonl`, and the next run after a change to the tool shows what the share was before.
+
+What it is good for, measured against ground truth in [evaluation.md](evaluation.md): ranking songs by how wrong they are, pointing at notes to listen to, and saying whether a change to the tool made a song better or worse when the difference is sizeable. What it cannot do: tell whether the isolated track is the bass, see a mistake that is made every time, or decide a question of taste. Your picks still decide those.
+
 ## The working directory
 
 ```
@@ -61,6 +71,7 @@ judging/
   media/<id>/         the audio (FLAC), the pitch pictures, and the score snippets with MuseScore's positions
                       of their notes, which the cursor follows
   judgments.jsonl     your picks, appended; the latest pick for a passage counts
+  checks.jsonl        what `check` measured, appended, with the version of the tool's code
 ```
 
 The directory holds excerpts of your recordings. Keep it out of any repository.

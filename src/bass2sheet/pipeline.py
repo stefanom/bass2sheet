@@ -7,7 +7,7 @@ import time
 import numpy as np
 import soundfile as sf
 
-from . import __version__, render, report
+from . import __version__, ownsound, render, report
 from .audio import decode, validate
 from .common import (
     ALTERNATIVES,
@@ -354,6 +354,12 @@ def run(
                 k: path(f"audio/{f}")
                 for k, f in (("resynth", "song_resynth.wav"), ("ab", "bass_ab_lr.wav"), ("synth", "synth_bass.wav"))
             },
+        )
+        rebuilt = ownsound.rebuild(best["stems"]["bass"].mean(0), best["notes"])
+        peak = float(np.abs(rebuilt).max())
+        sf.write(path("audio/bass_rebuilt.wav"), 0.95 * rebuilt / peak if peak > 0 else rebuilt, SR, subtype="PCM_16")
+        files["audio/bass_rebuilt.wav"] = (
+            "the transcription played with the bass's own sound: each note by a sample cut from another note"
         )
         files.update(
             {

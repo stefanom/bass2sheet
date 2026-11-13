@@ -279,3 +279,13 @@ def test_a_held_chord_ties_every_note_of_it():
     line = [dict(_n(12, 8, 36), also=[43])]  # across the bar line
     text = score.musicxml(line, [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False)
     assert text.count('<tie type="start"/>') == text.count('<tie type="stop"/>') == 4  # two notes, two staves
+
+
+def test_a_note_that_sounds_like_another_pitch_is_shown_in_parentheses():
+    line = [_n(0, 4, 33), dict(_n(4, 4, 36), sounds_like=48, own_sound=0.3), dict(_n(8, 4, 38), own_sound=0.9)]
+    text = score.musicxml(line, [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False)
+    assert text.count('parentheses="yes"') == 1 and "(notes) uncertain" in text
+    plain = score.musicxml(
+        [_n(0, 4, 33), dict(_n(4, 4, 36), own_sound=0.9)], [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False
+    )
+    assert 'parentheses="yes"' not in plain and "(notes) uncertain" not in plain

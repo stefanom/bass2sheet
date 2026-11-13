@@ -13,7 +13,8 @@ import mir_eval
 import numpy as np
 import pretty_midi
 
-from .common import HOP, SR, clock
+from . import ownsound
+from .common import HOP, SR, clock, note_name
 
 CHECK_SEVERITY = 3  # bars at or above this severity get a red "check" in the PDF
 
@@ -153,6 +154,18 @@ def transcription_gates(
         )
         sec_onset = float(sec_onset)
 
+    # each note against the song's other notes of its pitch (see ownsound.py): `own_sound` is how well they
+    # explain it, `sounds_like` the pitch whose notes explain it clearly better
+    heard = ownsound.check(stems["bass"].mean(0), notes)
+    for nt, h in zip(notes, heard):
+        nt.pop("own_sound", None), nt.pop("sounds_like", None)
+        if h:
+            nt["own_sound"] = round(h["explained"], 2)
+            if h["better"] is not None:
+                nt["sounds_like"] = int(h["better"])
+    judged = [h for h in heard if h]
+    unlike = float(np.mean([ownsound.doubtful(h) for h in judged])) if judged else None
+
     offsets = [abs(nt["start"] - grid[nt["grid_start"] + origin]) for nt in notes]
     eighths = float(np.mean([nt["sixteenth"] in (1, 3) for nt in notes]))
     uncertain = float(np.mean([bool(nt["flag"]) for nt in notes]))
@@ -183,6 +196,17 @@ def transcription_gates(
             0.78,
             True,
             "where both sound; pitch from harmonic summation, so the synth's timbre doesn't matter",
+        ).judge(),
+        Gate(
+            "own_sound",
+            "Notes unlike the song's other notes of their pitch",
+            unlike,
+            0.15,
+            None,
+            False,
+            "each note is compared with the sound of the other notes written with its pitch; where those do not "
+            "explain it, or another pitch's notes explain it better, the note is probably wrong",
+            note="" if judged else "too few notes to compare",
         ).judge(),
         Gate(
             "octave_doubts",
@@ -293,6 +317,13 @@ def transcription_gates(
             add(nt["bar"], "uncertain", 1, f"uncertain pitch at {pos} (pitch trackers disagree)")
     for nt, why in doubts:
         add(nt["bar"], "octave_doubt", 2, f"note at {nt['beat']}.{nt['sixteenth']} {why}")
+    for nt in notes:
+        pos, name = f"{nt['beat']}.{nt['sixteenth']}", note_name(nt["pitch"])
+        if "sounds_like" in nt:
+            like = note_name(nt["sounds_like"])
+            add(nt["bar"], "own_sound", 2, f"the {name} at {pos} sounds more like the song's {like}s than its {name}s")
+        elif nt.get("own_sound", 1.0) < ownsound.UNLIKE:
+            add(nt["bar"], "own_sound", 1, f"the {name} at {pos} does not sound like the song's other {name}s")
     severity = {
         bar: sum(max(p for c, p, _ in items if c == cat) for cat in {c for c, _, _ in items})
         for bar, items in checks.items()
@@ -314,12 +345,14 @@ def transcription_gates(
 
 
 LAYOUT_GATES = {"meter_fit", "grid_eighths"}  # about how the bars are laid out, not whether the notes are right
+NOT_IN_VERDICT = {"own_sound"}  # reported, but the verdict's thresholds were set before this gate existed
 MANY_WARNINGS = 5
 
 
 def verdict(gates):
     """FAIL when a gate fails or when MANY_WARNINGS of the accuracy gates warn at once: in the evaluation runs,
     results with five or more warnings were as inaccurate as those with a failed gate. WARN for any warning."""
+    gates = [g for g in gates if g.name not in NOT_IN_VERDICT]
     statuses = [g.status for g in gates]
     accuracy_warnings = sum(g.status == "warn" for g in gates if g.name not in LAYOUT_GATES)
     if "fail" in statuses or accuracy_warnings >= MANY_WARNINGS:

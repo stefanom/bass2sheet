@@ -45,6 +45,12 @@ def test_many_accuracy_warnings_fail_but_layout_warnings_do_not_count():
     assert Q.verdict([warn(f"g{k}") for k in range(4)] + [warn("meter_fit"), warn("grid_eighths")]) == "WARN"
 
 
+def test_a_gate_added_after_the_verdict_was_calibrated_is_reported_but_does_not_decide():
+    g = lambda name, status: Q.Gate(name, "G", 1.0, 0, 0, True, "", status=status)
+    assert Q.verdict([g("coverage", "pass"), g("own_sound", "warn")]) == "PASS"
+    assert Q.verdict([g(f"g{k}", "warn") for k in range(4)] + [g("own_sound", "warn")]) == "WARN"
+
+
 def test_stem_gate_tells_bass_from_no_bass(song):
     mix = song["mix"].mean(0)
     assert Q.verdict(Q.stem_gates(song["stems"], mix)) == "PASS"
@@ -114,3 +120,33 @@ def test_transcription_gates_on_a_perfect_and_a_broken_transcription(song):
     assert any("notes missing" in r for c in checks.values() for r in c["reasons"])
     shifted, _ = gates_for([(s + 0.06, e + 0.06, p) for s, e, p in song["notes"]])  # half a 16th late
     assert shifted["grid_offset_ms"].status == "fail"
+
+
+def test_the_bass_tracks_own_sound_marks_the_note_that_is_unlike_the_others(song):
+    import librosa
+    from conftest import note
+
+    from bass2sheet import render, rhythm
+    from bass2sheet.common import HOP, SR
+
+    stems = song["stems"]
+    mono = stems["bass"].mean(0)
+    feat = dict(
+        rms_db=librosa.amplitude_to_db(librosa.feature.rms(y=mono, frame_length=2048, hop_length=HOP)[0] + 1e-9),
+        cqt=np.abs(
+            librosa.cqt(mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12)
+        ),
+    )
+    grid, origin = np.arange(-1.0, 40, 0.125), 16
+    truth = list(song["notes"])
+    s, e, p = truth[20]
+    truth[20] = (s, e, p + 5)  # one note written a fourth too high
+    notes = rhythm.quantize([note(s, e, p) for s, e, p in truth], grid, origin)
+    gates, checks = Q.transcription_gates(stems, feat, notes, grid, origin, render.synth(notes, len(mono)), None, "off")
+    gate = next(g for g in gates if g.name == "own_sound")
+    assert gate.status == "pass" and 0 < gate.value < 0.05 and gate.fail is None
+    assert notes[20]["sounds_like"] == p and notes[20]["own_sound"] < 0.5
+    others = [n for k, n in enumerate(notes) if k != 20]
+    assert not any("sounds_like" in n for n in others) and min(n["own_sound"] for n in others) > 0.7
+    why = [r for c in checks.values() for r in c["reasons"] if "sounds more like" in r]
+    assert len(why) == 1 and why[0].startswith("the ") and checks[notes[20]["bar"]]["severity"] >= 2

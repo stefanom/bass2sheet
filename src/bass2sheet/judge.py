@@ -30,7 +30,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from . import render, score
+from . import ownsound, render, score
 from .common import ALTERNATIVES, DEFAULTS, SR, Bass2SheetError, atomic_write_text, clean_name, sha1_file
 from .rhythm import simplify
 
@@ -1336,6 +1336,70 @@ def update(workdir, say=None):
     return kept, stray, new
 
 
+def check(workdir, say=None):
+    """What each song's own bass track says of the notes the tool finds in it now (see ownsound.py), under the
+    settings the picks have settled on. No one has to listen: each note is compared with the sound of the
+    song's other notes of its pitch.
+
+    Returns one row per song: the notes found, how many could be judged, the share that do not sound like
+    their namesakes (`unlike`), how many of those another pitch explains better, and the ten seconds with the
+    most such notes. Rows are appended to checks.jsonl with the tool's code_id(), and `was` in each row is the
+    song's share the last time a different state of the tool was checked: what a change to the tool did to
+    these songs."""
+    say = say or (lambda text: print(text, flush=True))
+    opts, songs = read_settings(workdir), read_json(workdir, "songs.json", {})
+    comps, judged = load_comparisons(workdir), load_judgments(workdir)
+    path, code, earlier = os.path.join(workdir, "checks.jsonl"), code_id(), {}
+    if os.path.exists(path):
+        with open(path) as f:
+            for row in map(json.loads, filter(str.strip, f)):
+                if row["code"] != code:
+                    earlier[row["song"]] = row
+    rows = []
+    for song in songs.values():
+        settings = chain(song, comps, judged, opts)[1]
+        v = heard_under(workdir, song, opts)(settings)
+        notes = [dict(start=n["start"], end=n["end"], pitch=n["pitch"], also=n.get("also", [])) for n in v["notes"]]
+        heard = ownsound.check(audio_source(song, opts)(v).bass_mono, notes)
+        told = [(n, h) for n, h in zip(notes, heard) if h]
+        doubts = [n["start"] for n, h in told if ownsound.doubtful(h)]
+        worst = max(
+            ((sum(t <= x < t + 10 for x in doubts), t) for t in range(0, int(notes[-1]["end"]) + 1, 5)), default=(0, 0)
+        )
+        was = earlier.get(song["id"])
+        rows.append(
+            dict(
+                at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                code=code,
+                song=song["id"],
+                title=song["title"],
+                settings={k: settings[k] for k in ("separator", "replucks", "together")},
+                notes=len(notes),
+                judged=len(told),
+                unlike=round(len(doubts) / max(1, len(told)), 4),
+                another_pitch=sum(h["better"] is not None for _, h in told),
+                worst=dict(
+                    start=worst[1], doubtful=worst[0], notes=sum(worst[1] <= n["start"] < worst[1] + 10 for n in notes)
+                ),
+                was=was["unlike"] if was else None,
+            )
+        )
+        r = rows[-1]
+        say(
+            f"{r['title']}: {r['unlike']:.0%} of {r['judged']} notes do not sound like the song's others of their "
+            f"pitch" + (f" (was {r['was']:.0%})" if was else "") + f"; another pitch explains {r['another_pitch']} "
+            f"better; most doubts at {clock_time(r['worst']['start'])}: {r['worst']['doubtful']} of "
+            f"{r['worst']['notes']} notes"
+        )
+    with open(path, "a") as f:
+        f.writelines(json.dumps(r) + "\n" for r in rows)
+    return rows
+
+
+def clock_time(seconds):
+    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+
+
 def report(workdir):
     """The picks so far, as Markdown: per step, and what each song settles on."""
     t = tally(workdir)
@@ -1387,7 +1451,8 @@ def main(argv=None):
     r = sub.add_parser("report", help="print the picks so far")
     u = sub.add_parser("update", help="after the tool changed: bring back judged passages it now writes differently")
     e = sub.add_parser("sheets", help="engrave every comparison's score snippets again; picks and audio are kept")
-    for p in (b, s, r, u, e):
+    c = sub.add_parser("check", help="no listening: compare every note with the song's other notes of its pitch")
+    for p in (b, s, r, u, e, c):
         p.add_argument("--dir", default="judging", help="working directory (default ./judging)")
     args = ap.parse_args(argv)
     try:
@@ -1413,6 +1478,8 @@ def main(argv=None):
             serve(args.dir, args.port)
         elif args.command == "report":
             print(report(args.dir), end="")
+        elif args.command == "check":
+            check(args.dir)
         elif args.command == "sheets":
             mscore = score.find_mscore(read_settings(args.dir).get("mscore"))
             n = render_sheets(args.dir, load_comparisons(args.dir), mscore, force=True)

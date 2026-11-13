@@ -75,6 +75,7 @@ def test_outputs_are_complete_and_valid(result, song):
         "audio/synth_bass.wav",
         "audio/song_resynth.wav",
         "audio/bass_ab_lr.wav",
+        "audio/bass_rebuilt.wav",
     ):
         assert os.path.getsize(os.path.join(out, name)) > 0, name
     doc = xml.dom.minidom.parse(os.path.join(out, "bass.musicxml"))
@@ -91,6 +92,11 @@ def test_outputs_are_complete_and_valid(result, song):
     assert len(played) == len(result["data"]["notes"])
     info = sf.info(os.path.join(out, "audio/song_resynth.wav"))
     assert abs(info.duration - song["mix"].shape[1] / song["sr"]) < 0.1 and info.channels == 2
+    rebuilt = sf.info(os.path.join(out, "audio/bass_rebuilt.wav"))  # the notes played with the bass's own sound
+    assert abs(rebuilt.duration - info.duration) < 0.1 and rebuilt.channels == 1
+    own = next(g for g in result["report"]["gates"] if g["name"] == "own_sound")
+    assert own["status"] == "pass" and own["value"] < 0.05
+    assert all(n["own_sound"] > 0.6 and "sounds_like" not in n for n in result["data"]["notes"])
     assert "Synthetic Song" in open(os.path.join(out, "report.html")).read()
     assert set(result["report"]["files"]) >= {"bass.musicxml", "bass.mid", "notes.json", "report.html"}
 

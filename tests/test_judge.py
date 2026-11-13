@@ -742,3 +742,31 @@ def test_the_step_for_notes_played_together_shows_where_two_were_heard(cache_dir
         assert sorted(p for _, _, p, differs in one if differs) == []
     events = judge.events(judge.load_version(workdir, comps[0]["a"]))
     assert [e["also_tab"] for e in events if e.get("also")][0] == [[55, 1, 12]]  # the G over the C, one string up
+
+
+def test_check_measures_the_songs_without_anyone_listening(taste_song_files, cache_dir, tmp_path, monkeypatch):
+    mix, stems = taste_song_files
+    workdir = str(tmp_path)
+    kw = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    judge.build([mix], workdir, ["replucks"], per_song=1, stems_dirs={mix: stems}, say=lambda _: 0, **kw)
+    said = []
+    rows = judge.check(workdir, say=said.append)
+    assert len(rows) == 1 and rows[0]["song"] == "mix" and rows[0]["was"] is None
+    assert rows[0]["judged"] > 50 and rows[0]["unlike"] < 0.05 and rows[0]["another_pitch"] == 0
+    assert rows[0]["settings"] == dict(separator="roformer", replucks="every", together="write")
+    assert "do not sound like" in said[0] and "(was" not in said[0]
+
+    real = judge.hear
+
+    def worse(*args, **kw):  # a later version of the tool hears every fifth note a fourth too high
+        heard = real(*args, **kw)
+        notes = [dict(n, pitch=n["pitch"] + 5) if k % 5 == 2 else n for k, n in enumerate(heard["notes"])]
+        return dict(heard, notes=notes)
+
+    monkeypatch.setattr(judge, "hear", worse)
+    monkeypatch.setattr(judge, "code_id", lambda: "later000")
+    again = judge.check(workdir, say=said.append)
+    assert again[0]["unlike"] > rows[0]["unlike"] + 0.1 and again[0]["was"] == rows[0]["unlike"]
+    assert again[0]["another_pitch"] >= 8 and "(was " in said[1]
+    with open(os.path.join(workdir, "checks.jsonl")) as f:
+        assert [json.loads(line)["code"] for line in f] == [rows[0]["code"], "later000"]

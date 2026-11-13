@@ -150,6 +150,34 @@ None of the datasets has them to speak of: 4 pairs in BabySlakh's 6,099 referenc
 - A second note must pass four tests (`together.py`): it is a note of its own in the spectrum, with two partials the first note cannot explain; it starts with the first (a note still ringing does not); it lasts with it (the pluck's noise does not); and it is louder in the bass track than in the rest of the record (a kick drum or a piano note that leaked into the bass track is not). On one of the six songs judged by ear the last test turned down 14 of 38 candidates.
 - Mixed single notes are not a double stop played by a hand: the two strings of a real one start within a few milliseconds of each other and share the instrument's resonances. Recordings of real double stops with exact notes would be the better test.
 
+### The notes checked by the bass track's own sound
+
+`python dev/ownsound_eval.py --versions --idmt IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
+
+Every note the tool finds is also a sample of what this bass sounds like at that pitch on this recording. `ownsound.py` compares each note's spectrum with those of the song's other notes written with its pitch, never with itself, and with the notes of other pitches moved to it. A note is **doubtful** when its namesakes explain less than half of it, or when another pitch's notes explain it clearly better. No reference is used; below, the references only say afterwards which notes were wrong.
+
+| | Real bass alone (IDMT) | BabySlakh, separated | RWC Popular, separated |
+|---|---|---|---|
+| Notes judged | 1,099 | 6,230 | 13,682 |
+| Of all notes, wrong by the reference | 12% | 12% | 17% |
+| Of the doubtful notes, wrong | 44% (of 169) | 58% (of 374) | 61% (of 922) |
+| Of the notes another pitch explains better, wrong | 67% (of 21) | 74% (of 141) | 77% (of 309) |
+| Wrong notes that are doubted | 55% | 28% | 24% |
+| Right notes that are doubted | 10% | 3% | 3% |
+| Per song, share of doubtful notes against the true score (rank correlation) | −0.57 | −0.87 | −0.88 |
+| Two versions of a song 0.03 or more apart in true score: the one with fewer doubtful notes is the better | 126 of 162 | 13 of 22 | 70 of 95 |
+| The same, 0.06 or more apart | 87 of 109 | none | 41 of 43 |
+
+- **It ranks songs.** The share of doubtful notes follows a song's true score more closely than any of the gates above.
+- **It points at notes to listen to, and misses most of the wrong ones.** A doubted note is wrong about three times in five, where one note in six to eight is. But three wrong notes in four pass in a mix, half on a bass recorded alone. Wrong notes pass when the same mistake is made every time, because then they explain each other: the 360 notes an octave low in one BabySlakh song score 0.78, right notes 0.88.
+- **It says whether a change helped a song only when the change is large.** Six settings of the note finder were run on every song. Of two versions whose true scores differ by 0.06 or more, the one with fewer doubtful notes is the better in 80% (real bass alone) to 95% (RWC) of pairs; at 0.03, in about three of four; below that it cannot tell.
+- **It does not correct.** Replacing a doubted note with the pitch that explains it best would fix 20 notes and break 27 on BabySlakh, and fix 106 and break 151 on RWC. Letting the spectrum's own peaks propose the pitch and the other notes confirm it does better there (RWC: 106 fixed, 22 broken, F +0.005; BabySlakh: 15 and 11, F −0.001). On a song whose transcription was approved by ear it moved 9 notes, 7 of them an octave down, and agreement fell from 0.89 to 0.88. Not adopted.
+- **Comparing the whole rebuilt track with the bass track adds nothing.** `audio/bass_rebuilt.wav` is the transcription played with these samples, each note by a sample cut from another note; it is for listening. As a measure, the overlap of its spectrogram with the bass track's picked the better of two versions no more often (71% to 75% of pairs 0.03 apart), and it rated the exact reference below the tool's own transcription on 11 of 17 real bass lines: it rewards borrowed samples that happen to fit in length.
+- **A tone that changes during the song lowers every score.** Spectra are compressed before they are compared, because how loud each partial is depends on how the note was played and not on its pitch. On a song with a heavily distorted bass that took the doubtful share from 43% to 35%; on the three sets it changed nothing.
+- **On six songs judged by ear**, the four where passages were picked have 4% to 14% doubtful notes, and the two where every passage was rejected have 35% and 43%, more than any song in the three sets (28% at most).
+
+The share is reported as a gate (`own_sound`, warning above 15%) that is not part of the verdict yet: the verdict's thresholds were set before it existed.
+
 ### Verdicts against measured scores
 
 The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.

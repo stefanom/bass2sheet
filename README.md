@@ -51,7 +51,7 @@ bass2sheet SONG [-o OUT_DIR] [--title T] [--artist A] [--strict]
 | `bass.mid`, `bass_as_played.mid` | MIDI on a steady grid, and MIDI aligned with the recording |
 | `notes.json` | Every note with its time, pitch, bar position and flags; key, tempo, chords |
 | `report.html`, `report.json` | The verdict, each gate's value and threshold, the bars to check and why |
-| `audio/` | The separated bass, the transcription synthesized, the song with the transcription in place of the real bass, and real bass left / transcription right for headphones |
+| `audio/` | The separated bass, the transcription synthesized, the transcription played with the bass's own sound (`bass_rebuilt.wav`: each note by a sample cut from another note), the song with the transcription in place of the real bass, and real bass left / transcription right for headphones |
 
 Exit codes: `0` the sheet was written (PASS or WARN); `2` the result failed its gates (the sheet is marked DRAFT, or not written with `--strict`); `1` error (unreadable input, no bass found).
 
@@ -68,6 +68,8 @@ bass2sheet-judge build SONG... --dir judging
 bass2sheet-judge serve --dir judging        # then open http://localhost:8765
 ```
 
+`bass2sheet-judge check --dir judging` needs no listening: it compares every note with the sound of the song's other notes of its pitch and reports the share that do not match, per song, and how that share moved since the tool last changed.
+
 The steps are: which model isolates the bass (you hear the two isolated tracks), which notes are found in it, whether two notes played together are written as a chord, where the bar lines fall, whether the rhythm is written as played or simplified, and whether the tab stays low on the neck or in one position. Each step of a song is built on what you picked before it. Your picks decide the defaults, and every passage you judged comes back if a later change alters it. See [docs/judging.md](docs/judging.md).
 
 ## How it works
@@ -79,7 +81,8 @@ The steps are: which model isolates the bass (you hear the two isolated tracks),
 5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
 6. **Key and chords.** Rough estimates for the chord symbols and note spelling.
 7. **Engrave.** MusicXML with a tab staff whose fingering comes from a search that keeps the fretting hand in place; MuseScore turns it into the PDF.
-8. **Judge the result.** The quality gates below.
+8. **Check the notes by the bass's own sound.** Every note found is also a sample of what this bass sounds like at that pitch on this recording. Each note is compared with the other notes written with its pitch. One they do not explain, or that another pitch's notes explain better, is probably wrong: it goes in parentheses and on the list of bars to check.
+9. **Judge the result.** The quality gates below.
 
 ## Quality gates
 
@@ -92,6 +95,7 @@ There is no reference transcription for your song, so each gate is an independen
 | Notes cut short while the bass rings | ≤ 4% | 12% | Choppy note ends |
 | Same note name as the recording | ≥ 90% | 78% | Wrong notes, judged on the rendered transcription |
 | Notes with a doubtful octave | ≤ 1% | 5% | Octave errors |
+| Notes unlike the song's other notes of their pitch | ≤ 15% | reported only | A wrong note among right ones. Not part of the verdict yet |
 | Same pitch as Basic Pitch | ≥ 90% | 70% | Disagreement with an independent model |
 | Note starts shared with Basic Pitch | F ≥ 0.75 | 0.50 | Missed, extra or mistimed notes |
 | Note starts' distance from the 16th grid | ≤ 32 ms | 50 ms | A wrong tempo or grid, or swing |
@@ -100,7 +104,7 @@ There is no reference transcription for your song, so each gate is an independen
 | Notes flagged uncertain | ≤ 6% | 20% | The two pitch trackers disagree |
 | Bars that need an ear check | ≤ 6% | 25% | Too many bars where the checks disagree |
 
-FAIL if any gate fails, or if five or more of the accuracy gates warn at once; WARN if any gate warns; otherwise PASS. Each bar also gets a severity that adds up independent signals (missing notes, a pitch mismatch with the recording, Basic Pitch disagreeing, a doubtful octave); the report lists the bars worst first, and severity 3 or more puts the red "check" in the PDF.
+FAIL if any gate fails, or if five or more of the accuracy gates warn at once; WARN if any gate warns; otherwise PASS. Each bar also gets a severity that adds up independent signals (missing notes, a pitch mismatch with the recording, Basic Pitch disagreeing, a doubtful octave, a note that does not sound like its namesakes); the report lists the bars worst first, and severity 3 or more puts the red "check" in the PDF.
 
 The thresholds come from evaluation runs with ground truth: a gate warns below what 90% of the accurate runs reach, and fails where only inaccurate runs were seen. `bass2sheet-eval` reports, for each gate, how well it tracks the measured score.
 
