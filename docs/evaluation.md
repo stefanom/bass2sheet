@@ -168,13 +168,13 @@ Every note the tool finds is also a sample of what this bass sounds like at that
 | Two versions of a song 0.03 or more apart in true score: the one with fewer doubtful notes is the better | 126 of 162 | 13 of 22 | 70 of 95 |
 | The same, 0.06 or more apart | 87 of 109 | none | 41 of 43 |
 
-- **It ranks songs.** The share of doubtful notes follows a song's true score more closely than any of the gates above.
+- **It ranks songs.** As a gate in the full pipeline, the share of doubtful notes has a rank correlation with the score of −0.83 on BabySlakh and −0.85 on RWC, where the best of the other gates reaches 0.80 and 0.58. On MDB-bass-synth it is −0.61, behind the agreement with Basic Pitch (0.77).
 - **It points at notes to listen to, and misses most of the wrong ones.** A doubted note is wrong about three times in five, where one note in six to eight is. But three wrong notes in four pass in a mix, half on a bass recorded alone. Wrong notes pass when the same mistake is made every time, because then they explain each other: the 360 notes an octave low in one BabySlakh song score 0.78, right notes 0.88.
 - **It says whether a change helped a song only when the change is large.** Six settings of the note finder were run on every song. Of two versions whose true scores differ by 0.06 or more, the one with fewer doubtful notes is the better in 80% (real bass alone) to 95% (RWC) of pairs; at 0.03, in about three of four; below that it cannot tell.
 - **It does not correct.** Replacing a doubted note with the pitch that explains it best would fix 20 notes and break 27 on BabySlakh, and fix 106 and break 151 on RWC. Letting the spectrum's own peaks propose the pitch and the other notes confirm it does better there (RWC: 106 fixed, 22 broken, F +0.005; BabySlakh: 15 and 11, F −0.001). On a song whose transcription was approved by ear it moved 9 notes, 7 of them an octave down, and agreement fell from 0.89 to 0.88. Not adopted.
 - **Comparing the whole rebuilt track with the bass track adds nothing.** `audio/bass_rebuilt.wav` is the transcription played with these samples, each note by a sample cut from another note; it is for listening. As a measure, the overlap of its spectrogram with the bass track's picked the better of two versions no more often (71% to 75% of pairs 0.03 apart), and it rated the exact reference below the tool's own transcription on 11 of 17 real bass lines: it rewards borrowed samples that happen to fit in length.
 - **A tone that changes during the song lowers every score.** Spectra are compressed before they are compared, because how loud each partial is depends on how the note was played and not on its pitch. On a song with a heavily distorted bass that took the doubtful share from 43% to 35%; on the three sets it changed nothing.
-- **On six songs judged by ear**, the four where passages were picked have 4% to 14% doubtful notes, and the two where every passage was rejected have 35% and 43%, more than any song in the three sets (28% at most).
+- **On six songs judged by ear**, the four where passages were picked have 4% to 14% doubtful notes, and the two where every passage was rejected have 35% and 43%. No song of BabySlakh or RWC has more than 25%. One song of MDB-bass-synth has 42% with a note accuracy of 0.78, so a high share is a strong warning and not a proof.
 
 The share is reported as a gate (`own_sound`, warning above 15%) that is not part of the verdict yet: the verdict's thresholds were set before it existed.
 
@@ -185,10 +185,12 @@ The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.
 | Verdict | Runs | Mean score | Lowest | Runs at 0.85 or more |
 |---|---|---|---|---|
 | PASS | 15 | 0.96 | 0.90 | 100% |
-| WARN | 50 | 0.84 | 0.52 | 54% |
-| FAIL | 15 | 0.66 | 0.44 | 7% |
+| WARN | 48 | 0.85 | 0.52 | 56% |
+| FAIL | 17 | 0.66 | 0.44 | 6% |
 
-The gate thresholds and the "five warnings fail" rule were set on runs of an earlier version, which gave nearly the same table, so this is close to in-sample. The gate that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.79 on BabySlakh, +0.76 on MDB, +0.57 on RWC). The meter gate does not track note accuracy; it tracks bar position, which is what it is for. Notes in bars marked "check" are right 69% of the time on BabySlakh, against 88% in other bars; on RWC, 42% against 70%.
+The gate thresholds and the "five warnings fail" rule were set on runs of an earlier version, which gave nearly the same table, so this is close to in-sample. Of the gates that decide the verdict, the one that tracks the score best is the share of note starts confirmed by Basic Pitch (rank correlation +0.79 on BabySlakh, +0.72 on MDB, +0.56 on RWC). The share of notes unlike their namesakes, which is reported but does not decide, tracks it better on two of the three sets (−0.83, −0.61, −0.85). The meter gate does not track note accuracy; it tracks bar position, which is what it is for.
+
+Notes in bars marked "check" are right 73% of the time on BabySlakh, against 90% in other bars; on RWC, 50% against 75%. A note that does not sound like its namesakes now counts towards a bar's mark. That marked more bars, and moved two runs from WARN to FAIL through the gate on the share of marked bars; before it, the figures were 63% against 87% and 46% against 74%.
 
 ### Choosing between the two separators
 

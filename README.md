@@ -129,7 +129,7 @@ What that means in practice:
 - **Real recordings are harder.** On RWC about a third of the notes differ from the reference: repeated notes written as one long note (12% of the reference's notes), re-attacks the reference does not have (9% of ours) and wrong pitches (6%). The reference was transcribed by ear, so part of the difference is its own.
 - **Pitch is more reliable than rhythmic detail.** Octave errors are 1–3% of the notes.
 - **Tempo is right on nearly every song; bar lines are not.** On BabySlakh, 5 of 11 songs have their notes on the right sixteenth of the bar throughout. On the others the bar lines are off for part or all of the song: finding the downbeat is the hard part, and the fixed 4/4 grid cannot follow a song whose bars change length. RWC scores 1.00 here, but the beat tracker was trained on RWC, so that number says little.
-- **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.90, WARN 0.84 and FAIL 0.66. The thresholds were set on these same runs, so expect a looser relation on new songs.
+- **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.90, WARN 0.85 and FAIL 0.66. The thresholds were set on these same runs, so expect a looser relation on new songs.
 
 How to reproduce these numbers, and what each dataset can and cannot tell you, is in [docs/evaluation.md](docs/evaluation.md).
 
