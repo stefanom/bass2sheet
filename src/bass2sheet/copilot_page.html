@@ -72,8 +72,8 @@
     <span class="legend"><i style="border-color:#8c959f;border-style:dashed;background:#fff"></i>where the tool had it</span>
     <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>played through</span><br>
     <kbd>Space</kbd> play / stop · <kbd>←</kbd> <kbd>→</kbd> the note before / after · <kbd>1</kbd>–<kbd>6</kbd> take a guess · <kbd>↑</kbd> <kbd>↓</kbd> a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave ·
-    <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo<br>
-    Click a note to select it, drag it up or down to change its pitch, drag an end to move it. Click anywhere else to move the playhead; double-click to add a note. Scroll to move through the song.
+    <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⇧M</kbd> join with every repeat that follows · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo<br>
+    Click a note to select it, drag it up or down to change its pitch, drag an end to move it. Shift-click another note (or <kbd>⇧←</kbd> <kbd>⇧→</kbd>) to select all the notes in between: delete them, join them or move them together. Click anywhere else to move the playhead; double-click to add a note. Scroll to move through the song.
   </div>
 </main>
 
@@ -126,6 +126,11 @@ const Logic = (() => {
     const m = order[k + step];
     return m ? m.id : id;
   }
+  // the notes from one to another, in order of time, both included
+  function between(notes, a, b) {
+    const order = sorted(notes), i = order.findIndex(n => n.id === a), j = order.findIndex(n => n.id === b);
+    return i < 0 || j < 0 ? [] : order.slice(Math.min(i, j), Math.max(i, j) + 1).map(n => n.id);
+  }
   function clock(s) {
     s = Math.max(0, s);
     return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60).toFixed(1);
@@ -136,7 +141,7 @@ const Logic = (() => {
     for (const b of bars) { if (b.time <= t + 1e-6) at = b; else break; }
     return at ? [at.bar, t - at.time] : [0, t];
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, clock, barAt, sorted};
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
@@ -146,7 +151,7 @@ const $ = id => document.getElementById(id);
 const RULER = 20, GUTTER = 46, TILE = 1024;
 let S = null, tiles = [], f0 = null, byPitch = new Map();
 let view = {t0: 0, pps: 150}, row = 12;
-let sel = null, guesses = [], guessesFor = null, offer = null, offerNext = 0;
+let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;  // many: a run of selected notes, sel among them
 let playhead = 0, drag = null, dirty = true;
 const A = {ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
 const hear = Object.assign({record: true, bass: false, notes: true, split: false}, JSON.parse(localStorage.getItem("copilot.hear") || "{}"));
@@ -277,7 +282,7 @@ function draw() {
   g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
   for (const n of S.notes) {
     if (n.end < view.t0 - 1 || n.start > t1 + 1) continue;
-    const chosen = n.id === sel, mine = n.state !== "machine";
+    const chosen = n.id === sel || many.includes(n.id), mine = n.state !== "machine";
     const edge = mine ? "#0969da" : n.doubt ? "#9a6700" : "#1a7f37";
     const fill = mine ? "rgba(207,228,251,.72)" : n.doubt ? "rgba(251,233,164,.78)" : "rgba(212,240,219,.70)";
     if (n.was && n.was.pitch !== n.pitch && !(drag && drag.id === n.id)) {  // where the tool had it
@@ -343,7 +348,12 @@ function refresh() {
   $("play").textContent = A.playing ? "■ Stop" : "▶ Play";
   for (const k of ["record", "bass", "notes", "split"]) $("hear" + k[0].toUpperCase() + k.slice(1)).checked = hear[k];
   const n = note(sel), panel = $("panel");
-  if (!n) {
+  many = many.filter(id => note(id));
+  if (many.length > 1) {
+    const first = note(many[0]), last = note(many[many.length - 1]);
+    panel.innerHTML = `<span><b>${many.length} notes</b> <span class="soft">${Logic.clock(first.start)} to ${Logic.clock(last.end)}</span></span>
+      <span class="soft"><kbd>⌫</kbd> delete them · <kbd>M</kbd> join them into one · <kbd>↑</kbd> <kbd>↓</kbd> move them a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave · <kbd>Esc</kbd> let go</span>`;
+  } else if (!n) {
     panel.innerHTML = `<span class="soft">Play the song and stop where a note is wrong. <kbd>←</kbd> then selects the note you just heard.</span>`;
   } else {
     const [bar, into] = Logic.barAt(S.bars, n.start);
@@ -359,8 +369,15 @@ function refresh() {
   }
   dirty = true;
 }
-function select(id, quiet) {
+function extend(id) {  // from the selected note to this one
+  if (!note(sel) || !note(id)) return select(id);
+  const from = many.length ? (many[0] === sel ? many[many.length - 1] : many[0]) : sel;
+  many = Logic.between(S.notes, from, id);
   sel = id;
+  refresh();
+}
+function select(id, quiet) {
+  sel = id; many = [];
   const n = note(id);
   if (n && !(guessesFor === n.id + ":" + n.pitch)) askGuesses(n);
   if (n && !quiet) {
@@ -400,6 +417,11 @@ function takeGuess(k) {
   if (n && guessesFor === n.id + ":" + n.pitch && guesses[k] !== undefined) setPitch(n, guesses[k], "guess", {rank: k + 1, guesses: guesses.slice()});
 }
 async function remove() {
+  if (many.length > 1) {
+    const last = note(many[many.length - 1]), next = Logic.neighbour(S.notes, last.id, 1, last.start);
+    if (await act({kind: "delete", ids: many.slice()})) select(next !== last.id ? next : null, true);
+    return;
+  }
   const n = note(sel); if (!n) return;
   const next = Logic.neighbour(S.notes, n.id, 1, n.start);
   if (await act({kind: "delete", id: n.id})) select(next !== n.id ? next : null, true);
@@ -574,6 +596,7 @@ function wire() {
     if (y < RULER || x < GUTTER) { if (x >= GUTTER) seek(tOf(x)); return; }
     const h = hit(x, y);
     if (!h) { select(null); seek(tOf(x)); return; }
+    if (e.shiftKey && sel) { extend(h.note.id); return; }
     select(h.note.id, true);
     drag = {id: h.note.id, mode: h.mode, x, y, start: h.note.start, end: h.note.end, pitch: h.note.pitch, moved: false};
   });
@@ -640,7 +663,8 @@ function keys(e) {
     if (e.altKey && n) { e.shiftKey ? nudge(n, 0, step * 0.01) : nudge(n, step * 0.01, 0); return done(); }
     stop();
     const id = Logic.neighbour(S.notes, sel, step, playhead);
-    if (id) { select(id); playhead = note(id).start; refresh(); }
+    if (id && e.shiftKey && n) extend(id);
+    else if (id) { select(id); playhead = note(id).start; refresh(); }
     return done();
   }
   if (k === "z" || k === "Z") { act({kind: "undo"}); return done(); }
@@ -652,12 +676,19 @@ function keys(e) {
   if (offer && (k === "x" || k === "X")) { offerNo(); return done(); }
   if (k === "Escape") { stop(); select(null); return done(); }
   if (!n) return;
+  if (many.length > 1) {  // several notes: moved, joined or deleted together
+    const ids = many.slice(), keepThem = r => { if (r) { many = ids.filter(id => note(id)); sel = many[0] || null; refresh(); } };
+    if (k === "ArrowUp" || k === "ArrowDown") { stop(); act({kind: "shift", ids, by: (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1)}).then(keepThem); return done(); }
+    if (k === "m" || k === "M") { stop(); act({kind: "merge", ids}).then(r => { if (r) select(ids[0], true); }); return done(); }
+    if (k === "Backspace" || k === "Delete") { stop(); remove(); return done(); }
+    return;
+  }
   if (k === "ArrowUp" || k === "ArrowDown") { stop(); setPitch(n, n.pitch + (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1), "key"); return done(); }
   if (k >= "1" && k <= "6") { stop(); takeGuess(+k - 1); return done(); }
   if (k === "Enter") { audition(n); return done(); }
   if (k === "Backspace" || k === "Delete") { stop(); remove(); return done(); }
   if (k === "s" || k === "S") { stop(); split(); return done(); }
-  if (k === "m" || k === "M") { stop(); act({kind: "merge", id: n.id}); return done(); }
+  if (k === "m" || k === "M") { stop(); act({kind: "merge", id: n.id, run: e.shiftKey}); return done(); }  // with Shift: every repeat that follows
 }
 
 if (typeof document !== "undefined" && document.getElementById("roll")) {

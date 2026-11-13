@@ -402,10 +402,20 @@ class Desk:
             self._touch(n)
             n["also"] = sorted({self._check_pitch(q) for q in action["also"]} - {n["pitch"]})
             self._settle(n)
+        elif kind == "shift":  # several notes moved together, by so many semitones
+            chosen = [self.note(nid) for nid in action["ids"]]
+            for n in chosen:
+                self._check_pitch(n["pitch"] + int(action["by"]))
+            for n in chosen:
+                keep(n)
+                self._touch(n)
+                n["pitch"] += int(action["by"])
+                n["also"] = [self._check_pitch(q + int(action["by"])) for q in n.get("also", [])]
+                self._settle(n)
         elif kind == "delete":
-            n = self.note(action["id"])
-            keep(n)
-            notes.remove(n)
+            for n in [self.note(nid) for nid in action.get("ids") or [action["id"]]]:
+                keep(n)
+                notes.remove(n)
         elif kind == "add":
             start, end = float(action["start"]), float(action["end"])
             later = [x["start"] for x in notes if x["start"] > start + 1e-6]
@@ -476,18 +486,40 @@ class Desk:
             made.append(second["id"])
             result["id"] = second["id"]
         elif kind == "merge":
-            n = self.note(action["id"])
+            # one note out of several that follow each other: the next one; with `run`, every repeat of the
+            # pitch that follows without a gap; with `ids`, those notes
             order = sorted(notes, key=lambda x: x["start"])
-            k = order.index(n)
-            if k + 1 >= len(order):
-                raise Bass2SheetError("there is no note after this one to join it with")
-            nxt = order[k + 1]
-            keep(n)
-            keep(nxt)
+            if action.get("ids"):
+                chosen = sorted((self.note(nid) for nid in action["ids"]), key=lambda x: x["start"])
+                k = order.index(chosen[0])
+                if len(chosen) < 2 or order[k : k + len(chosen)] != chosen:
+                    raise Bass2SheetError("only notes that follow each other can be joined")
+            else:
+                k = order.index(self.note(action["id"]))
+                j = k + 1
+                if action.get("run"):
+                    while (
+                        j < len(order)
+                        and order[j]["pitch"] == order[k]["pitch"]
+                        and order[j]["start"] - order[j - 1]["end"] < 0.06
+                    ):
+                        j += 1
+                    if j == k + 1:
+                        raise Bass2SheetError("the next note is not a repeat of this one")
+                else:
+                    j = k + 2
+                    if j > len(order):
+                        raise Bass2SheetError("there is no note after this one to join it with")
+                chosen = order[k:j]
+            n = chosen[0]
+            for x in chosen:
+                keep(x)
             self._touch(n)
-            n["end"] = nxt["end"]
-            n["merged"] = [*n.get("merged", []), nxt["id"], *nxt.get("merged", [])]
-            notes.remove(nxt)
+            n["end"] = chosen[-1]["end"]
+            n["merged"] = [*n.get("merged", []), *(i for x in chosen[1:] for i in (x["id"], *x.get("merged", [])))]
+            for x in chosen[1:]:
+                notes.remove(x)
+            result["joined"] = len(chosen)
         else:
             raise Bass2SheetError(f"unknown kind of fix: {kind}")
         self.state["undo"].append(dict(kind=kind, before=before, made=made))

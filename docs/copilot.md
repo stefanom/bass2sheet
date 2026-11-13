@@ -30,7 +30,8 @@ Press Space and listen. When something is wrong, press Space again, then `←` t
 | remove a note that is not there | Delete |
 | add a note that is missing | `A` at the playhead, or double-click where it belongs; a note sounding there ends where the new one starts |
 | make one note two | `S` splits it at the playhead, or in the middle |
-| make two notes one | `M` joins it with the next |
+| make two notes one | `M` joins it with the next; Shift+`M` with every repeat of it that follows (a held note the tool chopped up) |
+| work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave) |
 | move where it starts or ends | drag an end, or Alt with `←` `→` (Shift for the end), 10 ms a press |
 | take it back | `Z` |
 

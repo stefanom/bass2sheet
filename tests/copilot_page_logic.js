@@ -45,6 +45,9 @@ assert.strictEqual(L.neighbour(notes, null, 1, 1.0), "d");
 assert.strictEqual(L.neighbour(notes, null, -1, -1), null);
 assert.strictEqual(L.neighbour([notes[3], notes[0]], "a", 1, 0), "d");   // in order of time, whatever the list's
 same(L.sorted([notes[3], notes[0]]).map(m => m.id), ["a", "d"]);
+same(L.between(notes, "f", "c"), ["c", "d", "e", "f"]);   // a run of notes, whichever end is named first
+same(L.between(notes, "b", "b"), ["b"]);
+same(L.between(notes, "b", "nope"), []);
 
 // where a play-through picks up
 assert.strictEqual(L.resumeAt(notes, [[0, 1.2], [5, 6]]), 1.2);

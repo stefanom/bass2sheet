@@ -147,6 +147,52 @@ def test_notes_are_deleted_added_moved_split_and_joined(workdir):
         d.act(dict(kind="dance"))
 
 
+def test_several_notes_are_moved_deleted_and_joined_together(workdir):
+    d = _desk(workdir)
+    count = len(d.notes)
+    run = [dict(x) for x in d.notes[10:14]]
+    ids = [x["id"] for x in run]
+    d.act(dict(kind="shift", ids=ids, by=12))
+    assert [d.note(i)["pitch"] for i in ids] == [x["pitch"] + 12 for x in run]
+    assert all(d.note(i)["state"] == "fixed" and d.note(i)["was"]["pitch"] == x["pitch"] for i, x in zip(ids, run))
+    d.act(dict(kind="shift", ids=ids, by=-12))
+    assert all(d.note(i) == dict(x, state="machine") for i, x in zip(ids, run))  # back where the tool had them
+    with pytest.raises(Bass2SheetError, match="not a pitch"):
+        d.act(dict(kind="shift", ids=ids, by=-40))
+    assert [d.note(i)["pitch"] for i in ids] == [x["pitch"] for x in run]  # all or none
+    # joined into the first: it lasts to the end of the last
+    assert d.act(dict(kind="merge", ids=ids[::-1]))["joined"] == 4
+    assert len(d.notes) == count - 3 and d.note(ids[0])["end"] == run[-1]["end"] and d.note(ids[0])["merged"] == ids[1:]
+    assert d.act(dict(kind="undo"))["undone"] == "merge" and len(d.notes) == count
+    with pytest.raises(Bass2SheetError, match="follow each other"):
+        d.act(dict(kind="merge", ids=[ids[0], ids[2]]))
+    d.act(dict(kind="delete", ids=ids[1:3]))
+    assert len(d.notes) == count - 2 and d.act(dict(kind="undo"))["undone"] == "delete" and len(d.notes) == count
+    m = copilot.mistakes(workdir, "mix")
+    assert m["kinds"] == {}
+
+
+def test_a_note_is_joined_with_every_repeat_that_follows(workdir):
+    d = _desk(workdir)
+    order = sorted(d.notes, key=lambda x: x["start"])
+    k = next(i for i in range(len(order) - 2) if order[i]["pitch"] != order[i + 1]["pitch"])
+    with pytest.raises(Bass2SheetError, match="not a repeat"):
+        d.act(dict(kind="merge", id=order[k]["id"], run=True))
+    # chop one note into four, as the tool does to a held note, and join the pieces again with one fix
+    n = dict(order[k])
+    step = (n["end"] - n["start"]) / 4
+    for _ in range(3):
+        last = max(
+            (x for x in d.notes if x["pitch"] == n["pitch"] and n["start"] <= x["start"] < n["end"]),
+            key=lambda x: x["start"],
+        )
+        d.act(dict(kind="split", id=last["id"], at=last["start"] + step))
+    assert len(d.notes) == len(order) + 3
+    assert d.act(dict(kind="merge", id=n["id"], run=True))["joined"] == 4
+    assert len(d.notes) == len(order) and d.note(n["id"])["end"] == n["end"]
+    assert sorted(d.notes, key=lambda x: x["start"])[k + 1]["id"] == order[k + 1]["id"]  # it stopped at the next pitch
+
+
 def test_every_fix_can_be_undone_in_turn(workdir):
     d = _desk(workdir)
     before = json.dumps(sorted(d.notes, key=lambda n: n["id"]))
