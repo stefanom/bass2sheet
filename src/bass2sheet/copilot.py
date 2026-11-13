@@ -17,6 +17,9 @@ right answer attached. Nothing here needs a browser; `copilot_server` puts it on
 import collections
 import json
 import os
+import shutil
+import subprocess
+import threading
 import time
 
 import numpy as np
@@ -31,6 +34,7 @@ PICTURE_SR, PICTURE_HOP = 11025, 128  # 11.6 ms a column
 SEMI_LO, SEMI_HI = 23, 76  # the pitches the pitch tracker's bins are summed into
 SHORTEST = 0.03  # no note is shorter than this
 UNDO_DEPTH = 200
+SPEEDS = (90, 80, 70, 60, 50)  # the slower speeds a song can be played at, in percent
 PITCHES = range(SEMI_LO, 85)
 
 
@@ -192,6 +196,72 @@ def add(audio_paths, workdir, opts=None, settings=None, stems_dirs=None, judging
         atomic_write_text(os.path.join(workdir, "songs.json"), json.dumps(songs, indent=1))
         prepare(workdir, songs[entry["id"]], opts, say)
     return songs
+
+
+# ------------------------------------------------------------------------------------------- slower, same pitch
+
+_slowing = collections.defaultdict(threading.Lock)
+
+
+def stretcher():
+    """(name, path) of the program that slows audio down without changing its pitch: Rubber Band where it is
+    installed (`brew install rubberband`), which keeps a bass line's attacks and low notes best; otherwise the
+    ffmpeg that comes with this package, whose `atempo` is rougher and a hundredth of a second less exact."""
+    for path in (shutil.which("rubberband"), "/opt/homebrew/bin/rubberband", "/usr/local/bin/rubberband"):
+        if path and os.path.exists(path):
+            return "rubberband", path
+    import imageio_ffmpeg
+
+    return "ffmpeg", imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def slowed(workdir, song_id, name, percent):
+    """The path of a song's record or isolated bass (`name`) at `percent` of its speed and the same pitch. Made
+    on first use and kept; it lasts exactly 100 / percent times as long, so a moment of the song is found in it
+    by dividing."""
+    if name not in ("record", "bass") or percent not in SPEEDS:
+        raise Bass2SheetError(f"no {name} at {percent}%: the speeds are {', '.join(map(str, SPEEDS))}")
+    folder = os.path.join(song_dir(workdir, song_id), "audio")
+    src, out = os.path.join(folder, f"{name}.flac"), os.path.join(folder, f"{name}-{percent}.flac")
+    if not os.path.exists(src):
+        raise Bass2SheetError(f"{song_id} is not prepared")
+    with _slowing[out]:
+        if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(src):
+            return out
+        kind, program = stretcher()
+        tmp = f"{out}.{os.getpid()}.wav"
+        if kind == "rubberband":
+            cmd = [program, "-q", "--fine", "--tempo", str(percent / 100), src, tmp]
+        else:
+            cmd = [
+                program,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                src,
+                "-filter:a",
+                f"atempo={percent / 100}",
+                tmp,
+            ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+            if r.returncode != 0 or not os.path.exists(tmp):
+                raise Bass2SheetError(f"could not slow the song down ({kind}): {(r.stderr or r.stdout)[-300:]}")
+            y, sr = sf.read(tmp, dtype="float32", always_2d=True)
+            want = round(sf.info(src).frames * 100 / percent)
+            y = y[:want] if len(y) >= want else np.concatenate([y, np.zeros((want - len(y), y.shape[1]), np.float32)])
+            peak = float(np.abs(y).max())
+            sf.write(f"{out}.part", y / max(1.0, peak / 0.99), sr, subtype="PCM_16", format="FLAC")
+            os.replace(f"{out}.part", out)
+        except subprocess.TimeoutExpired as e:
+            raise Bass2SheetError("slowing the song down took too long") from e
+        finally:
+            for leftover in (tmp, f"{out}.part"):
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+    return out
 
 
 # ------------------------------------------------------------------------------------------- one song, open

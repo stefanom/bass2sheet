@@ -17,6 +17,8 @@ One song at a time, on a timeline that scrolls with the record.
 
 - **The picture** is the isolated bass: pitch upwards, time to the right, dark where it sounds. The thin red line is the pitch the tracker followed. Faint vertical lines are the bars as the tool counts them; they are not settled at this stage and are only there to find your way.
 - **The notes** are boxes on the picture, on the row of their pitch. Green is as the tool heard it, amber is a note the tool itself doubts (it does not sound like the song's other notes of that pitch), blue is one you have changed or added. A dashed outline shows where the tool had a note you moved to another pitch.
+- **Moving about.** Drag the timeline with the mouse (the pointer is a hand wherever it is not on a note) or scroll; a click without dragging puts the playhead there. While the song plays the timeline follows the playhead until you move it yourself; then it stays where you put it, and follows again the next time you press play.
+- **Slower.** "Speed" plays the song at 90, 80, 70, 60 or 50% at the same pitch (`[` and `]` step through them). The record, the isolated bass and the notes slow down together and stay in step. The first time a speed is used for a song it takes up to a minute to prepare; after that it is kept. With [Rubber Band](https://breakfastquay.com/rubberband/) installed (`brew install rubberband`) the slowed sound keeps the attacks and the low notes clean; without it the ffmpeg that comes with the tool is used, which is rougher.
 - **What you hear** is your choice of three: the record, the isolated bass, and the notes. The notes are played in the bass's own sound: each by a piece of the bass track cut from another note of the same pitch. A right note doubles the record; a wrong one stands out. With headphones, "bass left, notes right" puts the isolated bass in one ear and the notes in the other.
 
 ## Working through a song
@@ -59,7 +61,7 @@ scores/
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
-  <song>/audio/         the record and the isolated bass, for the page
+  <song>/audio/         the record and the isolated bass, for the page, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/sheet/         the score made from your notes
 ```
@@ -69,6 +71,5 @@ The directory holds your recordings. Keep it out of any repository. Preparing a 
 ## Limits
 
 - This is the notes piece. Bar lines, written rhythm and tab are still the tool's; steps for them come next.
-- No slow playback yet.
 - Two notes played together are shown and played, but cannot be added or removed on the page yet.
 - The tool's doubts (amber) find about a quarter of its wrong notes in a full mix, so they are no substitute for playing through.

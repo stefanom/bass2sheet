@@ -95,6 +95,52 @@ def test_intervals_are_joined_where_they_touch():
     assert copilot.inside(3.5, [[0, 4]]) and not copilot.inside(4.5, [[0, 4]])
 
 
+def _stretchers():
+    import imageio_ffmpeg
+
+    found = [("ffmpeg", imageio_ffmpeg.get_ffmpeg_exe())]
+    if copilot.stretcher()[0] == "rubberband":
+        found.append(copilot.stretcher())
+    return found
+
+
+@pytest.mark.parametrize("program", _stretchers(), ids=lambda p: p[0])
+def test_a_song_is_slowed_down_at_the_same_pitch(workdir, monkeypatch, program):
+    import soundfile as sf
+
+    monkeypatch.setattr(copilot, "stretcher", lambda: program)
+    folder = os.path.join(workdir, "mix", "audio")
+    full, sr = sf.read(os.path.join(folder, "bass.flac"), dtype="float32")
+    path = copilot.slowed(workdir, "mix", "bass", 80)
+    slow, sr2 = sf.read(path, dtype="float32")
+    assert path.endswith("bass-80.flac") and sr2 == sr and len(slow) == round(len(full) / 0.8)  # to the sample
+    d = _desk(workdir)
+    n = max(d.notes, key=lambda x: x["end"] - x["start"])
+
+    def loudest_hz(y, t0, t1):
+        seg = y[int(t0 * sr) : int(t1 * sr)]
+        spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), 1 << 17))
+        return np.fft.rfftfreq(1 << 17, 1 / sr)[spec.argmax()]
+
+    a, b = n["start"] + 0.05, n["end"] - 0.05
+    assert loudest_hz(slow, a / 0.8, b / 0.8) == pytest.approx(loudest_hz(full, a, b), rel=0.01)  # the same note
+    at = int((n["start"] + 0.06) / 0.8 * sr)
+    assert float(np.abs(slow[at : at + sr // 20]).max()) > 0.02  # and it sounds where the song has it
+    made = os.path.getmtime(path)
+    assert copilot.slowed(workdir, "mix", "bass", 80) == path and os.path.getmtime(path) == made  # kept
+    record = sf.info(copilot.slowed(workdir, "mix", "record", 50))
+    assert record.channels == 2 and record.frames == 2 * sf.info(os.path.join(folder, "record.flac")).frames
+    for name, percent in (("bass", 85), ("drums", 80), ("bass", 100)):
+        with pytest.raises(Bass2SheetError, match="the speeds are"):
+            copilot.slowed(workdir, "mix", name, percent)
+    assert sorted(os.listdir(folder)) == [
+        "bass-80.flac",
+        "bass.flac",
+        "record-50.flac",
+        "record.flac",
+    ]  # nothing left over
+
+
 # --------------------------------------------------------------------------------------------------- fixing
 
 
@@ -376,7 +422,16 @@ def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
     status, headers, body = _get(url + "/data/mix/audio/bass.flac", {"Range": "bytes=0-3"})
     assert (status, body, headers["Content-Type"]) == (206, b"fLaC", "audio/flac")
     assert len(_get(url + "/data/mix/picture.bin")[2]) == song["picture"]["rows"] * song["picture"]["columns"]
-    for path in ("/data/mix/notes.json", "/data/mix/../songs.json", "/data/other/picture.bin", "/api/song?id=other"):
+    status, headers, body = _get(url + "/data/mix/audio/bass-70.flac", {"Range": "bytes=0-3"})  # made when asked for
+    assert (status, body) == (206, b"fLaC") and os.path.exists(os.path.join(workdir, "mix", "audio", "bass-70.flac"))
+    for path in (
+        "/data/mix/notes.json",
+        "/data/mix/../songs.json",
+        "/data/other/picture.bin",
+        "/api/song?id=other",
+        "/data/mix/audio/bass-75.flac",
+        "/data/mix/audio/drums-80.flac",
+    ):
         with pytest.raises(urllib.error.HTTPError) as e:
             _get(url + path)
         assert e.value.code == 404, path

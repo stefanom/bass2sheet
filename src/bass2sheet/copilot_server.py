@@ -17,6 +17,9 @@ SERVED = re.compile(
 )
 
 
+SLOWED = re.compile(r"^audio/(record|bass)-(\d+)\.flac$")
+
+
 class Desks:
     """The songs that are open, at most two at a time (each holds its bass track), and one lock for all of them:
     a single person works here, and their fixes are applied in the order they were made."""
@@ -78,8 +81,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_file(self, song_id, rel):
         """A file of a song's folder, with byte ranges (Safari will not play audio without them)."""
-        if song_id not in copilot.load_songs(self.workdir) or not SERVED.match(rel):
+        slow = SLOWED.match(rel)
+        if song_id not in copilot.load_songs(self.workdir) or not (SERVED.match(rel) or slow):
             return self.send_json(dict(error="not found"), 404)
+        if slow:  # the song at a slower speed: made when it is first asked for
+            if int(slow.group(2)) not in copilot.SPEEDS:
+                return self.send_json(dict(error="not found"), 404)
+            try:
+                copilot.slowed(self.workdir, song_id, slow.group(1), int(slow.group(2)))
+            except (Bass2SheetError, OSError) as e:
+                return self.send_json(dict(error=str(e)), 500)
         path = os.path.join(copilot.song_dir(self.workdir, song_id), rel)
         if not os.path.isfile(path):
             return self.send_json(dict(error="not found"), 404)
