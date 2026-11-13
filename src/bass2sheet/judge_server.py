@@ -262,6 +262,9 @@ PAGE = r"""<!doctype html>
   button.play.on { background:var(--on); color:#fff; border-color:var(--on); }
   button.pick { min-width:150px; }
   button.pick.chosen { background:var(--go); color:#fff; border-color:var(--go); }
+  button.chip { font:inherit; font-size:14px; border-radius:16px; border:1px solid var(--line); background:#fff; padding:5px 12px; cursor:pointer; }
+  button.chip.chosen { background:var(--go); color:#fff; border-color:var(--go); }
+  #why { margin-top:12px; align-items:center; }
   button.next { background:var(--go); color:#fff; border-color:var(--go); }
   button:disabled { opacity:.45; cursor:default; }
   label.opt { color:var(--soft); display:flex; gap:6px; align-items:center; }
@@ -325,6 +328,7 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="card">
       <div class="row" id="picks"></div>
+      <div class="row hidden" id="why"></div>
       <textarea id="note" placeholder="Optional: what is wrong, or what you would want instead"></textarea>
       <div class="reveal hidden" id="reveal"></div>
       <div class="row" style="margin-top:14px">
@@ -350,6 +354,7 @@ PAGE = r"""<!doctype html>
 const $ = id => document.getElementById(id);
 let current = null, state = null, audio = {}, playing = null, at = 0, from = 0, timer = null;
 const PICKS = [["A", "A is better"], ["B", "B is better"], ["same", "No difference"], ["neither", "Neither is right"]];
+const WHY = ["wrong notes", "too high", "too low", "extra notes", "missing notes", "wrong timing"];  // for "neither"
 const STRINGS = [[28, "E1"], [33, "A1"], [38, "D2"], [43, "G2"], [50, "D3"], [55, "G3"]];
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -517,11 +522,36 @@ function reveal(done) {
   $("reveal").classList.toggle("hidden", !done);
   $("next").classList.toggle("hidden", !done);
   if (done) $("reveal").innerHTML = `<div><b>A</b> was ${esc(done.reveal.A)}</div><div><b>B</b> was ${esc(done.reveal.B)}</div><div class="note">Saved. Pick again to change it.</div>`;
+  whyRow();
+}
+// After "neither is right": what is wrong, in one click. Each reason is a phrase in the note.
+const said = () => $("note").value.split(",").map(s => s.trim()).filter(Boolean);
+function whyRow() {
+  const on = !!current && current.pick === "neither";
+  $("why").classList.toggle("hidden", !on);
+  if (!on) return;
+  const now = said();
+  $("why").innerHTML = `<span class="note">What is wrong?</span>` + WHY.map(w => `<button class="chip${now.includes(w) ? " chosen" : ""}" data-why="${w}">${w}</button>`).join("");
+  for (const b of document.querySelectorAll("#why button")) b.onclick = () => toggleWhy(b.dataset.why);
+}
+function toggleWhy(w) {
+  const now = said(), k = now.indexOf(w);
+  if (k >= 0) now.splice(k, 1); else now.push(w);
+  $("note").value = now.join(", ");
+  whyRow();
+  return saveNote();
+}
+// A note written or changed after the pick is saved too (the pick is sent again with it).
+async function saveNote() {
+  if (!current || !current.pick || $("note").value === (current.note || "")) return;
+  const id = current.id, pick = current.pick, note = $("note").value;
+  try { await api("/api/judge", {id, pick, note}); if (current && current.id === id) current.note = note; }
+  catch (e) { $("error").textContent = e.message; }
 }
 async function choose(pick) {
   try {
     const s = await api("/api/judge", {id: current.id, pick, note: $("note").value});
-    state = s; current.pick = pick; current.reveal = s.reveal;
+    state = s; current.pick = pick; current.reveal = s.reveal; current.note = $("note").value;
     $("progress").textContent = `${s.judged} of ${s.total} judged`;
     stepsBar(s);
     $("skip").classList.add("hidden");
@@ -529,6 +559,7 @@ async function choose(pick) {
   } catch (e) { $("error").textContent = e.message; }
 }
 async function go(query) {
+  await saveNote();
   try { show(await api("/api/next" + (query || "")), query); }
   catch (e) { $("error").textContent = e.message; }
 }
@@ -554,6 +585,7 @@ $("bar").onclick = e => {
   const t = current.length * e.offsetX / $("bar").clientWidth;
   if (playing) audio[playing].currentTime = t; else { at = from = t; place(t); $("fill").style.width = (100 * t / current.length) + "%"; }
 };
+$("note").onchange = saveNote;
 $("next").onclick = () => go(after());
 $("back").onclick = () => state.previous && go("?id=" + encodeURIComponent(state.previous));
 $("skip").onclick = () => go(after());

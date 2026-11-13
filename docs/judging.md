@@ -35,7 +35,7 @@ If you change an earlier pick, the later comparisons built on the old one stop c
 
 ## A passage
 
-Each comparison is a passage of 4 bars (2 at slow tempos) where the two versions differ. You can play its sources, switch between them without losing your place, and loop. You pick A, B, "no difference" or "neither is right", and can leave a note. The page does not know which version is which; it is told only after your pick is saved, and then shows you.
+Each comparison is a passage of 4 bars (2 at slow tempos) where the two versions differ. You can play its sources, switch between them without losing your place, and loop. You pick A, B, "no difference" or "neither is right", and can leave a note. After "neither is right" the page asks what is wrong, with one-click reasons (wrong notes, too high, too low, extra notes, missing notes, wrong timing) that go into the note. A note written or changed after the pick is saved as well. The page does not know which version is which; it is told only after your pick is saved, and then shows you.
 
 While the audio plays, a line sweeps over both pictures or scores in step with it. On a score it passes through each note as it sounds, and the notes the two versions write differently are shaded, unless most of the passage differs. Click a picture or a score to play from there.
 

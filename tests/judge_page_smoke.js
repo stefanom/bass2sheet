@@ -7,7 +7,7 @@ const base = process.argv[2];
 const els = {}, kids = {}, handlers = {}, played = [];
 
 function makeEl(id) {
-  const cls = new Set(["reveal", "next", "done", "results", "waiting"].includes(id) ? ["hidden"] : []);
+  const cls = new Set(["reveal", "next", "done", "results", "waiting", "why"].includes(id) ? ["hidden"] : []);
   const e = {
     id, dataset: {}, style: {}, value: "", checked: id === "loop", disabled: false, textContent: "", clientWidth: 100, html: "",
     classList: {
@@ -19,7 +19,7 @@ function makeEl(id) {
     get() { return e.html; },
     set(v) {
       e.html = v;
-      kids[id] = [...v.matchAll(/<button class="[^"]*"(?: disabled)? data-(name|pick|step)="([^"]+)">/g)].map(m => {
+      kids[id] = [...v.matchAll(/<button class="[^"]*"(?: disabled)? data-(name|pick|step|why)="([^"]+)">/g)].map(m => {
         const b = makeEl(id + ":" + m[2]);
         b.dataset[m[1]] = m[2];
         return b;
@@ -103,6 +103,29 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.ok(!hidden("reveal") && !hidden("next") && hidden("skip"));
   assert.ok(/A<\/b> was .+B<\/b> was /.test(els.reveal.html), els.reveal.html);
   assert.strictEqual(els.progress.textContent, "1 of 3 judged");
+
+  // "neither is right" asks what is wrong: a reason is one click, and is saved with the pick as its note
+  assert.ok(hidden("why"));
+  kids.picks[3].onclick();
+  await sleep(300);
+  assert.ok(!hidden("why") && els.why.html.includes("What is wrong?"));
+  assert.deepStrictEqual(kids.why.map(b => b.dataset.why), ["wrong notes", "too high", "too low", "extra notes", "missing notes", "wrong timing"]);
+  await kids.why[1].onclick();
+  assert.strictEqual(els.note.value, "too busy, too high");
+  assert.ok(/class="chip chosen" data-why="too high"/.test(els.why.html), els.why.html);
+  let saved = (await (await realFetch(base + "/api/results")).json());
+  assert.ok(JSON.stringify(saved).includes("too busy, too high"), JSON.stringify(saved).slice(0, 400));
+  await kids.why[1].onclick();                                   // a second click takes it back
+  assert.strictEqual(els.note.value, "too busy");
+  // a note written after the pick is saved as well
+  els.note.value = "too busy, bar 2";
+  await els.note.onchange();
+  saved = (await (await realFetch(base + "/api/results")).json());
+  assert.ok(JSON.stringify(saved).includes("too busy, bar 2"));
+  els.note.value = "too busy";
+  kids.picks[0].onclick();                                       // back to A: the reasons go away
+  await sleep(300);
+  assert.ok(hidden("why"));
 
   // next, skip (the skipped one comes back after the rest), previous
   els.next.onclick();
