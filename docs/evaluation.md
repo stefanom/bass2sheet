@@ -126,11 +126,33 @@ These scores are 0.01 lower than before slides stopped being written as notes (s
 | bass2sheet without splitting held notes at re-plucks | 0.86 | 0.86 | 0.87 | 0.91 | 0% | 2% | 76% |
 | Basic Pitch | 0.70 | 0.62 | 0.81 | 0.76 | 4% | 5% | 78% |
 | YourMT3+ (YPTF.MoE+Multi, no pitch shift) | 0.77 | 0.80 | 0.75 | 0.78 | 5% | 10% | 79% |
+| MuScriptor medium, told to write only the bass (see below) | 0.91 | 0.90 | 0.92 | 0.96 | 0% | 2% | 90% |
 
 - **Lines that jump were written too low.** torchcrepe's Viterbi decoder lets the pitch move by a few bins per frame and no further. After a jump of a fifth or more the path lagged or stayed on the note before, where CREPE's probability is low, so the new note counted as unpitched and the old, lower note was held over it. A second cause sat in the octave rule: when CREPE and pYIN were an octave apart it took the lower note whenever that octave had a third of the energy, and it has whenever the note before still rings. pYIN smooths too, so on all 21 such notes in this set CREPE was right and pYIN was on the old note. The path may now leap (`pitch.decode_pitch`), and CREPE's octave stands when it is confident (`SegParams.trust_per`).
 - **By plucking style**, the share of notes found: finger 94%, muted 95%, pick 93%, slap with the thumb 81%, slap pops 66% (33 of 50; 9 of 50 before the pitch path could jump, and 36 of 50 before slides stopped being written as notes: three pops are short enough to pass for one).
 - **Splitting held notes at re-plucks costs 0.07 here**: 13% of our notes are re-attacks that are not in the reference. On RWC Popular the same rule gains 0.02, because there the separated bass smears repeated notes into one. The default has not changed; `--replucks clear` is the stricter policy, and the judging page asks which you prefer on your own songs.
 - **YourMT3+** places notes cleanly (almost no extra notes) but names the wrong pitch three times as often, and its spectrogram starts at 50 Hz, below which the lowest five notes of a bass have their fundamental. On bass tracks separated from six commercial recordings it was not usable: 14 notes for a whole song with a dark, sustained bass, a bass line labelled as guitar throughout, some 2,700 notes for a distorted one, and no note below B1 in any of them. It was trained on Slakh and on RWC Popular, so it cannot be compared on those.
+
+### Against MuScriptor
+
+`MUSCRIPTOR_NOTES=... MUSCRIPTOR_GGUF=... python dev/muscriptor_eval.py --size medium --idmt IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
+
+[MuScriptor](https://github.com/muscriptor/muscriptor) (Rouard et al., 2026, by Kyutai and Mirelo) is a transformer that writes every instrument's notes from the mix and says which instrument each belongs to. Its code is MIT; its weights are CC BY-NC 4.0 with conditions of use of their authors. It was run here through its C++ port, [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp), on an M4 Max (`dev/muscriptor_cpp`). bass2sheet does not use it. The score is F for the bass alone and BabySlakh, F 100 ms for RWC.
+
+| | bass2sheet | MuScriptor medium (307M) on the mix, the notes it calls bass | MuScriptor medium on the bass bass2sheet isolated, told to write only the bass | MuScriptor large (1.4B), the same |
+|---|---|---|---|---|
+| Real bass played alone (17 lines) | 0.79 | | 0.91 | 0.93 |
+| BabySlakh (16 songs) | 0.92 | 0.50 | 0.94 | 0.92 |
+| RWC Popular (24 songs) | 0.76 | 0.72 | 0.83 | 0.84 |
+
+- **On an isolated bass it is the better note finder.** On RWC Popular it is better by 0.02 or more on 16 of the 24 songs and worse on 3; its worst song scores 0.56, ours 0.47. On the bass played alone, 10% of the notes it writes are not in the reference against 29% of ours; it has the right note at the right time after a jump up of a fifth or more 90% of the time (ours 78%), and 96% of slap pops (ours 66%). BabySlakh, where both are near the ceiling, is level: better on 4 songs, worse on 5.
+- **From the full mix it is worse than separating first.** It hears the notes but mislabels the instruments: on one RWC song every note is written as piano and none as bass, on a BabySlakh song 1,418 notes are called bass where the bass plays 241. On RWC it is better than bass2sheet on 11 songs and worse on 11; on BabySlakh worse on 15 of 16. Given the isolated bass and no hint, it scores 0.83 on RWC and 0.85 on BabySlakh: telling it that the track is a bass matters on the synthesized set.
+- **Its instrument conditioning says what is there; it does not pick an instrument out.** Told to write only the bass, a full mix comes out as every sound in it written as bass: 8,406 notes for a song with 355, F 0.00.
+- **The large model is not better than the medium one here**, and three to five times slower. With the electric and the acoustic bass both allowed it sometimes writes each note twice, once for each; the scoring keeps one.
+- **Two note finders together.** A note both write is right 88% of the time on RWC and 94% on BabySlakh. A note only MuScriptor writes is right 60% and 58%; a note only bass2sheet writes, 21% and 14%. Adding ours to MuScriptor's does not raise the score (0.825 against 0.828): what the second finder is good for is saying which notes to doubt.
+- **Timing.** Its note starts are on a 10 ms grid and 10 to 20 ms late in the median. Taking each track's median lag out changes the score by less than 0.01 on the songs and by 0.03 on the bass alone.
+- **Speed**, medium model on the M4 Max's GPU: an isolated bass track of four minutes in 10 to 25 s; a full mix in one to four minutes.
+- **What the comparison cannot say.** BabySlakh is rendered from the Lakh MIDI collection, which is part of MuScriptor's synthetic training data; its authors hold RWC out.
 
 ### Notes played together
 
