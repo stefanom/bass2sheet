@@ -54,7 +54,7 @@ def songs(workdir):
         machine, mine = (copilot.read_json(os.path.join(folder, name)) for name in ("machine.json", "notes.json"))
         if machine is None or mine is None:
             continue
-        far = copilot.progress(machine, mine)
+        far, made = copilot.progress(machine, mine), copilot.score_made(workdir, song_id)
         out.append(
             dict(
                 id=song_id,
@@ -69,6 +69,7 @@ def songs(workdir):
                 finder=machine["settings"].get("notes", "own"),
                 at=mine.get("at"),
                 touched=os.path.getmtime(os.path.join(folder, "notes.json")),
+                score={k: made[k] for k in ("when", "fixes", "checked")} if made else None,  # as it was last made
             )
         )
     return out

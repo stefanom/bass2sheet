@@ -34,22 +34,61 @@ MAX_BYTES = 500 * 1024 * 1024  # 20 minutes, the longest song the tool takes, is
 MARK = "@@copilot "  # what a line of the preparing process starts with when it is meant for the page
 FINDERS = dict(own="bass2sheet's own note finder", muscriptor="MuScriptor")
 LINK_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
-FETCHING = ("fetching", "Fetching the audio")  # the step before all others, for a song that comes as a link
 FETCH_TIMEOUT = 600  # s
-# The steps of preparing a song, in the order they run: (what the code calls it, what the page calls it, which
-# note finders it is part of).
+# The steps of preparing a song, in the order they run: what the code calls it (common.step), what the page calls
+# it, which note finders it is part of, and what happens in it, in a sentence for the person watching. The two
+# that check the notes just found are the double checks (CHECKS).
 STEPS = (
-    ("reading", "Reading the file", NOTE_FINDERS),
-    ("isolating", "Isolating the bass", NOTE_FINDERS),
-    ("pitch", "Following the pitch", NOTE_FINDERS),
-    ("notes", "Finding the notes", NOTE_FINDERS),
-    ("muscriptor", "MuScriptor's notes", ("muscriptor",)),
-    ("second", "Second opinion", ("muscriptor",)),
-    ("beats", "Beats and bars", NOTE_FINDERS),
-    ("checks", "Own-sound check", NOTE_FINDERS),
-    ("picture", "The picture", NOTE_FINDERS),
-    ("ready", "Ready", NOTE_FINDERS),
+    ("reading", "Reading the file", NOTE_FINDERS, "The file is decoded and looked over: long enough, not silent."),
+    (
+        "isolating",
+        "Isolating the bass",
+        NOTE_FINDERS,
+        "A model takes the record apart and keeps the bass. This is the long step: a minute or two the first time.",
+    ),
+    (
+        "pitch",
+        "Following the pitch",
+        NOTE_FINDERS,
+        "Two pitch trackers follow the isolated bass, a hundred times a second.",
+    ),
+    (
+        "notes",
+        "Finding the notes",
+        NOTE_FINDERS,
+        "The pitch is cut into notes: where each starts and ends, and its octave.",
+    ),
+    (
+        "muscriptor",
+        "MuScriptor's notes",
+        ("muscriptor",),
+        "MuScriptor, a transcription model, writes its own notes for the isolated bass.",
+    ),
+    (
+        "second",
+        "Second opinion",
+        ("muscriptor",),
+        "A double check: bass2sheet's own notes are held against MuScriptor's. A note only MuScriptor hears is "
+        "doubted.",
+    ),
+    (
+        "beats",
+        "Beats and bars",
+        NOTE_FINDERS,
+        "The beats and the bar lines are found on the record, then the key and the chords.",
+    ),
+    (
+        "checks",
+        "Own-sound check",
+        NOTE_FINDERS,
+        "A double check: each note is compared with the song's other notes of its pitch. One that does not sound "
+        "like them is doubted.",
+    ),
+    ("picture", "The picture", NOTE_FINDERS, "The pitch picture the notes are fixed on is drawn."),
+    ("ready", "Ready", NOTE_FINDERS, "What was found is written down for the song's page."),
 )
+CHECKS = ("second", "checks")
+FETCHING = ("fetching", "Fetching the audio", "The audio the link points to is fetched to this computer.")
 
 
 class Refused(Bass2SheetError):
@@ -152,8 +191,13 @@ def strip(workdir, song_id, columns):
 
 
 def new_steps(finder, first=()):
-    steps = [*first, *((sid, label) for sid, label, part_of in STEPS if finder in part_of)]
-    return [dict(id=sid, label=label, state="waiting", seconds=None, started=None, found={}) for sid, label in steps]
+    steps = [*first, *((sid, label, about) for sid, label, part_of, about in STEPS if finder in part_of)]
+    return [
+        dict(
+            id=sid, label=label, about=about, check=sid in CHECKS, state="waiting", seconds=None, started=None, found={}
+        )
+        for sid, label, about in steps
+    ]
 
 
 class Adding:
@@ -176,7 +220,7 @@ class Adding:
             for job in self.jobs.values():
                 steps = [
                     dict(
-                        {k: s[k] for k in ("id", "label", "state", "seconds", "found")},
+                        {k: s[k] for k in ("id", "label", "about", "check", "state", "seconds", "found")},
                         elapsed=round(now - s["started"], 1) if s["state"] == "running" else None,
                     )
                     for s in job["steps"]

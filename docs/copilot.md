@@ -13,9 +13,18 @@ bass2sheet-copilot sheet SONG_ID --dir scores
 
 `serve` works on a directory with no song in it yet: the first one can be added on the page.
 
+## From a recording to its score
+
+`http://localhost:8770` shows the whole way in four stages, at the top of the page and in that order below it. The stage you are at is lit.
+
+1. **Add a song**: drop a recording, or paste a link.
+2. **Watch it being prepared**: the bass is isolated and its notes are found, then double-checked. The two double checks are marked in the row of steps: the own-sound check holds each note against the song's other notes of its pitch, and, when MuScriptor writes the notes, the second opinion holds them against bass2sheet's own. What they doubt is amber on the song's page. Under the row, a sentence says what the running step does.
+3. **Fix the notes**: "Fix the notes" on a song's card opens its page, where you play the record and fix what is wrong.
+4. **Make the score**: "Make the sheet" on the song's page, or "Make the score" on its card, writes the score and shows it. Once it is made the card says when, and "See the score" opens it.
+
 ## Your songs
 
-`http://localhost:8770` opens on the songs of the working directory. Each card shows the whole song as a strip of its pitch picture, and under it how far you are: dark green is what you have worked through, pale green what you have only heard. The lines below say it in numbers (how much is worked through, how many fixes) and whose notes the song started from: bass2sheet's own or MuScriptor's. A click opens the song where you stopped.
+The page lists the songs of the working directory. Each card shows the whole song as a strip of its pitch picture, and under it how far you are: dark green is what you have worked through, pale green what you have only heard. The lines below say it in numbers (how much is worked through, how many fixes) and whose notes the song started from: bass2sheet's own or MuScriptor's. "Fix the notes" (or a click on the card) opens the song where you stopped; the button beside it makes or shows its score.
 
 A song's own page is at `/song#SONG_ID`. Links from before the songs had a page of their own (`/#SONG_ID`) still open the song.
 

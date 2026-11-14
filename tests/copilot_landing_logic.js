@@ -46,4 +46,10 @@ same(L.progress({...song, worked: 5, fixes: 1}), "Worked through 0:05 of 4:07 ·
 same([L.whose("own"), L.whose("muscriptor")], ["bass2sheet's own notes", "MuScriptor's notes"]);
 same(L.esc(`<b a="1">R&B's</b>`), "&lt;b a=&quot;1&quot;&gt;R&amp;B&#39;s&lt;/b&gt;");
 
+
+// when a song's score was made
+const now = new Date(2026, 10, 14, 13, 5);
+same([L.when("2026-11-14T12:55:38", now), L.when("2026-11-13T08:05:00", now), L.when("2026-10-30T19:30:00", now), L.when("?", now)],
+  ["today at 12:55", "yesterday at 8:05", "30 Oct at 19:30", ""]);
+
 console.log("ok");

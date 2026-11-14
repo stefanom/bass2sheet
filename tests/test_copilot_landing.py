@@ -112,6 +112,7 @@ def test_the_list_says_how_far_the_person_is_with_each_song(served):
     (song,) = _json(url + "/api/songs")
     assert (song["id"], song["finder"], song["fixes"], song["worked"], song["checked"]) == ("mix", "own", 0, 0, 0)
     assert song["notes"] >= 60 and 25 < song["length"] < 28 and song["spans"] == dict(heard=[], worked=[])
+    assert song["score"] is None
     opened = _json(url + "/api/song?id=mix")
     n = opened["notes"][10]
     fix = dict(song="mix", action=dict(kind="pitch", id=n["id"], pitch=n["pitch"] + 12, how="key"))
@@ -124,6 +125,9 @@ def test_the_list_says_how_far_the_person_is_with_each_song(served):
     desk = copilot.Desk(workdir, "mix")  # the list reads two files; the open song agrees with it
     assert (desk.fixes(), desk.worked()) == (song["fixes"], song["spans"]["worked"])
     assert copilot.progress(desk.machine, desk.state)["reached"] == desk.reached() == n["start"]
+    copilot.sheet(workdir, "mix", mscore="/nonexistent/mscore")  # the score is made: the list says when and from what
+    made = _json(url + "/api/songs")[0]["score"]
+    assert made["fixes"] == 1 and 0 < made["checked"] < 1 and made["when"][:4].isdigit()
 
 
 def test_the_whole_song_is_shown_in_a_strip_of_its_picture(served):
@@ -234,6 +238,7 @@ def test_a_new_song_is_kept_prepared_step_by_step_and_can_be_opened(served):
     assert [s["id"] for s in job["steps"]] == order
     assert all(s["state"] == "done" and s["seconds"] is not None for s in job["steps"]), job["steps"]
     assert seen == [s for s in order if s in seen] and len(seen) >= 2  # in order; the quick ones may go unseen
+    assert [s["id"] for s in job["steps"] if s["check"]] == ["checks"] and all(s["about"] for s in job["steps"])
     found = {s["id"]: s["found"] for s in job["steps"]}
     assert 25 < found["reading"]["length"] < 28 and found["isolating"] == dict(by="given")
     assert 0.3 < found["pitch"]["pitched"] <= 1 and found["notes"]["notes"] >= 60 and found["notes"]["low"] == "E1"
@@ -291,6 +296,7 @@ def test_muscriptors_notes_and_the_second_opinion_are_steps_when_it_is_chosen(se
     assert job["state"] == "done" and job["finder"] == "muscriptor", job
     order = ["reading", "isolating", "pitch", "notes", "muscriptor", "second", "beats", "checks", "picture", "ready"]
     assert [s["id"] for s in job["steps"]] == order and all(s["state"] == "done" for s in job["steps"])
+    assert [s["id"] for s in job["steps"] if s["check"]] == ["second", "checks"]  # the two double checks
     found = {s["id"]: s["found"] for s in job["steps"]}
     assert found["muscriptor"] == dict(notes=len(rows) + 1) and found["second"]["alone"] >= 1
     assert {s["id"]: s["finder"] for s in _json(url + "/api/songs")} == {"mix": "own", "other-notes": "muscriptor"}
@@ -441,9 +447,17 @@ def test_the_landing_page_has_every_element_its_script_reaches_for():
     made = set(re.findall(r'id="([^"]+)"', page))
     missing = set(re.findall(r'\$\("([^"]+)"\)', script)) - made
     assert not missing, missing
-    labels = {sid for sid, _, _ in copilot_adding.STEPS}
+    labels = {sid for sid, *_ in copilot_adding.STEPS}
     said = set(re.findall(r'case "([a-z]+)":', page))
     assert labels - {"ready"} <= said, labels - said  # every step has its few words on the page
+    stages = re.findall(r'<li data-stage="(\w+)"><a href="#(\w+)"><i>(\d)</i><b>([^<]+)</b>', page)
+    assert [(k, name) for _, _, k, name in stages] == [
+        ("1", "Add a song"),
+        ("2", "Watch it being prepared"),
+        ("3", "Fix the notes"),
+        ("4", "Make the score"),
+    ]  # the path, in its order; each stage leads to a part of the page that is there
+    assert {anchor for _, anchor, _, _ in stages} <= made
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js to run the page's logic")

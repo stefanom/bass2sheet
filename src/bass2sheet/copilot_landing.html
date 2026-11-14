@@ -15,7 +15,20 @@
   header { display: flex; align-items: baseline; gap: 14px; padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--line); }
   header b { font-size: 16px; }
   main { max-width: 1240px; margin: 0 auto; padding: 8px 24px 40px; }
-  h2 { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); margin: 26px 0 10px; }
+  h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); margin: 26px 0 10px; scroll-margin-top: 12px; }
+  h2 i, #path i { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); color: #fff; font: 700 12px/22px -apple-system, Helvetica, Arial, sans-serif; text-align: center; letter-spacing: 0; }
+  h2 .then { margin: 0 4px; font-size: 16px; }
+  /* the path: from a recording to its score, in four stages; the one the person is at is lit */
+  #path { display: flex; gap: 10px; list-style: none; margin: 16px 0 0; padding: 0; }
+  #path li { flex: 1 1 0; position: relative; }
+  #path a { display: block; height: 100%; padding: 12px 14px 12px 46px; background: #fff; border: 1px solid var(--line); border-radius: 10px; color: inherit; text-decoration: none; }
+  #path a:hover { border-color: var(--blue); }
+  #path i { position: absolute; left: 14px; top: 13px; }
+  #path b { display: block; font-size: 15px; }
+  #path span { display: block; font-size: 13px; line-height: 1.35; color: var(--soft); margin-top: 2px; }
+  #path li.now a { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(9, 105, 218, .15); }
+  #path li.now i { background: var(--blue); }
+  #path li:not(:last-child)::after { content: "›"; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); color: #8c959f; font-size: 18px; z-index: 1; }
   .soft { color: var(--soft); }
   .hidden { display: none !important; }
   a { color: var(--blue); }
@@ -27,26 +40,29 @@
 
   /* the songs */
   #songs { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
-  a.song { display: block; color: inherit; text-decoration: none; overflow: hidden; transition: box-shadow .12s, border-color .12s; }
-  a.song:hover { border-color: var(--blue); box-shadow: 0 2px 10px rgba(9, 105, 218, .14); }
-  a.song.fresh { border-color: var(--green); box-shadow: 0 0 0 2px rgba(26, 127, 55, .18); }
+  .song { overflow: hidden; transition: box-shadow .12s, border-color .12s; }
+  .song:hover { border-color: var(--blue); box-shadow: 0 2px 10px rgba(9, 105, 218, .14); }
+  .song.fresh { border-color: var(--green); box-shadow: 0 0 0 2px rgba(26, 127, 55, .18); }
+  .song a.top { display: block; color: inherit; text-decoration: none; }
+  a.btn { display: inline-block; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); text-decoration: none; white-space: nowrap; }
+  a.btn:hover { background: #f3f4f6; }
+  a.btn.main { color: #fff; font-weight: 600; background: var(--blue); border-color: var(--blue); }
+  a.btn.main:hover { background: #0860ca; }
   canvas.strip { display: block; width: 100%; height: 76px; background: #fff; }
   .band { position: relative; height: 6px; background: #eef1f4; }
   .band i { position: absolute; top: 0; bottom: 0; }
   .band i.heard { background: #aceebb; }
   .band i.worked { background: var(--green); }
-  .song .text { padding: 12px 16px 14px; }
+  .song .text { padding: 12px 16px 4px; }
   .song .title { font-size: 17px; font-weight: 600; line-height: 1.25; }
   .song .facts { margin-top: 8px; font-variant-numeric: tabular-nums; }
-  .song .foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-  .song .foot .spacer { flex: 1; }
-  .song .open { font-weight: 600; color: var(--blue); }
+  .song .foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 16px 14px; }
   #empty { padding: 22px; text-align: center; color: var(--soft); border-style: dashed; }
 
   /* adding a song */
-  #add { padding: 18px 20px; }
+  #add { padding: 18px 20px 16px; }
   #ways { display: flex; flex-wrap: wrap; gap: 14px; }
-  #drop { flex: 3 1 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 128px; padding: 18px; border: 2px dashed #b7c1cc; border-radius: 10px; background: var(--bg); text-align: center; transition: background .12s, border-color .12s; }
+  #drop { flex: 3 1 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 112px; padding: 14px; border: 2px dashed #b7c1cc; border-radius: 10px; background: var(--bg); text-align: center; transition: background .12s, border-color .12s; }
   #drop.over { border-color: var(--blue); background: #ddf4ff; }
   #drop .big, #link .big { font-size: 17px; font-weight: 600; }
   #link { flex: 2 1 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; text-align: center; }
@@ -54,8 +70,9 @@
   #finders { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; margin-top: 14px; }
   #finders label { white-space: nowrap; }
   #finders label.off { color: #9aa4ae; }
-  #rights { margin: 12px 0 0; font-size: 14px; }
-  #addStatus { margin-top: 10px; min-height: 22px; }
+  #rights { margin: 10px 0 0; font-size: 14px; }
+  #addStatus { margin-top: 8px; white-space: pre-line; }
+  #addStatus:empty { display: none; }
   #addStatus.bad { color: var(--red); }
 
   /* a song being prepared */
@@ -83,6 +100,8 @@
   ol.steps li.running .label { color: var(--blue); }
   ol.steps .time { display: block; font-variant-numeric: tabular-nums; color: var(--soft); min-height: 18px; }
   ol.steps .fact { display: block; color: var(--ink); }
+  ol.steps .check { display: inline-block; margin-top: 2px; padding: 0 6px; border: 1px solid #d4a72c; border-radius: 8px; background: #fff8c5; color: var(--amber); font-size: 11px; font-weight: 600; }
+  .job .now { margin-top: 12px; font-size: 14px; }
   .job .look { margin-top: 14px; }
   .job .look canvas.strip { height: 96px; border: 1px solid var(--line); border-radius: 6px; }
   .job .look .soft { font-size: 13px; margin-top: 4px; }
@@ -95,14 +114,14 @@
   <span id="count" class="soft"></span>
 </header>
 <main>
-  <h2>Your songs</h2>
-  <div id="songs"></div>
-  <div id="empty" class="card hidden">No songs yet. Add your first one below: it takes a few minutes to prepare, and then you fix its notes with the record playing.</div>
+  <ol id="path">
+    <li data-stage="add"><a href="#addTitle"><i>1</i><b>Add a song</b><span>Drop a recording here, or paste a link.</span></a></li>
+    <li data-stage="prepare"><a href="#jobsTitle"><i>2</i><b>Watch it being prepared</b><span>The bass is isolated and its notes are found, then double-checked: against the bass's own sound, and by a second opinion when MuScriptor writes them.</span></a></li>
+    <li data-stage="notes"><a href="#songsTitle"><i>3</i><b>Fix the notes</b><span>Play the record, stop at a mistake, fix it. The copilot offers its guesses and the repeats.</span></a></li>
+    <li data-stage="score"><a href="#songsTitle"><i>4</i><b>Make the score</b><span>Notation and tab from your notes: read it on the page, download the PDF.</span></a></li>
+  </ol>
 
-  <h2 id="jobsTitle" class="hidden">New songs</h2>
-  <div id="jobs"></div>
-
-  <h2>Add a song</h2>
+  <h2 id="addTitle"><i>1</i>Add a song</h2>
   <div id="add" class="card">
     <div id="ways">
       <div id="drop">
@@ -123,6 +142,13 @@
     <p id="rights" class="soft">Add only recordings you have the rights to use. The file is copied into this copilot's working directory on this computer and goes nowhere else.</p>
     <div id="addStatus"></div>
   </div>
+
+  <h2 id="jobsTitle" class="hidden"><i>2</i>Being prepared</h2>
+  <div id="jobs"></div>
+
+  <h2 id="songsTitle"><i>3</i>Fix the notes<span class="then">›</span><i>4</i>Make the score</h2>
+  <div id="songs"></div>
+  <div id="empty" class="card hidden">No songs yet. Add the first one above: it takes a few minutes to prepare, and then you fix its notes with the record playing.</div>
 </main>
 
 <script id="logic">
@@ -166,9 +192,17 @@ const Landing = (() => {
     if (!s.worked && !s.fixes) return s.checked ? `Heard ${clock(s.checked)} of ${clock(s.length)}, nothing fixed yet` : "Not started";
     return `Worked through ${clock(s.worked)} of ${clock(s.length)} · ${count(s.fixes, "fix", "fixes")}`;
   }
+  // "2026-11-14T12:55:38" as a person reads it; `now` is the moment it is read
+  function when(stamp, now) {
+    const t = new Date(stamp), day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (isNaN(t)) return "";
+    const days = Math.round((day(now) - day(t)) / 86400000);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return (days === 0 ? "today" : days === 1 ? "yesterday" : `${t.getDate()} ${months[t.getMonth()]}`) + " at " + t.getHours() + ":" + String(t.getMinutes()).padStart(2, "0");
+  }
   const whose = finder => finder === "muscriptor" ? "MuScriptor's notes" : "bass2sheet's own notes";
   const esc = t => String(t).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-  return {clock, took, refusal, fact, progress, whose, count, esc};
+  return {clock, took, refusal, fact, progress, whose, count, esc, when};
 })();
 if (typeof module !== "undefined") module.exports = Landing;
 </script>
@@ -222,14 +256,25 @@ function showSongs() {
   $("songs").innerHTML = songs.map(s => {
     const span = (kind, [a, b]) => `<i class="${kind}" style="left:${(100 * a / s.length).toFixed(2)}%;width:${(100 * (b - a) / s.length).toFixed(2)}%"></i>`;
     const band = s.spans.heard.map(x => span("heard", x)).join("") + s.spans.worked.map(x => span("worked", x)).join("");
-    return `<a class="song card${fresh.has(s.id) ? " fresh" : ""}" href="/song#${encodeURIComponent(s.id)}" data-id="${L.esc(s.id)}">
-      <canvas class="strip"></canvas><div class="band" title="Dark green: worked through. Pale: only heard.">${band}</div>
-      <div class="text"><div class="title">${L.esc(s.title)}</div><div class="soft">${L.esc(s.artist) || "&nbsp;"}</div>
-        <div class="facts">${L.progress(s)}</div>
-        <div class="foot"><span class="soft">${L.count(s.notes, "note")} · ${L.whose(s.finder)}</span><span class="spacer"></span><span class="open">${s.worked || s.fixes || s.checked ? "Carry on" : "Open"} ›</span></div>
-      </div></a>`;
+    const id = encodeURIComponent(s.id), begun = s.worked || s.fixes || s.checked;
+    return `<div class="song card${fresh.has(s.id) ? " fresh" : ""}" data-id="${L.esc(s.id)}">
+      <a class="top" href="/song#${id}" title="Fix the notes">
+        <canvas class="strip"></canvas><div class="band" title="Dark green: worked through. Pale: only heard.">${band}</div>
+        <div class="text"><div class="title">${L.esc(s.title)}</div><div class="soft">${L.esc(s.artist) || "&nbsp;"}</div>
+          <div class="facts">${L.progress(s)}</div>
+          <div class="soft">${L.count(s.notes, "note")} · ${L.whose(s.finder)}${s.score ? " · score made " + L.when(s.score.when, new Date()) : ""}</div>
+        </div></a>
+      <div class="foot"><a class="btn main" href="/song#${id}">${begun ? "Carry on with the notes" : "Fix the notes"} ›</a><a class="btn" href="/score#${id}">${s.score ? "See the score" : "Make the score"}</a></div>
+    </div>`;
   }).join("");
-  document.querySelectorAll("a.song").forEach(a => drawStrip(a.querySelector("canvas"), a.dataset.id));
+  document.querySelectorAll("#songs .song").forEach(a => drawStrip(a.querySelector("canvas"), a.dataset.id));
+  showPath();
+}
+// where the person is on the path: a song is on its way; or there are songs to work on; or there is none yet
+function showPath() {
+  const busy = way.jobs.some(j => j.state === "waiting" || j.state === "running");
+  const at = busy ? "prepare" : songs.length ? (songs.some(s => s.fixes || s.worked) ? "score" : "notes") : "add";
+  document.querySelectorAll("#path li").forEach(li => li.classList.toggle("now", li.dataset.stage === at || (at === "score" && li.dataset.stage === "notes")));
 }
 async function loadSongs() { songs = await api("/api/songs"); showSongs(); }
 
@@ -239,9 +284,9 @@ function makeJob(job) {
   const el = document.createElement("div");
   el.className = "job card";
   el.innerHTML = `<div class="head"><b></b><span class="soft about"></span><span class="spacer"></span><span class="state"></span><span class="buttons"></span></div>
-    <ol class="steps">${job.steps.map(s => `<li data-step="${s.id}"><i class="dot"></i><span class="label">${L.esc(s.label)}</span><span class="time"></span><span class="fact"></span></li>`).join("")}</ol>
+    <ol class="steps">${job.steps.map(s => `<li data-step="${s.id}" title="${L.esc(s.about)}"><i class="dot"></i><span class="label">${L.esc(s.label)}</span>${s.check ? `<span class="check">double check</span>` : ""}<span class="time"></span><span class="fact"></span></li>`).join("")}</ol>
     <div class="look hidden"><canvas class="strip"></canvas><div class="soft">The isolated bass, the whole song from left to right: low notes at the bottom, their overtones above.</div></div>
-    <div class="error hidden"></div>`;
+    <div class="now soft"></div><div class="error hidden"></div>`;
   el.dataset.steps = job.steps.map(s => s.id).join(" ");
   $("jobs").appendChild(el);
   return el;
@@ -260,7 +305,7 @@ function showJobs() {
     el.querySelector(".about").textContent = [job.artist, job.id ? "" : job.url, L.whose(job.finder)].filter(Boolean).join(" · ");
     el.querySelector(".about").title = job.name || job.url || "";
     el.querySelector(".state").textContent = STATE[job.state];
-    const buttons = job.state === "done" ? `<a class="main" href="/song#${encodeURIComponent(job.id)}" style="padding:6px 14px;border-radius:6px;text-decoration:none">Open it ›</a> <button data-do="remove">Hide</button>`
+    const buttons = job.state === "done" ? `<a class="btn main" href="/song#${encodeURIComponent(job.id)}">Fix the notes ›</a> <button data-do="remove">Hide</button>`
       : job.state === "failed" ? `<button data-do="again">Try again</button> <button data-do="remove">Remove</button>` : `<button data-do="remove">Cancel</button>`;
     const box = el.querySelector(".buttons");
     if (box.dataset.for !== job.state) {
@@ -276,6 +321,8 @@ function showJobs() {
     const pictured = job.steps.some(s => s.id === "picture" && s.state === "done" && s.found.columns);
     el.querySelector(".look").classList.toggle("hidden", !pictured);
     if (pictured && job.id) drawStrip(el.querySelector("canvas"), job.id);
+    const running = job.steps.find(s => s.state === "running");
+    el.querySelector(".now").textContent = running ? running.about : job.state === "waiting" ? "Another song is being prepared: this one is next." : "";
     el.querySelector(".error").textContent = job.error || "";
     el.querySelector(".error").classList.toggle("hidden", !(job.state === "failed" && job.error));
   }
@@ -299,7 +346,7 @@ async function look() {
   try {
     const before = new Map(way.jobs.map(j => [j.key, j.state]));
     way = await api("/api/adding"); polled = Date.now();
-    showWay(); showJobs();
+    showWay(); showJobs(); showPath();
     const ready = way.jobs.filter(j => j.state === "done" && before.has(j.key) && before.get(j.key) !== "done");
     if (ready.length || way.jobs.some(j => j.state === "done" && !songs.some(s => s.id === j.id))) { ready.forEach(j => fresh.add(j.id)); await loadSongs(); }
   } catch (e) { /* the server is away: the next look says */ }
