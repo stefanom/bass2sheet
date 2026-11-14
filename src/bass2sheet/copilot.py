@@ -408,17 +408,77 @@ class Desk:
         rep = self.repeats
         if rep is None:
             return []
-        out = []
-        for d in rep.differences(self.notes, self._repeats[1], self.worked(), self.state.get("kept", [])):
-            g = d["bar"] * repeats_.SLOTS
-            pieces = rep.pieces(self.notes, d["source"], d["bar"], d["k0"], d["k1"])
+        found = rep.differences(self.notes, self._repeats[1], self.worked(), self.state.get("kept", []))
+        return [self._item(d) for d in found]
+
+    def taken(self):
+        """The fixes taken from a repeat that can still be taken back: their names."""
+        return [e["fix"] for e in self.state["undo"] if e.get("fix")]
+
+    def _item(self, d):
+        """A stretch of a bar that a repeat has differently, for the page: when it is, and what the repeat has
+        there as it would lie in this bar."""
+        rep = self.repeats
+        g = d["bar"] * repeats_.SLOTS
+        pieces = rep.pieces(self.notes, d["source"], d["bar"], d["k0"], d["k1"])
+        return dict(
+            d,
+            id=f"{d['bar']}:{d['k0']}:{d['k1']}:{d['source']}",
+            start=round(rep.slot_time(g + d["k0"]), 3),
+            end=round(rep.slot_time(g + d["k1"] + 1), 3),
+            notes=[dict(start=p["start"], end=p["end"], pitch=p["pitch"]) for p in pieces],
+        )
+
+    def preview(self, items):
+        """The notes as they would be with `items` taken (as the "repeats" fix takes them). Nothing changes."""
+        notes, seq = json.dumps(self.state["notes"]), self.state["seq"]
+        try:
+            for i in items:
+                self._copy(int(i["source"]), int(i["bar"]), int(i["k0"]), int(i["k1"]), lambda n: None, [])
+            return sorted(json.loads(json.dumps(self.notes)), key=lambda n: (n["start"], n["pitch"]))
+        finally:
+            self.state["notes"], self.state["seq"] = json.loads(notes), seq
+
+    def strips(self, items=None, bar=None):
+        """For the page, to look at a bar's repeats side by side and decide one at a time. With `items` (an
+        offer's): the bars they would change. With `bar`: every bar that sounds like it, with the stretches where
+        it is written unlike that bar while sounding the same. One entry a bar: `items` (each as `_item` gives
+        it), `after` (the notes around the bar as they would be with its items taken: to hear the change before
+        taking it) and `yours` (the person has been through this bar). A stretch the two bars already write the same
+        is left out: a bar with no `items` has nothing to take."""
+        rep = self.repeats
+        if rep is None:
+            return []
+        by_bar = {}
+        if bar is not None:
+            if not 0 <= int(bar) < rep.bars:
+                raise Bass2SheetError("no such bar")
+            pitch, start, _ = rep.tokens(self.notes)
+            for j in np.flatnonzero(rep.related[int(bar)]):
+                by_bar[int(j)] = [
+                    dict(source=int(bar), bar=int(j), k0=a, k1=b) for a, b in rep.unlike(pitch, start, int(bar), j)
+                ]
+        for i in items or []:
+            d = dict(source=int(i["source"]), bar=int(i["bar"]), k0=int(i["k0"]), k1=int(i["k1"]))
+            by_bar.setdefault(d["bar"], []).append(d)
+        level, out = self.trust(), []
+        pitch, start, _ = rep.tokens(self.notes)
+
+        def differs(d):  # the two bars are written differently somewhere in the stretch: there is something to take
+            ks = slice(d["k0"], d["k1"] + 1)
+            there, here = (pitch[d["source"], ks], start[d["source"], ks]), (pitch[d["bar"], ks], start[d["bar"], ks])
+            return bool((there[0] != here[0]).any() or (there[1] != here[1]).any())
+
+        for j, its in sorted(by_bar.items()):
+            a, b = rep.slot_time(j * repeats_.SLOTS), rep.slot_time(min((j + 1) * repeats_.SLOTS, rep.n))
+            its = [d for d in its if differs(d)]
+            then = self.preview(its) if its else []
             out.append(
                 dict(
-                    d,
-                    id=f"{d['bar']}:{d['k0']}:{d['k1']}:{d['source']}",
-                    start=round(rep.slot_time(g + d["k0"]), 3),
-                    end=round(rep.slot_time(g + d["k1"] + 1), 3),
-                    notes=[dict(start=p["start"], end=p["end"], pitch=p["pitch"]) for p in pieces],
+                    bar=j,
+                    items=[self._item(d) for d in its],
+                    after=[n for n in then if n["end"] > a - 1 and n["start"] < b + 1],
+                    yours=bool((level[j] >= 1).any()),
                 )
             )
         return out
@@ -634,7 +694,7 @@ class Desk:
         next: for a change of pitch, the other notes that sound the same (`offer`)."""
         kind = action.get("kind")
         if kind == "undo":
-            return self.undo()
+            return self.undo(action.get("fix"))
         before, made, result, seen = [], [], {}, set()
 
         def keep(n):  # a note as it was before this fix, once
@@ -643,7 +703,8 @@ class Desk:
                 before.append(json.loads(json.dumps(n)))
 
         notes, rep = self.notes, self.repeats
-        carries = rep is not None and kind in CARRIED and action.get("offer", True)
+        repitched = kind == "pitch" or (kind == "move" and "pitch" in action)  # a note dragged to another pitch
+        carries = rep is not None and (kind in CARRIED or repitched) and action.get("offer", True)
         written = rep.tokens(notes) if carries else None
         kept, upto = len(self.state.get("kept", [])), self.state.get("upto")
         try:
@@ -659,7 +720,10 @@ class Desk:
             raise
         if kind == "refuse":
             return {}
-        self.state["undo"].append(dict(kind=kind, before=before, made=made, kept=kept, upto=upto))
+        entry = dict(kind=kind, before=before, made=made, kept=kept, upto=upto)
+        if kind == "repeats":  # a fix taken from a repeat has a name: it can be taken back on its own (`undo`)
+            self.state["fixseq"] = entry["fix"] = result["fix"] = self.state.get("fixseq", 0) + 1
+        self.state["undo"].append(entry)
         self.save()
         self.log(dict(action, song=self.song_id, before=before, made=made))
         if carries:  # the other bars that sound the same there and are written as this one was
@@ -667,7 +731,7 @@ class Desk:
             items = rep.same_mistake(written, rep.tokens(self.notes), self.trust(), settled)
             if items:
                 result["offer"] = dict(type="repeat", items=items, bars=len({i["bar"] for i in items}))
-        if kind == "pitch" and action.get("offer", True) and "offer" not in result:
+        if repitched and action.get("offer", True) and "offer" not in result:
             label, ids = self.alike(action["id"])
             if ids:
                 pitch = self.note(action["id"])["pitch"]
@@ -759,6 +823,8 @@ class Desk:
             prev, nxt = (order[k - 1] if k else None), (order[k + 1] if k + 1 < len(order) else None)
             start = max(0.0, float(action.get("start", n["start"])))
             end = float(action.get("end", n["end"]))
+            # dragged on the page, a note moves in time and in pitch in one go: one fix
+            pitch = self._check_pitch(action["pitch"]) if "pitch" in action else n["pitch"]
             if prev is not None:
                 start = max(start, prev["start"] + SHORTEST)
             if nxt is not None:
@@ -774,6 +840,9 @@ class Desk:
                 prev["end"] = round(start, 4)
                 self._settle(prev)
             n["start"], n["end"] = round(start, 4), round(end, 4)
+            if pitch != n["pitch"]:
+                n["pitch"] = pitch
+                n["also"] = [q for q in n.get("also", []) if q != pitch]
             self._settle(n)
         elif kind == "split":
             n = self.note(action["id"])
@@ -834,15 +903,27 @@ class Desk:
         else:
             raise Bass2SheetError(f"unknown kind of fix: {kind}")
 
-    def undo(self):
-        if not self.state["undo"]:
+    def undo(self, fix=None):
+        """Take back the last fix. With `fix`, the name `act` gave a fix taken from a repeat: take back that one,
+        whatever came after it, as long as nothing since has changed the same notes."""
+        stack = self.state["undo"]
+        if not stack:
             return dict(undone=None)
-        last = self.state["undo"].pop()
-        ids = {b["id"] for b in last["before"]} | set(last["made"])
+
+        def touched(entry):
+            return {b["id"] for b in entry["before"]} | set(entry["made"])
+
+        at = len(stack) - 1 if fix is None else next((k for k, e in enumerate(stack) if e.get("fix") == fix), None)
+        if at is None:
+            raise Bass2SheetError("that fix can no longer be taken back on its own")
+        if any(touched(stack[at]) & touched(later) for later in stack[at + 1 :]):
+            raise Bass2SheetError("these notes were changed again since: take back the later changes first")
+        last = stack.pop(at)
+        ids = touched(last)
         self.state["notes"] = [n for n in self.notes if n["id"] not in ids] + last["before"]
-        if "kept" in last:
+        if "kept" in last and fix is None:
             self.state["kept"] = self.state.get("kept", [])[: last["kept"]]
-        if "upto" in last:
+        if "upto" in last and fix is None:
             self.state["upto"] = last["upto"]
         self.save()
         self.log(dict(kind="undo", song=self.song_id, undone=last["kind"]))
@@ -880,6 +961,7 @@ class Desk:
             at=self.state.get("at"),
             undo=len(self.state["undo"]),
             fixes=self.fixes(),
+            taken=self.taken(),
             names={str(p): note_name(p) for p in PITCHES},
             repeats=self.patterns(),
         )

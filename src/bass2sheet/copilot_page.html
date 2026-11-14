@@ -7,36 +7,70 @@
 <style>
   :root { --ink: #1f2328; --soft: #59636e; --line: #d1d9e0; --blue: #0969da; --green: #1a7f37; --amber: #9a6700; --bg: #f6f8fa; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
-  header { display: flex; align-items: center; gap: 14px; padding: 10px 20px; background: #fff; border-bottom: 1px solid var(--line); }
-  header b { font-size: 16px; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; overflow: hidden; font: 14px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { flex: none; display: flex; align-items: center; gap: 12px; padding: 7px 14px; background: #fff; border-bottom: 1px solid var(--line); }
+  header b { font-size: 15px; white-space: nowrap; }
   header .spacer { flex: 1; }
   select, button { font: inherit; color: inherit; }
-  select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 340px; }
-  button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+  select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 300px; }
+  button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; white-space: nowrap; }
   button:hover { background: #f3f4f6; }
   button:disabled { color: #9aa4ae; cursor: default; background: #fff; }
-  button.main { font-weight: 600; min-width: 96px; }
+  button.main { font-weight: 600; min-width: 84px; }
+  button.on { background: #ddf4ff; border-color: #54aeff; }
   button.guess { font-variant-numeric: tabular-nums; }
   button.guess small { color: var(--soft); margin-right: 5px; }
-  main { padding: 14px 20px 24px; }
-  .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding: 10px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; min-height: 52px; }
+  button.sq { min-width: 30px; padding: 4px 0; }
+  .bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 13px; padding: 6px 14px; background: #fff; border-bottom: 1px solid var(--line); min-height: 44px; }
   .bar label { white-space: nowrap; }
-  .group { display: flex; align-items: center; gap: 10px; }
+  .group { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
   .soft { color: var(--soft); }
-  #clock { font-variant-numeric: tabular-nums; min-width: 68px; font-weight: 600; }
+  input[type=range] { width: 70px; margin: 0; vertical-align: middle; }
+  #clock { font-variant-numeric: tabular-nums; min-width: 60px; font-weight: 600; }
   #status { color: var(--soft); }
   #status.bad { color: #cf222e; }
-  #rollwrap { background: #fff; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
-  #roll { display: block; width: 100%; cursor: default; }
-  #offer { border-color: #bf8700; background: #fff8c5; }
-  #panel b { font-size: 16px; }
+  /* the timeline takes whatever the window has left */
+  #rollwrap { flex: 1; min-height: 140px; position: relative; overflow: hidden; background: #fff; }
+  #roll { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: default; }
+  #panel { border-bottom: 0; border-top: 1px solid var(--line); min-height: 50px; }
+  #panel b { font-size: 15px; }
+  #offer { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); max-width: calc(100% - 80px); border: 1px solid #bf8700; border-radius: 8px; background: #fff8c5; box-shadow: 0 4px 16px rgba(31,35,40,.25); z-index: 3; }
   .hidden { display: none !important; }
-  .keys { color: var(--soft); font-size: 13px; line-height: 1.7; }
   kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); }
   a { color: var(--blue); }
-  .legend { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; white-space: nowrap; }
-  .legend i { display: inline-block; width: 18px; height: 10px; border-radius: 2px; border: 1.5px solid; }
+  /* the whole song in one line: where the view is, where the bars that sound alike are */
+  #mapwrap { flex: none; height: 34px; position: relative; background: #fff; border-bottom: 1px solid var(--line); }
+  #map { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+  /* the repeats of a bar, one under the other, under the timeline */
+  #dock { flex: none; display: flex; flex-direction: column; background: #fff; border-top: 2px solid #8c959f; }
+  #dock.offer { border-top-color: #bf8700; }
+  #dockHead { min-height: 40px; background: #f6f8fa; }
+  #dock.offer #dockHead { background: #fff8c5; }
+  #dockScroll { position: relative; overflow-y: auto; overflow-x: hidden; }
+  #strips { position: sticky; top: 0; left: 0; display: block; width: 100%; }
+  #dockInner { position: relative; }
+  .strip { position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; background: rgba(246,248,250,.97); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+  .strip button { padding: 1px 9px; font-size: 13px; }
+  .strip b { min-width: 52px; }
+  .strip .sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+  button.take { border-color: #1a7f37; color: #116329; font-weight: 600; }
+  button.take:hover { background: #dafbe1; }
+  button.quiet { border-color: transparent; background: transparent; color: var(--soft); text-decoration: underline; padding-left: 4px; padding-right: 4px; }
+  button.quiet:hover { background: #eef1f4; }
+  button.sure { border-color: #cf222e; color: #cf222e; background: #fff; text-decoration: none; }
+  .changed { color: #0969da; font-weight: 600; }
+  /* the legend and the keys: behind the Help button */
+  #help { position: fixed; top: 46px; right: 10px; bottom: 10px; width: 460px; max-width: calc(100vw - 20px); overflow: auto; z-index: 5; padding: 14px 18px 18px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(31,35,40,.3); font-size: 13px; line-height: 1.55; }
+  #help h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--soft); }
+  #help h3:first-of-type { margin-top: 0; }
+  #help p { margin: 0 0 8px; }
+  #help table { border-collapse: collapse; width: 100%; }
+  #help td { padding: 3px 8px 3px 0; vertical-align: top; border-top: 1px solid #eef1f4; }
+  #help td:first-child { white-space: nowrap; width: 1%; }
+  #help .x { float: right; border: 0; font-size: 16px; padding: 0 6px; }
+  .legend { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .legend i { flex: none; display: inline-block; width: 22px; height: 11px; border-radius: 2px; border: 1.5px solid; }
 </style>
 </head>
 <body>
@@ -49,42 +83,86 @@
   <span id="sheetlinks"></span>
   <button id="undo" title="Undo the last fix (Z)">Undo</button>
   <button id="sheet">Make the sheet</button>
+  <button id="helpBtn" title="What the colours mean, what the mouse does, and the keys (?)">Help</button>
 </header>
-<main>
-  <div class="bar">
-    <button id="play" class="main">▶ Play</button>
-    <span id="clock">0:00.0</span>
-    <span class="group"><span class="soft">Hear</span>
-      <label><input type="checkbox" id="hearRecord"> Record</label>
-      <label><input type="checkbox" id="hearBass"> Isolated bass</label>
-      <label><input type="checkbox" id="hearNotes"> My notes</label>
-      <label title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
-    </span>
-    <span class="group"><span class="soft">Speed</span><select id="speed" title="Slower, at the same pitch ([ and ])">
-      <option value="100">100%</option><option value="90">90%</option><option value="80">80%</option><option value="70">70%</option><option value="60">60%</option><option value="50">50%</option></select></span>
-    <span class="group"><span class="soft">Zoom</span><button id="zoomOut" title="Zoom out (-)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
-    <span id="status"></span>
-  </div>
-  <div id="rollwrap"><canvas id="roll"></canvas></div>
-  <div class="bar" id="panel"></div>
-  <div class="bar hidden" id="offer"></div>
-  <div class="keys">
-    <span class="legend"><i style="border-color:#1a7f37;background:#d4f0db"></i>as the tool heard it</span>
-    <span class="legend"><i style="border-color:#9a6700;background:#fbe9a4"></i>the tool doubts it</span>
-    <span class="legend"><i style="border-color:#0969da;background:#cfe4fb"></i>fixed by you</span>
-    <span class="legend"><i style="border-color:#8c959f;border-style:dashed;background:#fff"></i>where the tool had it</span>
-    <span class="legend"><i style="border-color:#bc4c00;border-style:dashed;background:#ffe2c6"></i>what a repeat you fixed or left has there</span>
-    <span class="legend"><i style="border-color:#9a6700;border-style:dotted;background:#fff"></i>what most repeats have there</span>
-    <span class="legend"><i style="border:0;border-top:2px solid #cf222e;height:0;margin-top:2px"></i>the pitch the tracker followed</span>
-    <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>worked through</span>
-    <span class="legend"><i style="border-color:#aceebb;background:#aceebb;height:5px"></i>only heard</span><br>
-    <kbd>Space</kbd> play / stop · <kbd>←</kbd> <kbd>→</kbd> the note before / after · <kbd>1</kbd>–<kbd>6</kbd> take a guess · <kbd>↑</kbd> <kbd>↓</kbd> a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave ·
-    <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⇧M</kbd> join with every repeat that follows · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo · <kbd>[</kbd> <kbd>]</kbd> slower / faster<br>
-    The picture shows the steady tones of the isolated bass. A note is a stack of bars: the note itself at the bottom, its overtones above it, often stronger than the note. A bar that bends is a slide; the gap between two bars is where one note gives way to the next.<br>
-    The letters over the timeline name the bars that sound alike. Click a letter to step through its repeats; click an orange mark under it, or a dashed note, to see what a repeat has there and take it or leave it.<br>
-    Click a note to select it, drag it up or down to change its pitch, drag an end to move it. Shift-click another note (or <kbd>⇧←</kbd> <kbd>⇧→</kbd>) to select all the notes in between: delete them, join them or move them together. Click anywhere else to move the playhead; double-click to add a note. Drag the timeline or scroll to move through the song, also while it plays.
-  </div>
-</main>
+<div class="bar" id="tools">
+  <button id="play" class="main">▶ Play</button>
+  <span id="clock">0:00.0</span>
+  <span class="group"><span class="soft">Hear</span>
+    <label><input type="checkbox" id="hearRecord"> Record</label>
+    <label><input type="checkbox" id="hearBass"> Isolated bass</label>
+    <label><input type="checkbox" id="hearNotes"> My notes</label>
+    <label title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
+  </span>
+  <span class="group"><span class="soft">Speed</span><select id="speed" title="Slower, at the same pitch ([ and ])">
+    <option value="100">100%</option><option value="90">90%</option><option value="80">80%</option><option value="70">70%</option><option value="60">60%</option><option value="50">50%</option></select></span>
+  <span class="group" title="Zoom in time: the mouse wheel or a pinch on the trackpad, around the pointer (or + and -)"><span class="soft">Zoom</span><button id="zoomOut" class="sq">−</button><button id="zoomIn" class="sq">+</button></span>
+  <span class="group" title="How tall the pitch rows are. Fit: all of them in the window"><span class="soft">Rows</span><button id="rowsLess" class="sq" title="Shorter rows">−</button><button id="rowsMore" class="sq" title="Taller rows">+</button><button id="rowsFit" title="All the pitches in the window">Fit</button></span>
+  <span class="group"><span class="soft">Picture</span>
+    <select id="scheme" title="The colours of the pitch picture"></select>
+    <label title="How strongly the faint tones show: to the left only the strongest, to the right everything"><span class="soft">faint tones</span> <input type="range" id="faint" min="0" max="100" step="1"></label>
+    <label title="How solid the note boxes are: to the left outlines only, so the picture shows through"><span class="soft">notes</span> <input type="range" id="solid" min="0" max="100" step="1"></label>
+  </span>
+  <span id="status"></span>
+</div>
+<div id="mapwrap" title="The whole song. Click or drag to go there"><canvas id="map"></canvas></div>
+<div id="rollwrap"><canvas id="roll"></canvas><div class="bar hidden" id="offer"></div></div>
+<div id="dock" class="hidden">
+  <div class="bar" id="dockHead"></div>
+  <div id="dockScroll"><canvas id="strips"></canvas><div id="dockInner"></div></div>
+</div>
+<div class="bar" id="panel"></div>
+<aside id="help" class="hidden">
+  <button class="x" id="helpClose" title="Close (Esc)">✕</button>
+  <h3>The mouse</h3>
+  <table>
+    <tr><td>Drag a note</td><td>moves it: up and down in pitch, left and right in time, in one go. It turns see-through while you hold it, with a line at its start and its end, so you can lay it on the picture.</td></tr>
+    <tr><td>Drag a note's end</td><td>moves where it starts or ends. The ends can be grabbed from a little outside the note too; the pointer turns into ↔.</td></tr>
+    <tr><td>Wheel, or pinch</td><td>zooms in time around the pointer. A sideways swipe (or Shift with the wheel) moves through the song.</td></tr>
+    <tr><td>Drag the background</td><td>moves the timeline, also up and down when the rows are taller than the window (or Alt with the wheel).</td></tr>
+    <tr><td>Drag in the ruler</td><td>moves the playhead and lets you hear the spot under it as you go.</td></tr>
+    <tr><td>Click</td><td>a note selects it; the buttons under the timeline then act on it. Anywhere else puts the playhead there.</td></tr>
+    <tr><td>Shift-click</td><td>another note selects all the notes in between.</td></tr>
+    <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
+    <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
+    <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
+    <tr><td>A letter</td><td>over the timeline names the bars that sound alike. Click it and the other bars that sound like that one line up under the timeline, each with its own piece of the picture and its notes, orange where it is written unlike the bar you clicked. Hear each one as it is written and with the change, then change it there or leave it: nothing changes in a bar until you say so for that bar, and "Undo this one" takes it back.</td></tr>
+    <tr><td>After a fix</td><td>the bars that sound the same there and are written as this one was line up the same way.</td></tr>
+    <tr><td>An orange mark</td><td>under a letter, or a dashed note, shows what a repeat has there: click to take it or leave it.</td></tr>
+    <tr><td>The song map</td><td>the line over the timeline is the whole song: the patterns, the part you are looking at (the frame), the playhead, what you have worked through, and a dark line under every bar that sounds like the current one. Click or drag in it to go there.</td></tr>
+  </table>
+  <h3>The colours</h3>
+  <div class="legend"><i style="border-color:#1a7f37;background:#d4f0db"></i>a note as the tool heard it</div>
+  <div class="legend"><i style="border-color:#9a6700;background:#fbe9a4"></i>a note the tool doubts</div>
+  <div class="legend"><i style="border-color:#0969da;background:#cfe4fb"></i>a note fixed by you</div>
+  <div class="legend"><i style="border-color:#8c959f;border-style:dashed;background:#fff"></i>where the tool had it</div>
+  <div class="legend"><i style="border-color:#bc4c00;border-style:dashed;background:#ffe2c6"></i>what a repeat you fixed or left has there</div>
+  <div class="legend"><i style="border-color:#9a6700;border-style:dotted;background:#fff"></i>what most repeats have there</div>
+  <div class="legend"><i style="border:0;border-top:2px solid #cf222e;height:0"></i>the pitch the tracker followed (light blue on a dark picture)</div>
+  <div class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:6px"></i>in the ruler: worked through</div>
+  <div class="legend"><i style="border-color:#aceebb;background:#aceebb;height:6px"></i>in the ruler: only heard</div>
+  <h3>The picture</h3>
+  <p>The picture shows the steady tones of the isolated bass. A note is a stack of bars: the note itself at the bottom, its overtones above it, often stronger than the note. A bar that bends is a slide; the gap between two bars is where one note gives way to the next.</p>
+  <h3>The keys</h3>
+  <table>
+    <tr><td><kbd>Space</kbd></td><td>play / stop</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>the note before / after; with <kbd>⇧</kbd>, select up to it</td></tr>
+    <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>take a guess</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>a semitone; with <kbd>⇧</kbd>, an octave</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>hear the note again</td></tr>
+    <tr><td><kbd>⌫</kbd></td><td>delete</td></tr>
+    <tr><td><kbd>A</kbd></td><td>add a note at the playhead</td></tr>
+    <tr><td><kbd>S</kbd></td><td>split at the playhead, or in the middle</td></tr>
+    <tr><td><kbd>M</kbd></td><td>join with the next; <kbd>⇧M</kbd> with every repeat that follows</td></tr>
+    <tr><td><kbd>⌥←</kbd> <kbd>⌥→</kbd></td><td>move the start; with <kbd>⇧</kbd>, the end</td></tr>
+    <tr><td><kbd>U</kbd> <kbd>K</kbd></td><td>use what a repeat has / keep what is written</td></tr>
+    <tr><td><kbd>O</kbd> <kbd>Y</kbd> <kbd>X</kbd></td><td>an offer: show the next / take it / decline</td></tr>
+    <tr><td><kbd>Z</kbd></td><td>undo</td></tr>
+    <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>slower / faster</td></tr>
+    <tr><td><kbd>+</kbd> <kbd>-</kbd></td><td>zoom in / out</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>let go of the selection; <kbd>?</kbd> opens and closes this</td></tr>
+  </table>
+</aside>
 
 <script id="logic">
 // What needs no page: tested on its own (tests/copilot_page_logic.js).
@@ -150,24 +228,105 @@ const Logic = (() => {
     for (const b of bars) { if (b.time <= t + 1e-6) at = b; else break; }
     return at ? [at.bar, t - at.time] : [0, t];
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted};
+  // --- the mouse
+  // Where the pointer is on a note drawn from x = left, `width` wide: its "start" or "end" (grabbed from up to
+  // `reach` outside the note, and from its outer quarter inside, 8 at most), or its body ("move"). `off` is how far
+  // outside the note the pointer is: of two notes, the nearer one is meant. Null: not on it.
+  function zone(x, left, width, reach, ends = true) {
+    const right = left + width;
+    if (x < left - reach || x > right + reach) return null;
+    const off = x < left ? left - x : x > right ? x - right : 0;
+    if (!ends) return off ? null : {mode: "move", off};
+    const inner = Math.min(8, width / 4);
+    if (x < left + inner) return {mode: "start", off};
+    if (x > right - inner) return {mode: "end", off};
+    return {mode: "move", off};
+  }
+  // A note dragged by `dt` seconds between the note before and the note after, by the rules the fix itself follows
+  // (copilot.py, "move"): the note before gives way, down to its own start; the note after does not, so against
+  // it the end stays and the start goes on, as long as a note is left. It keeps its length otherwise.
+  function shifted(n, prev, next, dt, length, shortest = 0.03) {
+    dt = Math.max(dt, (prev ? prev.start + shortest : 0) - n.start);
+    if (!next) dt = Math.min(dt, length - n.end);
+    const end = Math.min(n.end + dt, next ? next.start : length);
+    return {start: Math.min(n.start + dt, end - shortest), end};
+  }
+  // an end dragged to `t`: the start no earlier than a little after the note before starts, the end no later than
+  // the note after starts
+  function resized(n, prev, next, which, t, length, shortest = 0.03) {
+    if (which === "start") return {start: Math.max(prev ? prev.start + shortest : 0, Math.min(t, n.end - shortest)), end: n.end};
+    return {start: n.start, end: Math.min(next ? next.start : length, Math.max(t, n.start + shortest))};
+  }
+  // the view zoomed by `f` with the moment under `x` (pixels from the left of the timeline) staying where it is
+  function zoomAbout(t0, pps, x, f, lo = 20, hi = 2000) {
+    const t = t0 + x / pps, to = Math.max(lo, Math.min(hi, pps * f));
+    return {t0: Math.max(-0.2, t - x / to), pps: to};
+  }
+  // --- the repeats of a bar, one under the other
+  // the pitches to show for these notes: a margin around them, at least so many rows, never outside [low, high]
+  function pitchRange(pitches, low, high, margin = 2, least = 10) {
+    let lo = pitches.length ? Math.max(low, Math.min(...pitches) - margin) : low;
+    let hi = pitches.length ? Math.min(high, Math.max(...pitches) + margin) : low;
+    while (hi - lo + 1 < least && (lo > low || hi < high)) { if (hi < high) hi++; if (hi - lo + 1 < least && lo > low) lo--; }
+    return [lo, hi];
+  }
+  // where a repeat's bar is drawn: right under the bar it is compared with (at x), as long as that leaves it in sight
+  const alignX = (x, width, left, right) => (width >= right - left ? left : Math.max(left, Math.min(x, right - width)));
+  // --- the picture's colours: 256 colours from silence to the loudest, through `stops`; `gamma` bends the way
+  // there: above 1 the faint tones fade, below 1 they show
+  const gammaOf = faint => 2 * Math.pow(4, (50 - faint) / 50);  // the slider, 0..100: 8 .. 2 (as it was) .. 0.5
+  function palette(stops, gamma) {
+    const out = new Uint8Array(256 * 3), last = stops.length - 1;
+    for (let i = 0; i < 256; i++) {
+      const v = Math.pow(i / 255, gamma) * last, k = Math.min(last - 1, Math.floor(v)), f = v - k;
+      for (let c = 0; c < 3; c++) out[i * 3 + c] = Math.round(stops[k][c] + (stops[k + 1][c] - stops[k][c]) * f);
+    }
+    return out;
+  }
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
 
 <script id="app">
 const $ = id => document.getElementById(id);
-const RULER = 20, LANE = 24, TOP = RULER + LANE, GUTTER = 46, TILE = 1024;  // the ruler, the patterns under it, then the notes
-let S = null, tiles = [], f0 = null, byPitch = new Map();
-let view = {t0: 0, pps: 150, free: false}, row = 12;  // free: the person moved the view; it does not follow the playhead
+const RULER = 26, LANE = 24, TOP = RULER + LANE, GUTTER = 46, TILE = 1024;  // the ruler, the patterns under it, then the notes
+const GRAB = 7, SHORTEST = 0.03;  // how far outside a note its ends can be grabbed; no note is shorter than this
+const stored = (key, otherwise) => { try { const v = JSON.parse(localStorage.getItem(key)); return v === null ? otherwise : v; } catch (e) { return otherwise; } };
+let S = null, tiles = [], picData = null, f0 = null, byPitch = new Map();
+// free: the person moved the view; it does not follow the playhead. y0: how far down the rows are scrolled, in pixels
+let view = {t0: 0, pps: Math.max(20, Math.min(2000, +stored("copilot.pps", 150) || 150)), y0: 0, free: false}, row = 12;
+let rowPref = stored("copilot.row", "fit");  // "fit": all the pitches in the window; or so many pixels a row
+// the picture's colours, from silence to the loudest; what is drawn over a dark picture is drawn light
+const SCHEMES = {
+  blue: {name: "Blue on white", stops: [[255, 255, 255], [50, 75, 130]]},
+  dark: {name: "Dark", dark: true, stops: [[13, 17, 23], [58, 28, 112], [186, 54, 85], [251, 155, 60], [255, 250, 205]]},
+  grey: {name: "Black on white", stops: [[255, 255, 255], [0, 0, 0]]},
+  night: {name: "White on black", dark: true, stops: [[0, 0, 0], [255, 255, 255]]},
+};
+const INK = {
+  light: {grid: "rgba(31,35,40,.07)", open: "rgba(31,35,40,.30)", bar: "rgba(31,35,40,.16)", f0: "rgba(207,34,46,.75)", text: "#1f2328", halo: "rgba(255,255,255,.85)", chosen: "#1f2328", was: "#8c959f", head: "#cf222e",
+    edge: {mine: "#0969da", doubt: "#9a6700", machine: "#1a7f37"}, fill: {mine: "207,228,251", doubt: "251,233,164", machine: "212,240,219"}, strong: "#bc4c00", most: "#9a6700"},
+  dark: {grid: "rgba(255,255,255,.08)", open: "rgba(255,255,255,.34)", bar: "rgba(255,255,255,.22)", f0: "rgba(86,212,221,.9)", text: "#ffffff", halo: "rgba(0,0,0,.8)", chosen: "#ffffff", was: "#9da7b1", head: "#ff7b72",
+    edge: {mine: "#58a6ff", doubt: "#e3b341", machine: "#3fb950"}, fill: {mine: "56,139,253", doubt: "187,128,9", machine: "46,160,67"}, strong: "#ffa657", most: "#e3b341"},
+};
+const look = Object.assign({scheme: "blue", faint: 50, solid: 70}, stored("copilot.look", {}));
+if (!SCHEMES[look.scheme]) look.scheme = "blue";
+const ink = () => SCHEMES[look.scheme].dark ? INK.dark : INK.light;
+const cssOf = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+const STRIP_HEAD = 28, STRIP_GAP = 6;  // a repeat's line of buttons, and the space under its rows
+// dock: the repeats of a bar lined up under the timeline. kind "bar": a bar that was chosen; "offer": after a fix.
+// strips: one per bar, from the server; done: bar -> {state: "taken" (with the fix's name) or "left"}
+let dock = null, dockAsk = 0, mapDrag = false;
+let hover = null, scrub = null;  // the note (and which part of it) under the pointer; the playhead being dragged in the ruler
 let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;
 let selBar = null, selDiff = null;  // a bar chosen in the pattern strip; a difference from a repeat that was clicked
 const barSpan = i => [S.bars[i].time, i + 1 < S.bars.length ? S.bars[i + 1].time : S.length];
 const hueOf = pattern => ([...pattern].reduce((v, c) => v * 26 + c.charCodeAt(0) - 64, 0) * 137.5) % 360;  // many: a run of selected notes, sel among them
-let playhead = 0, drag = null, pan = null, dirty = true;
+let playhead = 0, drag = null, pan = null, dirty = true;  // drag: a note being moved or resized; pan: the timeline being dragged
 // A.record and A.bass are what plays: the song as it is, or slowed down (A.speed below 1); a moment of the song is
 // at that moment divided by A.speed in them
-const A = {speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
+const A = {alt: null, speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
 const hear = Object.assign({record: true, bass: false, notes: true, split: false}, JSON.parse(localStorage.getItem("copilot.hear") || "{}"));
 
 async function api(path, body) {
@@ -195,16 +354,18 @@ async function load(id) {
   S = await api("/api/song?id=" + encodeURIComponent(id));
   location.hash = id;
   document.title = S.title + " · copilot";
-  sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); tiles = []; f0 = null; A.rms.clear();
+  sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); closeDock(); tiles = []; picData = null; f0 = null; hover = null; A.rms.clear();
   A.record = A.bass = A.full = null; A.slow = {}; A.speed = 1; $("speed").value = "100";
   byPitch = Logic.indexNotes(S.notes);
   playhead = S.at !== null && S.at < S.length - 1 ? S.at : Logic.resumeAt(Logic.sorted(S.notes), S.checked);
   resize();
   view.t0 = Math.max(0, playhead - 1);
+  const ps = S.notes.map(n => n.pitch).sort((a, b) => a - b);  // rows taller than the window: start where the notes are
+  if (ps.length) showPitch(ps[ps.length >> 1], true);
   refresh();
   const base = "/data/" + encodeURIComponent(id) + "/";
   const bytes = async rel => (await fetch(base + rel)).arrayBuffer();
-  bytes("picture.bin").then(b => { makeTiles(new Uint8Array(b)); dirty = true; });
+  bytes("picture.bin").then(b => { if (S && S.id === id) { picData = new Uint8Array(b); makeTiles(); } });
   bytes("pitch.bin").then(b => { f0 = new Float32Array(b); dirty = true; });
   if (!A.ctx) setupAudio();
   const [rec, bass] = await Promise.all([bytes("audio/record.flac"), bytes("audio/bass.flac")]);
@@ -217,8 +378,9 @@ async function load(id) {
   say("");
   refresh();
 }
-function makeTiles(data) {
-  const P = S.picture, out = [];
+function makeTiles() {  // the picture in the colours chosen, cut into canvases a browser can hold
+  if (!picData || !S) return;
+  const data = picData, P = S.picture, out = [], lut = Logic.palette(SCHEMES[look.scheme].stops, Logic.gammaOf(look.faint));
   for (let c0 = 0; c0 < P.columns; c0 += TILE) {
     const w = Math.min(TILE + 1, P.columns - c0), cv = document.createElement("canvas");  // one column over the next tile: no seam
     cv.width = w; cv.height = P.rows;
@@ -226,34 +388,61 @@ function makeTiles(data) {
     for (let r = 0; r < P.rows; r++) {
       const src = (P.rows - 1 - r) * P.columns + c0;  // row 0 of the data is the lowest pitch; of the picture, the highest
       for (let c = 0; c < w; c++) {
-        const u = data[src + c] / 255, v = u * u, k = (r * w + c) * 4;  // squared: the haze under the notes fades
-        px[k] = 255 - v * 205; px[k + 1] = 255 - v * 180; px[k + 2] = 255 - v * 125; px[k + 3] = 255;
+        const u = data[src + c] * 3, k = (r * w + c) * 4;
+        px[k] = lut[u]; px[k + 1] = lut[u + 1]; px[k + 2] = lut[u + 2]; px[k + 3] = 255;
       }
     }
     g.putImageData(img, 0, 0);
     out.push(cv);
   }
-  tiles = out;
+  tiles = out; dirty = true;
 }
+let lookTimer = 0;
+function setLook(change) {  // the picture's colours, how the faint tones show, how solid the notes are: kept for the next visit
+  Object.assign(look, change);
+  localStorage.setItem("copilot.look", JSON.stringify(look));
+  showLook();
+  if ("scheme" in change || "faint" in change) { cancelAnimationFrame(lookTimer); lookTimer = requestAnimationFrame(makeTiles); }
+  dirty = true;
+}
+function showLook() { $("scheme").value = look.scheme; $("faint").value = look.faint; $("solid").value = look.solid; }
 
 // ----------------------------------------------------------------------------------------------------- drawing
 const xOf = t => GUTTER + (t - view.t0) * view.pps;
 const tOf = x => view.t0 + (x - GUTTER) / view.pps;
-const yOf = p => TOP + (S.high - p) * row;
-const pOf = y => S.high - Math.floor((y - TOP) / row);
-function resize() {
-  const c = $("roll"), W = $("rollwrap").clientWidth, rows = S ? S.high - S.low + 1 : 30;
-  row = Math.max(9, Math.min(16, Math.floor(470 / rows)));
-  const H = TOP + rows * row, dpr = window.devicePixelRatio || 1;
-  c.style.height = H + "px";
-  c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+const yOf = p => TOP + (S.high - p) * row - view.y0;
+const pOf = y => S.high - Math.floor((y - TOP + view.y0) / row);
+const rowsOf = () => S ? S.high - S.low + 1 : 30;
+const rollHeight = () => $("rollwrap").clientHeight - TOP;
+function resize() {  // the canvas is as large as the window leaves it
+  const c = $("roll"), wrap = $("rollwrap"), dpr = window.devicePixelRatio || 1;
+  c.width = Math.round(wrap.clientWidth * dpr); c.height = Math.round(wrap.clientHeight * dpr);
+  layRows();
+}
+function layRows() {
+  row = rowPref === "fit" ? Math.max(6, Math.floor(rollHeight() / rowsOf())) : rowPref;
+  clampY();
+  $("rowsFit").classList.toggle("on", rowPref === "fit");
   dirty = true;
+}
+function clampY() { view.y0 = Math.round(Math.max(0, Math.min(view.y0, rowsOf() * row - rollHeight()))); }
+function setRows(to) {  // taller or shorter rows (a factor), or "fit"; what is in the middle of the window stays there
+  const H = rollHeight(), mid = (view.y0 + H / 2) / row;
+  rowPref = to === "fit" ? "fit" : Math.max(6, Math.min(48, to > 1 ? Math.max(row + 1, Math.round(row * to)) : Math.min(row - 1, Math.round(row * to))));
+  localStorage.setItem("copilot.row", JSON.stringify(rowPref));
+  layRows();
+  view.y0 = mid * row - H / 2; clampY();
+}
+function showPitch(p, middle) {  // scroll the rows so that a pitch is in the window
+  const H = rollHeight(), y = (S.high - p) * row;
+  if (middle || y < view.y0 + row || y > view.y0 + H - 2 * row) { view.y0 = y - H / 2; clampY(); dirty = true; }
 }
 function boxes(n) {  // every pitch of a note, as [pitch, x, y, width]
   const d = drag && drag.id === n.id ? drag : null;
-  const s = d ? d.start : n.start, e = d ? d.end : n.end, p = d ? d.pitch : n.pitch;
+  let s = d ? d.start : n.start, e = d ? d.end : n.end;
+  if (drag && drag.prev && drag.prev.id === n.id && e > drag.start) e = Math.max(s + SHORTEST, drag.start);  // it gives way to the note being dragged
   const x = xOf(s), w = Math.max(3, (e - s) * view.pps - 1);
-  return [p, ...(n.also || [])].map(q => [q, x, yOf(q), w]);
+  return [d ? d.pitch : n.pitch, ...(n.also || [])].map(q => [q, x, yOf(q), w]);
 }
 function draw() {
   dirty = false;
@@ -262,27 +451,33 @@ function draw() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
   if (!S) return;
-  const t1 = tOf(W), rows = S.high - S.low + 1, P = S.picture;
+  const t1 = tOf(W), rows = rowsOf(), P = S.picture, T = ink(), solid = look.solid / 100;
+  const font = "10px -apple-system, Helvetica, Arial, sans-serif";
+  const label = (text, x, y, colour) => {  // a name on the picture, readable whatever is under it
+    g.lineWidth = 2.5; g.lineJoin = "round"; g.strokeStyle = T.halo; g.strokeText(text, x, y);
+    g.fillStyle = colour || T.text; g.fillText(text, x, y);
+  };
+  g.fillStyle = cssOf(SCHEMES[look.scheme].stops[0]); g.fillRect(GUTTER, TOP, W - GUTTER, H - TOP);
   g.save(); g.beginPath(); g.rect(GUTTER, TOP, W - GUTTER, H - TOP); g.clip();
   // what sounds in the bass track
   g.imageSmoothingEnabled = true;
   const sy = P.rows - P.per_semitone * (S.high - P.low + 1), sh = P.per_semitone * rows;
   tiles.forEach((cv, k) => {
     const a = k * TILE * P.step, b = a + cv.width * P.step;
-    if (b >= view.t0 && a <= t1) g.drawImage(cv, 0, sy, cv.width, sh, xOf(a), TOP, cv.width * P.step * view.pps, rows * row);
+    if (b >= view.t0 && a <= t1) g.drawImage(cv, 0, sy, cv.width, sh, xOf(a), TOP - view.y0, cv.width * P.step * view.pps, rows * row);
   });
   // the pitches: a line under each, darker under the open strings
   for (let p = S.low; p <= S.high; p++) {
     const open = [28, 33, 38, 43].includes(p);
-    g.strokeStyle = open ? "rgba(31,35,40,.30)" : "rgba(31,35,40,.07)"; g.lineWidth = 1;
+    g.strokeStyle = open ? T.open : T.grid; g.lineWidth = 1;
     g.beginPath(); g.moveTo(GUTTER, yOf(p) + row - .5); g.lineTo(W, yOf(p) + row - .5); g.stroke();
   }
   // the bars, as the tool counts them
-  g.strokeStyle = "rgba(31,35,40,.16)";
+  g.strokeStyle = T.bar;
   for (const b of S.bars) { if (b.time < view.t0 - 1 || b.time > t1) continue; const x = Math.round(xOf(b.time)) + .5; g.beginPath(); g.moveTo(x, TOP); g.lineTo(x, H); g.stroke(); }
   // the pitch the tracker followed
   if (f0) {
-    g.strokeStyle = "rgba(207,34,46,.75)"; g.lineWidth = 1.2; g.beginPath();
+    g.strokeStyle = T.f0; g.lineWidth = 1.2; g.beginPath();
     let pen = false, last = 0;
     for (let i = Math.max(0, Math.floor(view.t0 * 100)); i < Math.min(f0.length, Math.ceil(t1 * 100)); i++) {
       const v = f0[i];
@@ -294,23 +489,37 @@ function draw() {
     g.stroke();
   }
   // the notes
-  g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
+  g.font = font; g.textBaseline = "middle";
+  const held = drag && drag.moved ? drag.id : null;
   for (const n of S.notes) {
     if (n.end < view.t0 - 1 || n.start > t1 + 1) continue;
-    const chosen = n.id === sel || many.includes(n.id), mine = n.state !== "machine";
-    const edge = mine ? "#0969da" : n.doubt ? "#9a6700" : "#1a7f37";
-    const fill = mine ? "rgba(207,228,251,.72)" : n.doubt ? "rgba(251,233,164,.78)" : "rgba(212,240,219,.70)";
-    if (n.was && n.was.pitch !== n.pitch && !(drag && drag.id === n.id)) {  // where the tool had it
-      g.setLineDash([3, 2]); g.strokeStyle = "#8c959f"; g.lineWidth = 1;
+    const chosen = n.id === sel || many.includes(n.id), kind = n.state !== "machine" ? "mine" : n.doubt ? "doubt" : "machine";
+    const edge = T.edge[kind], fill = `rgba(${T.fill[kind]},${n.id === held ? Math.min(solid, .15) : solid})`;  // held: the picture shows through
+    if (n.was && n.was.pitch !== n.pitch && n.id !== held) {  // where the tool had it
+      g.setLineDash([3, 2]); g.strokeStyle = T.was; g.lineWidth = 1;
       g.strokeRect(xOf(n.was.start) + .5, yOf(n.was.pitch) + 1.5, Math.max(3, (n.was.end - n.was.start) * view.pps - 1), row - 3); g.setLineDash([]);
     }
     const bs = boxes(n);
-    bs.forEach(([q, x, y, w]) => {
+    bs.forEach(([q, x, y, w], k) => {
       g.fillStyle = fill; g.fillRect(x, y + 1, w, row - 2);
-      g.strokeStyle = chosen ? "#1f2328" : edge; g.lineWidth = chosen ? 2.5 : 1.3;
+      g.strokeStyle = chosen ? T.chosen : edge; g.lineWidth = chosen ? 2.5 : 1.3;
       g.strokeRect(x + .5, y + 1.5, w, row - 3);
-      if (w > 24 && row >= 11) { g.fillStyle = "#1f2328"; g.fillText(name(q), x + 4, y + row / 2 + .5); }
+      const on = hover && hover.id === n.id ? hover.mode : null;
+      if (!k && (on || (n.id === sel && many.length < 2)) && n.id !== held) {  // its ends, to take hold of
+        for (const [side, hx] of [["start", x], ["end", x + w]]) {
+          const wide = on === side ? 5 : 3;
+          g.fillStyle = on === side ? T.chosen : edge;
+          g.fillRect(side === "start" ? hx : hx - wide + 1, y, wide, row);
+        }
+      }
+      if (w > 24 && row >= 11) label(name(q), x + 5, y + row / 2 + .5);
     });
+    if ((n.id === held || (n.id === sel && many.length < 2)) && bs.length) {  // where its overtones lie: the stack of bars a note makes
+      const [q, x, , w] = bs[0];
+      g.setLineDash([2, 3]); g.strokeStyle = edge; g.lineWidth = 1;
+      for (const up of [12, 19, 24]) if (q + up <= S.high) g.strokeRect(x + .5, yOf(q + up) + 1.5, w, row - 3);
+      g.setLineDash([]);
+    }
     if (bs.length > 1) { g.strokeStyle = edge; g.lineWidth = 1; g.beginPath(); g.moveTo(bs[0][1] + 1.5, Math.min(...bs.map(b => b[2])) + row); g.lineTo(bs[0][1] + 1.5, Math.max(...bs.map(b => b[2]))); g.stroke(); }
   }
   // what a repeat has where this bar is written differently: dashed, over the notes
@@ -318,12 +527,12 @@ function draw() {
   for (const d of R.differences) {
     if (d.end < view.t0 - 1 || d.start > t1 + 1) continue;
     const strong = d.why !== "most";
-    g.setLineDash(strong ? [5, 3] : [2, 3]); g.strokeStyle = strong ? "#bc4c00" : "#9a6700"; g.lineWidth = d.id === selDiff ? 2.5 : 1.5;
+    g.setLineDash(strong ? [5, 3] : [2, 3]); g.strokeStyle = strong ? T.strong : T.most; g.lineWidth = d.id === selDiff ? 2.5 : 1.5;
     for (const q of d.notes) {
       const x = xOf(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), y = yOf(q.pitch);
       g.fillStyle = strong ? "rgba(255,166,87,.25)" : "rgba(212,167,44,.12)"; g.fillRect(x, y + 1, w, row - 2);
       g.strokeRect(x + .5, y + 1.5, w, row - 3);
-      if (w > 24 && row >= 11) { g.fillStyle = g.strokeStyle; g.fillText(name(q.pitch), x + 4, y + row / 2 + .5); }
+      if (w > 24 && row >= 11) { g.setLineDash([]); label(name(q.pitch), x + 5, y + row / 2 + .5, strong ? T.strong : T.most); g.setLineDash(strong ? [5, 3] : [2, 3]); g.strokeStyle = strong ? T.strong : T.most; g.lineWidth = d.id === selDiff ? 2.5 : 1.5; }
     }
     if (!d.notes.length) for (const n of S.notes) {  // the repeat has nothing there: what is written is struck through
       if (n.end <= d.start || n.start >= d.end) continue;
@@ -332,8 +541,23 @@ function draw() {
     }
     g.setLineDash([]);
   }
+  // a note in the hand: a line at its start and at its end, right up the picture, and where it is now
+  if (held) {
+    const d = drag, xs = xOf(d.start), xe = xOf(d.end), y = yOf(d.pitch);
+    g.strokeStyle = T.chosen; g.lineWidth = 1; g.globalAlpha = .6;
+    g.beginPath(); g.moveTo(Math.round(xs) + .5, TOP); g.lineTo(Math.round(xs) + .5, H); g.stroke();
+    g.setLineDash([4, 3]); g.beginPath(); g.moveTo(Math.round(xe) + .5, TOP); g.lineTo(Math.round(xe) + .5, H); g.stroke(); g.setLineDash([]);
+    g.globalAlpha = 1;
+    const ms = Math.round((d.start - d.from.start) * 1000), dur = Math.round((d.end - d.start) * 1000);
+    const text = d.mode === "move" ? `${name(d.pitch)}  ${ms ? (ms > 0 ? "+" : "−") + Math.abs(ms) + " ms" : "in time"}` : `${name(d.pitch)}  ${dur} ms long`;
+    g.font = "600 11px -apple-system, Helvetica, Arial, sans-serif";
+    const tw = g.measureText(text).width + 12, ty = y - 22 > TOP ? y - 20 : y + row + 4, tx = Math.max(GUTTER + 2, Math.min(W - tw - 2, xs));
+    g.fillStyle = "rgba(31,35,40,.92)"; g.beginPath(); g.roundRect(tx, ty, tw, 17, 4); g.fill();
+    g.fillStyle = "#fff"; g.fillText(text, tx + 6, ty + 9);
+    g.font = font;
+  }
   // the playhead
-  g.strokeStyle = "#cf222e"; g.lineWidth = 1.5; const px = xOf(playhead);
+  g.strokeStyle = T.head; g.lineWidth = 1.5; const px = xOf(playhead);
   g.beginPath(); g.moveTo(px, TOP); g.lineTo(px, H); g.stroke();
   g.restore();
   // the patterns: a letter for the bars that sound alike; under them, where a bar is written unlike its repeats
@@ -357,30 +581,78 @@ function draw() {
     g.fillRect(x0 + 1, RULER + 17, Math.max(3, x1 - x0 - 2), d.id === selDiff ? 6 : 4);
   }
   g.restore();
-  // the ruler: bar numbers, and what was played through
-  g.fillStyle = "#f6f8fa"; g.fillRect(GUTTER, 0, W - GUTTER, RULER);
+  // the ruler: bar numbers, and what was played through; drag in it to move the playhead and hear the spot
+  g.fillStyle = scrub ? "#eaeef2" : "#f6f8fa"; g.fillRect(GUTTER, 0, W - GUTTER, RULER);
   g.save(); g.beginPath(); g.rect(GUTTER, 0, W - GUTTER, RULER); g.clip();
   for (const [spans, colour] of [[S.checked, "#aceebb"], [S.worked, "#1a7f37"]]) {  // heard; worked through
     g.fillStyle = colour;
     for (const [a, b] of spans) if (b >= view.t0 && a <= t1) g.fillRect(xOf(a), RULER - 5, (b - a) * view.pps, 5);
   }
-  g.fillStyle = "#59636e"; g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "top";
+  g.fillStyle = "#59636e"; g.font = font; g.textBaseline = "top";
   let lastX = -99;
-  for (const b of S.bars) { const x = xOf(b.time); if (x < GUTTER - 30 || x > W) continue; if (x - lastX < 34) continue; g.fillText(String(b.bar), x + 3, 2); lastX = x; }
-  g.fillStyle = "#cf222e"; g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, 8); g.fill();
+  for (const b of S.bars) { const x = xOf(b.time); if (x < GUTTER - 30 || x > W) continue; if (x - lastX < 34) continue; g.fillText(String(b.bar), x + 3, 5); lastX = x; }
+  g.fillStyle = "#cf222e"; g.beginPath(); g.moveTo(px - 7, 0); g.lineTo(px + 7, 0); g.lineTo(px + 7, 6); g.lineTo(px, 14); g.lineTo(px - 7, 6); g.fill();
   g.restore();
   // the gutter: note names
   g.fillStyle = "#fff"; g.fillRect(0, 0, GUTTER, H);
   g.strokeStyle = "#d1d9e0"; g.lineWidth = 1; g.beginPath(); g.moveTo(GUTTER - .5, 0); g.lineTo(GUTTER - .5, H); g.stroke();
+  g.save(); g.beginPath(); g.rect(0, TOP, GUTTER, H - TOP); g.clip();
   g.textBaseline = "middle"; g.textAlign = "right";
   for (let p = S.low; p <= S.high; p++) {
     const natural = [0, 2, 4, 5, 7, 9, 11].includes(p % 12), open = [28, 33, 38, 43].includes(p);
-    if (!natural && row < 13) continue;
-    g.font = (open ? "600 " : "") + "10px -apple-system, Helvetica, Arial, sans-serif";
+    if ((!natural && row < 13) || (row < 11 && [5, 11].includes(p % 12)) || (row < 8 && !open && p % 12)) continue;  // short rows: the naturals, then without F and B (no room beside E and C); shorter still: the open strings and the Cs
+    g.font = (open ? "600 " : "") + font;
     g.fillStyle = open ? "#1f2328" : natural ? "#59636e" : "#afb8c1";
     g.fillText(name(p), GUTTER - 6, yOf(p) + row / 2 + .5);
   }
+  g.restore();
   g.textAlign = "left";
+  drawMap();
+  if (dock) drawStrips();
+}
+// The whole song in one line: the patterns, the frame the timeline shows, the playhead, what is worked through, and
+// the bars that sound like the current one.
+const mapX = t => 4 + t / S.length * ($("map").clientWidth - 8);
+function currentBar() {  // the bar the map and the strips are about: the one chosen, or the selected note's, or the playhead's
+  if (dock) return dock.bar;
+  if (selBar !== null) return selBar;
+  const n = note(sel), t = n ? n.start : playhead;
+  const i = S.repeats.bars.findIndex((b, i) => t >= barSpan(i)[0] && t < barSpan(i)[1]);
+  return i >= 0 ? i : null;
+}
+function drawMap() {
+  const c = $("map"), dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  if (!S) return;
+  const R = S.repeats, cur = currentBar(), kin = cur !== null && R.bars[cur] ? R.bars[cur].of : [];
+  g.font = "600 9px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle"; g.textAlign = "left";
+  R.bars.forEach((b, i) => {
+    const [a, z] = barSpan(i), x0 = mapX(a), x1 = mapX(z), akin = kin.includes(i), here = i === cur;
+    g.fillStyle = !b.pattern ? "#eef1f4" : `hsl(${hueOf(b.pattern)}, ${here || akin ? 80 : 50}%, ${here ? 52 : akin ? 66 : 89}%)`;
+    g.fillRect(x0 + .5, 3, Math.max(1, x1 - x0 - 1), 13);
+    if (b.pattern && x1 - x0 >= 9) { g.fillStyle = here || akin ? "#1f2328" : "#59636e"; g.fillText(b.pattern, x0 + 2, 10); }
+    if (here || akin) { g.fillStyle = "#1f2328"; g.fillRect(x0 + .5, 17, Math.max(1, x1 - x0 - 1), here ? 4 : 2.5); }  // every bar that sounds like this one
+    const done = dock && dock.done[i];
+    if (done) { g.fillStyle = done.state === "taken" ? "#0969da" : "#8c959f"; g.fillRect(x0 + .5, 0, Math.max(1, x1 - x0 - 1), 2.5); }
+  });
+  for (const d of R.differences) { g.fillStyle = d.why === "most" ? "#d4a72c" : "#bc4c00"; g.fillRect(mapX(d.start), 21, Math.max(1.5, mapX(d.end) - mapX(d.start)), 2.5); }
+  for (const [spans, colour] of [[S.checked, "#aceebb"], [S.worked, "#1a7f37"]]) {  // heard; worked through
+    g.fillStyle = colour;
+    for (const [a, b] of spans) g.fillRect(mapX(a), 25, Math.max(1, mapX(b) - mapX(a)), 4);
+  }
+  const span = ($("roll").clientWidth - GUTTER) / view.pps, x0 = mapX(Math.max(0, view.t0)), x1 = mapX(Math.min(S.length, view.t0 + span));
+  g.fillStyle = "rgba(9,105,218,.10)"; g.fillRect(x0, 0, Math.max(3, x1 - x0), H);  // what the timeline shows
+  g.strokeStyle = "#1f2328"; g.lineWidth = 1.5; g.strokeRect(x0 + .75, .75, Math.max(3, x1 - x0) - 1.5, H - 1.5);
+  const px = mapX(playhead);
+  g.strokeStyle = "#cf222e"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke();
+}
+function mapGo(e) {  // the timeline goes where the map was clicked: that moment in the middle
+  const r = $("map").getBoundingClientRect(), t = (e.clientX - r.left - 4) / (r.width - 8) * S.length;
+  const span = ($("roll").clientWidth - GUTTER) / view.pps;
+  view.t0 = Math.max(-0.2, Math.min(S.length, t) - span / 2); view.free = true; dirty = true;
 }
 function frame() {
   if (A.playing) {
@@ -409,15 +681,21 @@ function refresh() {
   many = many.filter(id => note(id));
   const diff = S.repeats.differences.find(d => d.id === selDiff);
   if (!diff) selDiff = null;
+  // a bar that is chosen has its repeats lined up under the timeline; an offer's stay until it is settled
+  if (selBar !== null && S.repeats.bars[selBar] && S.repeats.bars[selBar].of.length) { if (!dock || dock.kind !== "bar" || dock.bar !== selBar) openDock("bar", selBar); }
+  else if (dock && dock.kind === "bar") closeDock();
+  if (dock) markHearing();
   if (diff || (selBar !== null && S.repeats.bars[selBar])) {
     panel.innerHTML = diff ? diffPanel(diff) : barPanel(selBar);
     panel.querySelectorAll("button[data-do]").forEach(b => b.onclick = () => doPanel(b.dataset.do));
   } else if (many.length > 1) {
     const first = note(many[0]), last = note(many[many.length - 1]);
     panel.innerHTML = `<span><b>${many.length} notes</b> <span class="soft">${Logic.clock(first.start)} to ${Logic.clock(last.end)}</span></span>
-      <span class="soft"><kbd>⌫</kbd> delete them · <kbd>M</kbd> join them into one · <kbd>↑</kbd> <kbd>↓</kbd> move them a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave · <kbd>Esc</kbd> let go</span>`;
+      <span class="group"><button data-act="up" title="All of them a semitone up (↑)">▲ Semitone</button><button data-act="down" title="All of them a semitone down (↓)">▼ Semitone</button><button data-act="up8" title="An octave up (⇧↑)">▲ Octave</button><button data-act="down8" title="An octave down (⇧↓)">▼ Octave</button>
+      <button data-act="join" title="Make them one note (M)">Join into one</button><button data-act="delete" title="Delete them (⌫)">Delete</button><button data-act="none" title="Let go of them (Esc)">Let go</button></span>`;
+    panel.querySelectorAll("button[data-act]").forEach(b => b.onclick = () => doAct(b.dataset.act));
   } else if (!n) {
-    panel.innerHTML = `<span class="soft">Play the song and stop where a note is wrong. <kbd>←</kbd> then selects the note you just heard.</span>`;
+    panel.innerHTML = `<span class="soft">Play the song and stop where a note is wrong. Click a note to select it; drag it to where it belongs, in pitch and in time; drag its ends to make it longer or shorter. The wheel zooms. Double-click an empty spot to add a note.</span>`;
   } else {
     const [bar, into] = Logic.barAt(S.bars, n.start);
     const was = n.was && n.was.pitch !== n.pitch ? ` · the tool had ${name(n.was.pitch)}` : n.state === "added" ? " · added by you" : "";
@@ -428,10 +706,32 @@ function refresh() {
       ? (guesses.length ? guesses.map((p, k) => `<button class="guess" data-guess="${k}"><small>${k + 1}</small>${name(p)}</button>`).join("") : `<span class="soft">no guess</span>`)
       : `<span class="soft">…</span>`;
     panel.innerHTML = `<span><b>${name(n.pitch)}${also}</b> <span class="soft">bar ${bar} · ${Logic.clock(n.start)} · ${(n.end - n.start).toFixed(2)} s${was}${doubt}</span></span>
-      <span class="group"><span class="soft">Or is it</span>${offers}</span>`;
+      <span class="group"><span class="soft">Or is it</span>${offers}</span>
+      <span class="group"><button data-act="hear" title="Hear the note again in its place (Enter)">Hear it</button><button data-act="up8" title="An octave up (⇧↑)">▲ Octave</button><button data-act="down8" title="An octave down (⇧↓)">▼ Octave</button>
+      <button data-act="split" title="Make it two notes, at the playhead or in the middle (S)">Split</button><button data-act="join" title="Make it one note with the next (M)">Join with next</button><button data-act="delete" title="Delete it (⌫)">Delete</button></span>`;
     panel.querySelectorAll("button.guess").forEach(b => b.onclick = () => takeGuess(+b.dataset.guess));
+    panel.querySelectorAll("button[data-act]").forEach(b => b.onclick = () => doAct(b.dataset.act));
   }
   dirty = true;
+}
+function doAct(what) {  // the buttons under the timeline: what the keys do, for the mouse
+  const n = note(sel);
+  if (!n) return;
+  stop();
+  if (what === "none") return select(null);
+  if (many.length > 1) {  // several notes: moved, joined or deleted together
+    const ids = many.slice(), keepThem = r => { if (r) { many = ids.filter(id => note(id)); sel = many[0] || null; refresh(); } };
+    const by = {up: 1, down: -1, up8: 12, down8: -12}[what];
+    if (by) act({kind: "shift", ids, by}).then(keepThem);
+    else if (what === "join") act({kind: "merge", ids}).then(r => { if (r) select(ids[0], true); });
+    else if (what === "delete") remove();
+    return;
+  }
+  if (what === "hear") audition(n);
+  else if (what === "up8" || what === "down8") setPitch(n, n.pitch + (what === "up8" ? 12 : -12), "button");
+  else if (what === "split") split();
+  else if (what === "join") act({kind: "merge", id: n.id});
+  else if (what === "delete") remove();
 }
 function extend(id) {  // from the selected note to this one
   if (!note(sel) || !note(id)) return select(id);
@@ -448,6 +748,7 @@ function select(id, quiet) {
     const span = ($("roll").clientWidth - GUTTER) / view.pps;
     if (n.start < view.t0 + 0.05 * span || n.end > view.t0 + 0.95 * span) view.t0 = Math.max(-0.2, n.start - 0.3 * span);
   }
+  if (n) showPitch(n.pitch);
   refresh();
 }
 async function askGuesses(n) {
@@ -463,9 +764,11 @@ async function askGuesses(n) {
 async function act(action) {
   try {
     const r = await api("/api/act", {song: S.id, action: Object.assign({playhead: +playhead.toFixed(2)}, action)});
-    S.notes = r.notes; S.checked = r.checked; S.worked = r.worked; S.undo = r.undo; S.fixes = r.fixes; S.repeats.differences = r.differences;
+    S.notes = r.notes; S.checked = r.checked; S.worked = r.worked; S.undo = r.undo; S.fixes = r.fixes; S.taken = r.taken || []; S.repeats.differences = r.differences;
     byPitch = Logic.indexNotes(S.notes); A.rms.clear();
+    if (action.kind === "undo" && offer) { offer = null; $("offer").classList.add("hidden"); }  // what it was about may be what was taken back
     if (r.result.offer) showOffer(r.result.offer);
+    if (dock && dock.loaded) syncDock();
     say("");
     return r.result;
   } catch (e) { say(e.message, true); return null; }
@@ -506,41 +809,267 @@ async function nudge(n, dStart, dEnd) {
   const r = await act({kind: "move", id: n.id, start: +(n.start + dStart).toFixed(3), end: +(n.end + dEnd).toFixed(3)});
   if (r) audition(note(n.id));
 }
+const bare = items => items.map(i => ({source: i.source, bar: i.bar, k0: i.k0, k1: i.k1}));
 function showOffer(o) {
-  offer = o; offerNext = 0;
-  const k = o.type === "repeat" ? o.bars : o.ids.length;
-  const what = o.type === "repeat"
-    ? `<b>${k} other ${k === 1 ? "bar sounds" : "bars sound"} the same here</b> and ${k === 1 ? "is" : "are"} written as this one was. Fix ${k === 1 ? "it" : "them"} too?`
-    : `<b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?`;
-  $("offer").innerHTML = `<span>${what}</span>
-    <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerYes">Fix ${k === 1 ? "it" : "all " + k} <kbd>Y</kbd></button><button id="offerNo">No <kbd>X</kbd></button></span>`;
+  offerNext = 0;
+  if (o.type === "repeat") {  // the bars it would change line up under the timeline: one decision a bar
+    offer = null; $("offer").classList.add("hidden");
+    selBar = null;
+    return openDock("offer", o.items[0].source, o.items);
+  }
+  offer = o;
+  if (dock && dock.kind === "offer") closeDock();
+  const k = o.ids.length;
+  $("offer").innerHTML = `<span><b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?</span>
+    <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerNo">No <kbd>X</kbd></button><button id="offerYes" class="quiet">Change ${k === 1 ? "it" : "all " + k} without hearing ${k === 1 ? "it" : "them"} <kbd>Y</kbd></button></span>`;
   $("offer").classList.remove("hidden");
   $("offerShow").onclick = offerShow; $("offerYes").onclick = offerYes; $("offerNo").onclick = offerNo;
 }
-function hideOffer() { offer = null; $("offer").classList.add("hidden"); }
+function hideOffer() { offer = null; $("offer").classList.add("hidden"); if (dock && dock.kind === "offer") closeDock(); }
+const offered = () => (dock && dock.kind === "offer" ? dock.strips.filter(s => stateOf(s) === "open") : []);  // an offer's bars still to decide
 function offerShow() {
-  if (!offer) return;
-  if (offer.type === "repeat") {  // go to the next bar it would change, and hear the spot
-    const item = offer.items[offerNext++ % offer.items.length], [a, b] = stretchOf(item);
-    stop(); sel = null; many = []; selDiff = null; selBar = item.bar;
-    view.t0 = Math.max(-0.2, a - 1.5); view.free = true;
-    refresh(); hearSpan(a, b);
-    return;
+  const open = offered();
+  if (open.length) {  // the next bar that is not settled: into sight, and heard with the change
+    const s = open[offerNext++ % open.length];
+    $("dockScroll").scrollTop = dock.strips.indexOf(s) * stripBlock();
+    return hearStrip(s, true);
   }
+  if (!offer) return;
   const n = note(offer.ids[offerNext++ % offer.ids.length]);
   if (n) { select(n.id); audition(n); }
 }
-async function offerYes() {
+async function offerYes() {  // all at once, unheard: only when asked for in so many words
+  if (offered().length) return takeAll();
   if (!offer) return;
-  const o = offer; hideOffer();
-  if (o.type === "repeat") await act({kind: "repeats", items: o.items, how: "offer"});
-  else await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
+  const o = offer;
+  hideOffer();
+  await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
 }
 async function offerNo() {
+  const open = offered();
+  if (open.length) {  // every bar still to decide stays as it is written; what was changed stays changed
+    closeDock();
+    await act({kind: "refuse", items: bare(open.flatMap(s => s.items))});
+    return;
+  }
   if (!offer) return;
-  const o = offer; hideOffer();
-  if (o.type === "repeat") await act({kind: "refuse", items: o.items});
-  else await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+  const o = offer;
+  hideOffer();
+  await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+}
+
+// ------------------------------------------------------------------- the repeats of a bar, one under the other
+// Songs repeat with small differences that are meant. So nothing here changes a bar unless the person says so for
+// that bar, after seeing it and hearing it both ways; "all at once" is there, but last and in so many words.
+function openDock(kind, bar, items) {
+  if (dock && dock.hearing) stop();
+  dock = {kind, bar, items: items ? bare(items) : null, strips: [], done: {}, loaded: false, hearing: null, sure: 0};
+  $("dock").classList.remove("hidden"); $("dock").classList.toggle("offer", kind === "offer");
+  layDock(); askStrips();
+}
+function closeDock() {
+  if (!dock) return;
+  if (dock.hearing) stop();
+  dock = null;
+  $("dock").classList.add("hidden");
+  dirty = true;
+}
+async function askStrips() {  // the bars and what would change in each, as things stand now
+  const d = dock, ask = ++dockAsk;
+  try {
+    const r = await api("/api/strips", d.kind === "bar" ? {song: S.id, bar: d.bar} : {song: S.id, items: d.items});
+    if (dock !== d || ask !== dockAsk) return;
+    d.strips = r.strips; d.loaded = true;
+    if (d.kind === "offer" && !d.strips.some(s => stateOf(s) !== "same")) return closeDock();  // the fix behind it was taken back
+    layDock();
+  } catch (e) { say(e.message, true); }
+}
+function syncDock() {  // after any fix: what was taken back is open again, and the server is asked how things stand
+  for (const [bar, done] of Object.entries(dock.done)) if (done.state === "taken" && !S.taken.includes(done.fix)) delete dock.done[bar];
+  askStrips();
+}
+const stateOf = s => (dock.done[s.bar] ? dock.done[s.bar].state : s.items.length ? "open" : "same");
+const stripRow = () => { const rows = dock.hi - dock.lo + 1; return rows <= 16 ? 10 : rows <= 24 ? 8 : 7; };  // many pitches: shorter rows
+const stripBlock = () => STRIP_HEAD + (dock.hi - dock.lo + 1) * stripRow() + STRIP_GAP;
+function layDock() {  // the line over the strips, each strip's own line of buttons, and the room they take
+  const d = dock, ref = d.bar, R = S.repeats;
+  const inBar = i => { const [a, z] = barSpan(i); return S.notes.filter(n => n.end > a && n.start < z).flatMap(n => [n.pitch, ...(n.also || [])]); };
+  const pitches = [...inBar(ref), ...d.strips.flatMap(s => [...inBar(s.bar), ...s.items.flatMap(i => i.notes.map(q => q.pitch))])];
+  [d.lo, d.hi] = Logic.pitchRange(pitches, S.low, S.high);
+  const open = d.strips.filter(s => stateOf(s) === "open"), taken = d.strips.filter(s => stateOf(s) === "taken").length, left = d.strips.filter(s => stateOf(s) === "left").length;
+  const n = open.length, many = k => (k === 1 ? "1 bar" : k + " bars");
+  let head;
+  if (!d.loaded) head = `<span class="soft">looking at the bars that sound like bar ${ref + 1}…</span>`;
+  else if (d.kind === "offer") {
+    head = n
+      ? `<span><b>${many(n)} ${n === 1 ? "sounds" : "sound"} the same here</b> and ${n === 1 ? "is" : "are"} written as bar ${ref + 1} was. Hear each one both ways and change it only where it belongs.</span>
+         <span class="group"><button data-d="next">Show me the next <kbd>O</kbd></button><button data-d="none">Leave ${n === 1 ? "it" : "them all"} <kbd>X</kbd></button></span>`
+      : `<span><b>All looked at:</b> ${many(taken)} changed, ${many(left)} left as written.</span>`;
+  } else {
+    const b = R.bars[ref];
+    head = `<span><b>Bar ${ref + 1}</b> <span class="soft">pattern ${b.pattern || "–"}</span> · ${many(d.strips.length)} ${d.strips.length === 1 ? "sounds" : "sound"} like it${n ? `, ${n} written differently where ${n === 1 ? "it sounds" : "they sound"} the same (orange). Hear each one both ways and change it only where it belongs.` : ", all written the same where they sound the same."}</span>`;
+  }
+  head += `<span class="spacer" style="flex:1"></span>`;
+  if (d.loaded && n > 1) head += `<button data-d="all" class="quiet${d.sure ? " sure" : ""}" title="Every bar below that is still open, in one go. Take it back with Undo">${d.sure ? `Sure? Change ${n} bars you have not decided on` : `Change all ${n} without hearing them`}${d.kind === "offer" ? " <kbd>Y</kbd>" : ""}</button>`;
+  head += `<button data-d="show" title="Bring bar ${ref + 1} into the timeline">Show bar ${ref + 1}</button><button data-d="close" title="Close">✕</button>`;
+  $("dockHead").innerHTML = head;
+  $("dockInner").innerHTML = d.strips.map((s, k) => {
+    const st = stateOf(s), done = d.done[s.bar], [a] = barSpan(s.bar), group = done && done.with > 1;
+    const where = `<b>Bar ${s.bar + 1}</b><span class="soft">${Logic.clock(a)}${s.yours && st !== "taken" ? " · you have been through this bar" : ""}</span>`;
+    const what = st === "open" || st === "left" ? `<span class="sep"></span><span class="soft">${s.items.map(i => changeInWords(i, ref)).join("; ")}</span>` : "";
+    const body = st === "open"
+      ? `<button data-s="hear" data-k="${k}" title="This bar as it is written now, with the record">▶ As written</button><button data-s="hearWith" data-k="${k}" title="This bar as it would be with the change, with the record">▶ With the change</button><span class="sep"></span>
+         <button data-s="take" data-k="${k}" class="take" title="Change this bar, and only this bar">✓ Change it here</button><button data-s="leave" data-k="${k}" title="This bar stays as it is written">Leave it</button>${what}`
+      : st === "taken"
+      ? `<span class="changed">✓ Changed</span><button data-s="undo" data-k="${k}" title="Put this bar back as it was">↶ Undo ${group ? `(the ${done.with} changed together)` : "this one"}</button><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`
+      : st === "left"
+      ? `<span class="soft">Left as written</span><button data-s="again" data-k="${k}" class="quiet">Look again</button><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>${what}`
+      : `<span class="soft">written the same as bar ${ref + 1}</span><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`;
+    return `<div class="strip" style="top:${k * stripBlock()}px">${where}${body}</div>`;
+  }).join("");
+  const total = d.strips.length * stripBlock(), h = Math.min(total, Math.max(stripBlock(), Math.round(window.innerHeight * 0.42)));
+  $("dockScroll").style.height = h + "px";
+  $("strips").style.height = h + "px";
+  $("dockInner").style.height = total + "px"; $("dockInner").style.marginTop = -h + "px";
+  markHearing();
+  dirty = true;
+}
+function changeInWords(item, ref) {  // what is written in a stretch, and what the bar it is compared with has there
+  const here = S.notes.filter(n => Math.min(n.end, item.end) - Math.max(n.start, item.start) > 0.02).map(n => name(n.pitch));
+  const there = item.notes.map(q => name(q.pitch));
+  const same = here.join(" ") === there.join(" ");
+  return `written ${here.length ? here.join(" ") : "nothing"}, bar ${ref + 1} has ${there.length ? there.join(" ") : "nothing"}${same ? " (in another rhythm)" : ""}`;
+}
+function markHearing() {  // the button of what is playing
+  const h = dock.hearing;
+  document.querySelectorAll("#dockInner button[data-s^=hear]").forEach(b => {
+    const s = dock.strips[+b.dataset.k];
+    b.classList.toggle("on", !!(h && s && h.bar === s.bar && h.with === (b.dataset.s === "hearWith")));
+  });
+}
+function hearStrip(s, withChange) {  // a repeat against the record: as it is written, or as it would be with the change
+  const h = dock.hearing;
+  if (A.playing && h && h.bar === s.bar && h.with === withChange) return stop();  // the same button again: stop
+  stop();
+  if (!hear.notes) say('tick "My notes" to hear what is written');
+  const [a, z] = barSpan(s.bar);
+  dock.hearing = {bar: s.bar, with: withChange, back: playhead};  // the timeline stays where it is, and so does the playhead afterwards
+  play(Math.max(0, a - 0.6), Math.min(S.length, z + 0.4), withChange ? s.after : null, true);
+  markHearing();
+}
+async function takeStrip(s) {  // the change, in this bar only
+  stop();
+  const r = await act({kind: "repeats", items: bare(s.items), how: "strip", why: dock.kind});
+  if (r && dock) { dock.done[s.bar] = {state: "taken", fix: r.fix, with: 1}; layDock(); }
+}
+async function takeAll() {  // every bar that is still open, as one fix
+  if (!dock) return;
+  const open = dock.strips.filter(s => stateOf(s) === "open");
+  if (!open.length) return;
+  stop();
+  const r = await act({kind: "repeats", items: bare(open.flatMap(s => s.items)), how: "all", why: dock.kind});
+  if (r && dock) { for (const s of open) dock.done[s.bar] = {state: "taken", fix: r.fix, with: open.length}; dock.sure = 0; layDock(); }
+}
+async function leaveStrip(s) {
+  dock.done[s.bar] = {state: "left"};
+  layDock();
+  if (dock.kind === "offer") await act({kind: "refuse", items: bare(s.items)});
+}
+async function undoStrip(s) {  // put this bar back; what was changed together goes back together
+  stop();
+  const done = dock.done[s.bar];
+  if (done && done.fix) await act({kind: "undo", fix: done.fix});
+}
+function dockClick(e) {
+  const b = e.target.closest && e.target.closest("button");
+  if (!b || !dock) return;
+  const s = b.dataset.k !== undefined ? dock.strips[+b.dataset.k] : null, what = b.dataset.s || b.dataset.d;
+  if (what !== "all" && dock.sure) { dock.sure = 0; }
+  if (s && what === "hear") hearStrip(s, false);
+  else if (s && what === "hearWith") hearStrip(s, true);
+  else if (s && what === "take") takeStrip(s);
+  else if (s && what === "leave") leaveStrip(s);
+  else if (s && what === "undo") undoStrip(s);
+  else if (s && what === "again") { delete dock.done[s.bar]; layDock(); }
+  else if (what === "next") offerShow();
+  else if (what === "none") offerNo();
+  else if (what === "all") { if (dock.sure && Date.now() - dock.sure < 6000) takeAll(); else { dock.sure = Date.now(); layDock(); } }  // asked twice
+  else if (what === "show") { const [a] = barSpan(dock.bar); view.t0 = Math.max(-0.2, a - 1); view.free = true; dirty = true; }
+  else if (what === "close") { if (dock.kind === "offer") closeDock(); else { selBar = null; refresh(); } }
+}
+function drawStrips() {  // every strip in sight: its piece of the picture, its notes, and in orange what would change
+  const c = $("strips"), wrap = $("dockScroll"), dpr = window.devicePixelRatio || 1, W = wrap.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  if (!dock || !S) return;
+  const d = dock, T = ink(), P = S.picture, rows = d.hi - d.lo + 1, STRIP_ROW = stripRow(), hgt = rows * STRIP_ROW, block = stripBlock(), top = wrap.scrollTop;
+  const [ra, rz] = barSpan(d.bar), bg = cssOf(SCHEMES[look.scheme].stops[0]), solid = look.solid / 100;
+  const yOfS = (y0, p) => y0 + (d.hi - p) * STRIP_ROW;
+  g.font = "9px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
+  d.strips.forEach((s, k) => {
+    const y0 = k * block - top + STRIP_HEAD;
+    if (y0 + hgt < 0 || y0 - STRIP_HEAD > H) return;
+    const [a, z] = barSpan(s.bar), st = stateOf(s);
+    // the bar lies under the bar it is compared with, at the timeline's own scale
+    const x0 = Logic.alignX(xOf(ra), (rz - ra) * view.pps, GUTTER + 8, W - 8), sx = t => x0 + (t - a) * view.pps;
+    const t0 = a - (x0 - GUTTER) / view.pps, t1 = a + (W - x0) / view.pps;
+    g.save(); g.beginPath(); g.rect(GUTTER, y0, W - GUTTER, hgt); g.clip();
+    g.fillStyle = bg; g.fillRect(GUTTER, y0, W - GUTTER, hgt);
+    const sy = P.rows - P.per_semitone * (d.hi - P.low + 1), sh = P.per_semitone * rows;
+    tiles.forEach((cv, i) => {
+      const ta = i * TILE * P.step, tb = ta + cv.width * P.step;
+      if (tb >= t0 && ta <= t1) g.drawImage(cv, 0, sy, cv.width, sh, sx(ta), y0, cv.width * P.step * view.pps, hgt);
+    });
+    for (let p = d.lo; p <= d.hi; p++) {
+      g.strokeStyle = [28, 33, 38, 43].includes(p) ? T.open : T.grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(GUTTER, yOfS(y0, p) + STRIP_ROW - .5); g.lineTo(W, yOfS(y0, p) + STRIP_ROW - .5); g.stroke();
+    }
+    for (const n of S.notes) {  // what is written
+      if (n.end < t0 || n.start > t1) continue;
+      const kind = n.state !== "machine" ? "mine" : n.doubt ? "doubt" : "machine", x = sx(n.start), w = Math.max(3, (n.end - n.start) * view.pps - 1);
+      for (const q of [n.pitch, ...(n.also || [])]) {
+        if (q < d.lo || q > d.hi) continue;
+        const y = yOfS(y0, q);
+        g.fillStyle = `rgba(${T.fill[kind]},${solid})`; g.fillRect(x, y + 1, w, STRIP_ROW - 2);
+        g.strokeStyle = T.edge[kind]; g.lineWidth = 1.2; g.strokeRect(x + .5, y + 1.5, w, STRIP_ROW - 3);
+      }
+    }
+    if (st === "open" || st === "left") for (const it of s.items) {  // what the bar it is compared with has there
+      g.setLineDash([5, 3]); g.strokeStyle = T.strong; g.lineWidth = 1.6; g.globalAlpha = st === "left" ? .45 : 1;
+      for (const q of it.notes) {
+        if (q.pitch < d.lo || q.pitch > d.hi) continue;
+        const x = sx(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), y = yOfS(y0, q.pitch);
+        g.fillStyle = "rgba(255,166,87,.30)"; g.fillRect(x, y + 1, w, STRIP_ROW - 2); g.strokeRect(x + .5, y + 1.5, w, STRIP_ROW - 3);
+      }
+      if (!it.notes.length) for (const n of S.notes) {  // nothing there: what is written is struck through
+        if (n.end <= it.start || n.start >= it.end || n.pitch < d.lo || n.pitch > d.hi) continue;
+        const y = yOfS(y0, n.pitch) + STRIP_ROW / 2;
+        g.beginPath(); g.moveTo(sx(Math.max(n.start, it.start)), y); g.lineTo(sx(Math.min(n.end, it.end)), y); g.stroke();
+      }
+      g.setLineDash([]);
+      g.fillStyle = T.strong; g.fillRect(sx(it.start), y0, Math.max(3, (it.end - it.start) * view.pps), 3);  // where in the bar
+      g.globalAlpha = 1;
+    }
+    // outside the bar: dimmed
+    g.fillStyle = bg; g.globalAlpha = .6;
+    g.fillRect(GUTTER, y0, Math.max(0, sx(a) - GUTTER), hgt); g.fillRect(sx(z), y0, Math.max(0, W - sx(z)), hgt);
+    g.globalAlpha = 1;
+    g.strokeStyle = T.chosen; g.lineWidth = 1; g.globalAlpha = .5;
+    for (const t of [a, z]) { const x = Math.round(sx(t)) + .5; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + hgt); g.stroke(); }
+    g.globalAlpha = 1;
+    if (d.hearing && d.hearing.bar === s.bar && A.playing) { const x = sx(playhead); g.strokeStyle = T.head; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + hgt); g.stroke(); }
+    g.restore();
+    if (st === "taken") { g.fillStyle = "#0969da"; g.fillRect(GUTTER - 4, y0, 4, hgt); }
+    g.textAlign = "right";
+    for (let p = d.lo; p <= d.hi; p++) {  // the names of the pitches
+      const natural = [0, 2, 4, 5, 7, 9, 11].includes(p % 12), open = [28, 33, 38, 43].includes(p);
+      if (!natural || [5, 11].includes(p % 12)) continue;
+      g.fillStyle = open ? "#1f2328" : "#59636e"; g.fillText(name(p), GUTTER - 7, yOfS(y0, p) + STRIP_ROW / 2 + .5);
+    }
+    g.textAlign = "left";
+  });
 }
 async function makeSheet() {
   $("sheet").disabled = true; say("writing the sheet…");
@@ -599,7 +1128,7 @@ function voice(n, pitch, when, parts) {  // one pitch of a note, in the sound of
 function schedule() {
   if (!A.playing) return;
   const pos = position(), to = pos + 0.4;
-  for (const n of S.notes) {
+  for (const n of A.alt || S.notes) {
     if (n.start < A.until || n.start >= to) continue;
     const when = A.at + (n.start - A.from) / A.speed, tones = [n.pitch, ...(n.also || [])];
     tones.forEach(q => voice(n, q, Math.max(when, A.ctx.currentTime), tones.length));
@@ -607,14 +1136,15 @@ function schedule() {
   A.until = to;
   if (A.counts && pos - A.seg > 5) reportPlayed(pos);
 }
-function play(from, stopAt) {
+function play(from, stopAt, notes, stay) {  // notes: voiced in place of what is written; stay: the timeline does not follow
   if (!A.record || !A.bass) return say("the sound is still loading");
   stop();
   const ctx = A.ctx;
   if (ctx.state === "suspended") ctx.resume();
   from = Math.max(0, Math.min(from, S.length - 0.05));
   A.from = from; A.at = ctx.currentTime + 0.06; A.until = from - 0.02; A.stopAt = stopAt === undefined ? null : stopAt;
-  A.counts = stopAt === undefined; A.seg = from; A.playing = true; view.free = false;
+  A.counts = stopAt === undefined; A.seg = from; A.playing = true; A.alt = notes || null;
+  view.free = !!stay;
   for (const k of ["record", "bass"]) {
     const src = ctx.createBufferSource();
     src.buffer = A[k]; src.connect(A.bus[k]); src.start(A.at, from / A.speed);
@@ -634,9 +1164,10 @@ function stop() {
   if (!A.playing) return;
   playhead = Math.min(position(), S.length);
   if (A.counts) reportPlayed(playhead);
-  A.playing = false; clearInterval(A.timer);
+  A.playing = false; clearInterval(A.timer); A.alt = null;
   for (const s of A.live) { try { s.stop(); } catch (e) { /* not started yet */ } }
   A.live = [];
+  if (dock && dock.hearing) { playhead = dock.hearing.back; dock.hearing = null; }  // a repeat was heard: the playhead is where it was
   refresh();
 }
 async function setSpeed(pct) {  // the song slower, at the same pitch
@@ -668,6 +1199,36 @@ function audition(n) {  // hear a note in its place: from a little before it to 
   playhead = n.start;
   play(Math.max(0, n.start - 0.8), Math.min(S.length, n.end + 0.6));
 }
+function grain(t, len = 0.14) {  // a short piece of the song at a moment: what the playhead passes over as it is dragged
+  if (!A.record || !A.bass) return;
+  const ctx = A.ctx, now = ctx.currentTime + 0.005;
+  if (ctx.state === "suspended") ctx.resume();
+  mix();
+  for (const k of ["record", "bass"]) {
+    if (!hear[k]) continue;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = A[k];
+    g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(1, now + 0.015);
+    g.gain.setValueAtTime(1, now + len - 0.04); g.gain.linearRampToValueAtTime(0, now + len);
+    src.connect(g).connect(A.bus[k]);
+    src.start(now, Math.max(0, t / A.speed), len + 0.02);
+  }
+  const n = hear.notes ? S.notes.find(n => n.start <= t && t < n.end) : null;  // the note it enters, once
+  if (n && scrub && scrub.note !== n.id) { const tones = [n.pitch, ...(n.also || [])]; tones.forEach(q => voice(n, q, now, tones.length)); }
+  if (scrub) scrub.note = n ? n.id : null;
+}
+function scrubTo(x) {  // the playhead goes where the pointer is in the ruler
+  const W = $("roll").clientWidth;
+  playhead = Math.max(0, Math.min(tOf(Math.max(GUTTER, Math.min(W, x))), S.length));
+  $("clock").textContent = Logic.clock(playhead);
+  dirty = true;
+}
+function scrubTick() {  // while the playhead is held: sound where it is when it has moved; at the edge, the timeline moves under it
+  if (!scrub) return;
+  const W = $("roll").clientWidth, edge = scrub.x > W - 30 ? 1 : scrub.x < GUTTER + 30 ? -1 : 0;
+  if (edge && scrub.moved) { view.t0 = Math.max(-0.2, Math.min(S.length, view.t0 + edge * 0.025 * (W - GUTTER) / view.pps)); view.free = true; scrubTo(scrub.x); }
+  if (scrub.heard === null || Math.abs(playhead - scrub.heard) > 0.004) { grain(playhead); scrub.heard = playhead; }
+}
 function seek(t) {
   const was = A.playing && A.counts;
   stop();
@@ -678,19 +1239,25 @@ function seek(t) {
 
 // ------------------------------------------------------------------------------------------- mouse and keys
 function at(e) { const r = $("roll").getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
-function hit(x, y) {
+function hit(x, y) {  // the note under the pointer and the part of it: its body ("move") or an end ("start", "end")
+  let best = null;
   for (const n of S.notes) {
-    for (const [q, bx, by, w] of boxes(n)) {
-      if (y < by || y >= by + row || x < bx - 3 || x > bx + w + 3) continue;
-      const edges = w >= 16 && q === n.pitch;
-      return {note: n, mode: edges && x < bx + 5 ? "start" : edges && x > bx + w - 5 ? "end" : "pitch"};
-    }
+    boxes(n).forEach(([q, bx, by, w], k) => {
+      if (y < by || y >= by + row) return;
+      const z = Logic.zone(x, bx, w, GRAB, k === 0);  // only the note itself has ends to grab, not what sounds with it
+      if (z && (!best || z.off < best.off)) best = {note: n, mode: z.mode, off: z.off};
+    });
+    if (best && !best.off) return best;
   }
   for (const d of S.repeats.differences) for (const q of d.notes) {  // what a repeat has there
     const bx = xOf(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), by = yOf(q.pitch);
     if (y >= by && y < by + row && x >= bx - 2 && x <= bx + w + 2) return {diff: d};
   }
-  return null;
+  return best;
+}
+function around(id) {  // the notes before and after a note, in time
+  const order = Logic.sorted(S.notes), k = order.findIndex(n => n.id === id);
+  return [k > 0 ? order[k - 1] : null, k >= 0 && k + 1 < order.length ? order[k + 1] : null];
 }
 function laneClick(x, y) {  // the pattern strip: a difference mark, or a bar
   const t = tOf(x);
@@ -746,69 +1313,121 @@ function wire() {
     if (!S || e.button) return;
     const {x, y} = at(e);
     if (x < GUTTER) return;
-    if (y < RULER) return seek(tOf(x));
+    if (y < RULER) {  // the ruler: the playhead goes there, and follows the pointer for as long as it is held, with sound
+      const was = A.playing && A.counts;
+      stop();
+      scrub = {x, x0: x, was, moved: false, heard: null, note: null, timer: setInterval(scrubTick, 60)};
+      scrubTo(x); scrubTick(); c.style.cursor = "col-resize"; e.preventDefault();
+      return;
+    }
     if (y < TOP) return laneClick(x, y);
     const h = hit(x, y);
     if (h && h.diff) return selectDiff(h.diff.id);
-    if (!h) { pan = {x, t0: view.t0, moved: false}; c.style.cursor = "grabbing"; e.preventDefault(); return; }  // drag the timeline, or click it
+    if (!h) { pan = {x, y, t0: view.t0, y0: view.y0, moved: false}; c.style.cursor = "grabbing"; e.preventDefault(); return; }  // drag the timeline, or click it
     if (e.shiftKey && sel) { extend(h.note.id); return; }
     select(h.note.id, true);
-    drag = {id: h.note.id, mode: h.mode, x, y, start: h.note.start, end: h.note.end, pitch: h.note.pitch, moved: false};
+    const n = h.note, [prev, next] = around(n.id);
+    // from: the note as it was; grab: the moment and the row the pointer took hold of
+    drag = {id: n.id, mode: h.mode, x, y, grabT: tOf(x), grabP: pOf(y), from: {start: n.start, end: n.end, pitch: n.pitch}, prev, next,
+      start: n.start, end: n.end, pitch: n.pitch, moved: false, timed: false};
+    c.style.cursor = h.mode === "move" ? "move" : "ew-resize";
+    e.preventDefault();
   });
   window.addEventListener("mousemove", e => {
     if (!S) return;
     const {x, y} = at(e);
+    if (scrub) {
+      scrub.x = x;
+      if (Math.abs(x - scrub.x0) > 2) scrub.moved = true;
+      scrubTo(x);
+      return;
+    }
     if (pan) {
-      if (Math.abs(x - pan.x) > 3) pan.moved = true;
-      if (pan.moved) { view.t0 = Math.max(-0.2, Math.min(S.length, pan.t0 - (x - pan.x) / view.pps)); view.free = true; dirty = true; }
+      if (Math.abs(x - pan.x) > 3 || Math.abs(y - pan.y) > 3) pan.moved = true;
+      if (pan.moved) {
+        view.t0 = Math.max(-0.2, Math.min(S.length, pan.t0 - (x - pan.x) / view.pps)); view.free = true;
+        view.y0 = pan.y0 - (y - pan.y); clampY(); dirty = true;
+      }
       return;
     }
     if (!drag) {
-      const inRoll = y >= TOP && x >= GUTTER, h = inRoll ? hit(x, y) : null;
-      c.style.cursor = h ? (h.diff ? "pointer" : h.mode === "pitch" ? "ns-resize" : "ew-resize") : inRoll ? "grab" : x >= GUTTER ? "pointer" : "default";
+      const over = e.target === c, inRoll = over && y >= TOP && x >= GUTTER, h = inRoll ? hit(x, y) : null;
+      c.style.cursor = h ? (h.diff ? "pointer" : h.mode === "move" ? "move" : "ew-resize") : inRoll ? "grab" : x >= GUTTER && y < RULER ? "col-resize" : x >= GUTTER ? "pointer" : "default";
+      const now = h && h.note ? {id: h.note.id, mode: h.mode} : null;
+      if ((now && now.id) !== (hover && hover.id) || (now && now.mode) !== (hover && hover.mode)) { hover = now; dirty = true; }
       return;
     }
     const n = note(drag.id); if (!n) { drag = null; return; }
-    if (drag.mode === "pitch") {
-      if (Math.abs(y - drag.y) > 4) drag.moved = true;
-      if (drag.moved) drag.pitch = Math.max(S.low, Math.min(S.high, pOf(y)));
-    } else {
-      if (Math.abs(x - drag.x) > 3) drag.moved = true;
-      const t = tOf(x);
-      if (drag.moved && drag.mode === "start") drag.start = Math.min(t, n.end - 0.03);
-      if (drag.moved && drag.mode === "end") drag.end = Math.max(t, n.start + 0.03);
+    const d = drag, f = d.from;
+    if (d.mode === "move") {  // the whole note: up and down in pitch, left and right in time
+      d.pitch = Math.max(S.low, Math.min(S.high, f.pitch + pOf(y) - d.grabP));
+      if (Math.abs(x - d.x) > 5) d.timed = true;  // a little play, so that a change of pitch alone leaves the time alone
+      const lag = (x > d.x ? 5 : -5) / view.pps, dt = d.timed ? tOf(x) - d.grabT - lag : 0;
+      Object.assign(d, Logic.shifted(f, d.prev, d.next, d.timed && Math.abs(x - d.x) > 5 ? dt : 0, S.length, SHORTEST));
+      if (d.pitch !== f.pitch || d.timed) d.moved = true;
+    } else {  // an end
+      if (Math.abs(x - d.x) > 2) d.moved = true;
+      if (d.moved) Object.assign(d, Logic.resized(f, d.prev, d.next, d.mode, f[d.mode] + tOf(x) - d.grabT, S.length, SHORTEST));
     }
     dirty = true;
   });
   window.addEventListener("mouseup", async () => {
+    if (scrub) {  // the playhead is let go: if the song was playing, it goes on from there
+      const k = scrub; clearInterval(k.timer); scrub = null; c.style.cursor = "col-resize";
+      if (k.was) play(playhead); else refresh();
+      return;
+    }
     if (pan) {  // let go of the timeline; if it was not dragged, it was a click: the playhead goes there
       const p = pan; pan = null; c.style.cursor = "grab";
       if (!p.moved) { select(null); seek(tOf(p.x)); }
       return;
     }
     if (!drag) return;
-    const d = drag, n = note(d.id);
-    if (!n || !d.moved) { drag = null; dirty = true; return; }
-    if (d.mode === "pitch") await setPitch(n, d.pitch, "drag");
-    else { const r = await act({kind: "move", id: n.id, start: +d.start.toFixed(3), end: +d.end.toFixed(3), how: "drag"}); if (r) audition(note(n.id)); }
+    const d = drag, n = note(d.id), f = d.from;
+    const timed = Math.abs(d.start - f.start) > 0.0005 || Math.abs(d.end - f.end) > 0.0005;
+    c.style.cursor = d.mode === "move" ? "move" : "ew-resize";
+    if (!n || !d.moved || (d.pitch === f.pitch && !timed)) { drag = null; dirty = true; return; }
+    if (!timed) await setPitch(n, d.pitch, "drag");
+    else {  // moved in time, and perhaps in pitch too: one fix, one undo
+      const r = await act(Object.assign({kind: "move", id: n.id, start: +d.start.toFixed(3), end: +d.end.toFixed(3), how: "drag"}, d.pitch !== f.pitch ? {pitch: d.pitch} : {}));
+      const m = r && note(n.id);
+      if (m) { if (d.pitch !== f.pitch) askGuesses(m); audition(m); }
+    }
     drag = null; dirty = true;
   });
+  c.addEventListener("mouseleave", () => { if (hover) { hover = null; dirty = true; } });
   c.addEventListener("dblclick", e => {
     const {x, y} = at(e);
     if (S && y >= TOP && x >= GUTTER && !hit(x, y)) addHere(tOf(x), pOf(y));
   });
-  c.addEventListener("wheel", e => {
+  c.addEventListener("wheel", e => {  // the wheel and the pinch zoom around the pointer; sideways moves through the song
     if (!S) return;
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, at(e).x);
-    else { view.t0 = Math.max(-0.2, Math.min(S.length, view.t0 + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / view.pps)); view.free = true; dirty = true; }
+    const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * unit, dy = e.deltaY * unit, x = Math.max(GUTTER, at(e).x);
+    const bound = (v, m) => Math.max(-m, Math.min(m, v));
+    if (e.ctrlKey || e.metaKey) zoom(Math.exp(-bound(dy, 40) * 0.012), x);  // a pinch arrives as a wheel with Ctrl
+    else if (e.altKey) { view.y0 += dy || dx; clampY(); dirty = true; }  // up and down the rows
+    else if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) { view.t0 = Math.max(-0.2, Math.min(S.length, view.t0 + (Math.abs(dx) > Math.abs(dy) ? dx : dy) / view.pps)); view.free = true; dirty = true; }
+    else zoom(Math.exp(-bound(dy, 240) * 0.0022), x);
   }, {passive: false});
-  window.addEventListener("resize", () => { resize(); });
+  new ResizeObserver(() => resize()).observe($("rollwrap"));
+  $("map").addEventListener("mousedown", e => { if (S && !e.button) { mapDrag = true; mapGo(e); e.preventDefault(); } });
+  window.addEventListener("mousemove", e => { if (mapDrag && S) mapGo(e); });
+  window.addEventListener("mouseup", () => { mapDrag = false; });
+  $("dock").addEventListener("click", dockClick);
+  $("dockScroll").addEventListener("scroll", () => { dirty = true; });
+  window.addEventListener("resize", () => { if (dock) layDock(); dirty = true; });
   $("play").onclick = () => A.playing ? stop() : play(playhead);
   $("undo").onclick = () => act({kind: "undo"});
   $("upto").onclick = () => act({kind: "upto", time: +playhead.toFixed(2)});
   $("sheet").onclick = makeSheet;
   $("zoomIn").onclick = () => zoom(1.3); $("zoomOut").onclick = () => zoom(1 / 1.3);
+  $("rowsMore").onclick = () => setRows(1.25); $("rowsLess").onclick = () => setRows(0.8); $("rowsFit").onclick = () => setRows("fit");
+  $("scheme").innerHTML = Object.entries(SCHEMES).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("");
+  showLook();
+  $("scheme").onchange = () => { setLook({scheme: $("scheme").value}); $("scheme").blur(); };
+  for (const k of ["faint", "solid"]) { $(k).oninput = () => setLook({[k]: +$(k).value}); $(k).onchange = () => $(k).blur(); }
+  $("helpBtn").onclick = () => showHelp(); $("helpClose").onclick = () => showHelp(false);
   $("song").onchange = () => load($("song").value);
   $("speed").onchange = () => { $("speed").blur(); setSpeed(+$("speed").value); };
   for (const k of ["record", "bass", "notes", "split"]) $("hear" + k[0].toUpperCase() + k.slice(1)).onchange = e => { hear[k] = e.target.checked; mix(); e.target.blur(); };
@@ -817,16 +1436,25 @@ function wire() {
   document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("button"); if (b) b.blur(); });
   $("song").addEventListener("change", () => $("song").blur());
 }
-function zoom(f, x) {
-  const cx = x === undefined ? xOf(playhead) : x, t = tOf(cx);
-  view.pps = Math.max(30, Math.min(900, view.pps * f));
-  view.t0 = Math.max(-0.2, t - (cx - GUTTER) / view.pps);
+function showHelp(on) {
+  const h = $("help");
+  h.classList.toggle("hidden", on === undefined ? !h.classList.contains("hidden") : !on);
+  $("helpBtn").classList.toggle("on", !h.classList.contains("hidden"));
+}
+function zoom(f, x) {  // around the pointer; without one, around the playhead if it is in the window, else the middle
+  const W = $("roll").clientWidth, px = xOf(playhead);
+  const cx = x !== undefined ? x : px >= GUTTER && px <= W ? px : (GUTTER + W) / 2;
+  const to = Logic.zoomAbout(view.t0, view.pps, cx - GUTTER, f);
+  view.t0 = to.t0; view.pps = to.pps;
+  localStorage.setItem("copilot.pps", JSON.stringify(Math.round(view.pps)));
   dirty = true;
 }
 function keys(e) {
-  if (!S || $("speed").disabled || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && e.target.type !== "checkbox")) return;
+  if (!S || $("speed").disabled || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && !["checkbox", "range"].includes(e.target.type))) return;
   const n = note(sel), k = e.key;
   const done = () => { e.preventDefault(); };
+  if (k === "?") { showHelp(); return done(); }
+  if (k === "Escape" && !$("help").classList.contains("hidden")) { showHelp(false); return done(); }
   if (e.metaKey || e.ctrlKey) { if (k === "z") { act({kind: "undo"}); done(); } return; }
   if (k === " ") { A.playing ? stop() : play(playhead); return done(); }
   if (k === "ArrowLeft" || k === "ArrowRight") {
@@ -847,9 +1475,10 @@ function keys(e) {
   if (k === "+" || k === "=") { zoom(1.3); return done(); }
   if (k === "-" || k === "_") { zoom(1 / 1.3); return done(); }
   if (k === "a" || k === "A") { stop(); addHere(playhead); return done(); }
-  if (offer && (k === "o" || k === "O")) { offerShow(); return done(); }
-  if (offer && (k === "y" || k === "Y")) { offerYes(); return done(); }
-  if (offer && (k === "x" || k === "X")) { offerNo(); return done(); }
+  const asked = offer || offered().length;
+  if (asked && (k === "o" || k === "O")) { offerShow(); return done(); }
+  if (asked && (k === "y" || k === "Y")) { offerYes(); return done(); }
+  if (asked && (k === "x" || k === "X")) { offerNo(); return done(); }
   if (k === "Escape") { stop(); select(null); return done(); }
   if (selDiff && (k === "u" || k === "U")) { doPanel("use"); return done(); }
   if (selDiff && (k === "k" || k === "K")) { doPanel("keep"); return done(); }

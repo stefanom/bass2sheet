@@ -13,11 +13,13 @@ bass2sheet-copilot sheet SONG_ID --dir scores
 
 ## The page
 
-One song at a time, on a timeline that scrolls with the record.
+One song at a time, on a timeline that scrolls with the record and fills the browser window. Everything can be done with the mouse; the keys are shortcuts. The Help button (or `?`) shows what the colours mean, what the mouse does and the keys.
 
 - **The picture** is the isolated bass: pitch upwards, time to the right. Each dark bar is a steady tone. A note is a stack of bars: the note itself at the bottom and its overtones above it, which on a bass are often stronger than the note. A bar that bends is a slide. The gap between two bars is where one note gives way to the next, and a note played several times usually shows as several bars. (A plain spectrogram cannot show this for a bass: telling the low E from the F beside it takes most of a second of sound, which smears every note over its neighbours. Here each partial is located exactly from a tenth of a second.) The thin red line is the pitch the tracker followed. Faint vertical lines are the bars as the tool counts them; they are not settled at this stage and are only there to find your way.
 - **The notes** are boxes on the picture, on the row of their pitch. Green is as the tool heard it, amber is a note the tool itself doubts (it does not sound like the song's other notes of that pitch), blue is one you have changed or added. A dashed outline shows where the tool had a note you moved to another pitch.
-- **Moving about.** Drag the timeline with the mouse (the pointer is a hand wherever it is not on a note) or scroll; a click without dragging puts the playhead there. While the song plays the timeline follows the playhead until you move it yourself; then it stays where you put it, and follows again the next time you press play.
+- **Moving about.** The mouse wheel, or a pinch on the trackpad, zooms in time around the pointer (`+` and `-` do it around the playhead). A sideways swipe, or Shift with the wheel, moves through the song, and so does dragging the timeline (the pointer is a hand wherever it is not on a note); a click without dragging puts the playhead there. Drag in the ruler at the top and the playhead follows the pointer, playing the spot under it as it goes: the way to find the moment a note begins. While the song plays the timeline follows the playhead until you move it yourself; then it stays where you put it, and follows again the next time you press play.
+- **Rows.** "Rows" makes the pitch rows taller or shorter; "Fit" puts all the pitches in the window. With rows taller than the window, drag the timeline up and down, or hold Alt and turn the wheel.
+- **The picture's look.** "Picture" chooses its colours (blue on white, dark, black on white, white on black), how strongly the faint tones show (the slider bends the curve from loudness to colour: to the right the faint tones come up, to the left only the strongest are left), and how solid the note boxes are (to the left they are outlines and the picture shows through). The page remembers these, the zoom and the rows.
 - **Slower.** "Speed" plays the song at 90, 80, 70, 60 or 50% at the same pitch (`[` and `]` step through them). The record, the isolated bass and the notes slow down together and stay in step. The first time a speed is used for a song it takes up to a minute to prepare; after that it is kept. With [Rubber Band](https://breakfastquay.com/rubberband/) installed (`brew install rubberband`) the slowed sound keeps the attacks and the low notes clean; without it the ffmpeg that comes with the tool is used, which is rougher.
 - **What you hear** is your choice of three: the record, the isolated bass, and the notes. The notes are played in the bass's own sound: each by a piece of the bass track cut from another note of the same pitch. A right note doubles the record; a wrong one stands out. With headphones, "bass left, notes right" puts the isolated bass in one ear and the notes in the other.
 
@@ -27,14 +29,15 @@ Press Space and listen. When something is wrong, press Space again, then `←` t
 
 | To | Do |
 |---|---|
-| change its pitch | `1` to `6` takes one of the tool's guesses; `↑` `↓` moves a semitone, with Shift an octave; or drag the note |
-| hear it again in its place | Enter |
-| remove a note that is not there | Delete |
+| change its pitch | `1` to `6` takes one of the tool's guesses (or click one); `↑` `↓` moves a semitone, with Shift an octave ("▲ Octave", "▼ Octave"); or drag the note |
+| put it where it sounds | drag the note: up and down changes its pitch, left and right moves it in time, in one go. While you hold it, it is see-through, a line marks its start and its end right up the picture, and dotted boxes show where its overtones lie. Moved earlier, the note before gives way; moved later against the next note, its end stays where that note starts |
+| hear it again in its place | Enter, or "Hear it" |
+| remove a note that is not there | Delete, or the "Delete" button |
 | add a note that is missing | `A` at the playhead, or double-click where it belongs; a note sounding there ends where the new one starts |
-| make one note two | `S` splits it at the playhead, or in the middle |
-| make two notes one | `M` joins it with the next; Shift+`M` with every repeat of it that follows (a held note the tool chopped up) |
-| work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave) |
-| move where it starts or ends | drag an end, or Alt with `←` `→` (Shift for the end), 10 ms a press |
+| make one note two | `S`, or "Split", splits it at the playhead, or in the middle |
+| make two notes one | `M`, or "Join with next"; Shift+`M` joins it with every repeat of it that follows (a held note the tool chopped up) |
+| work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave); the same as buttons under the timeline |
+| move where it starts or ends | drag an end: it can be grabbed from a little outside the note too, and the pointer turns into a double arrow; or Alt with `←` `→` (Shift for the end), 10 ms a press |
 | take what a repeat has, or keep what is written | click a dashed note or a mark under the letters, then "Use it" (`U`) or "Keep what is written" (`K`) |
 | take it back | `Z` |
 
@@ -48,11 +51,18 @@ After every change the passage plays again, so you hear the result.
 
 Music repeats itself, and the tool does not hear every repeat the same way. So the tool looks for the bars that sound alike, in the bass track itself and not in its own notes, which are the part that may be wrong. Two bars are compared sixteenth by sixteenth: where they sound the same, they should be written the same.
 
-- **The letters over the timeline** name the bars that sound alike: every A is a repeat of the other As. Click a letter to see how many bars sound like that one and to step through them.
-- **After a fix**, the tool looks at the other bars that sound the same at that spot and are written there as this bar was before you fixed it: the same mistake. A yellow bar offers to fix them too. You can step through them first, take them all, or decline. This is where one fix can stand for forty. It is never offered for a bar you have already worked through: that bar is yours.
+- **The song map**, the thin line over the timeline, is the whole song at once: the patterns with their letters, a frame around the part the timeline shows, the playhead, what you have worked through (dark green) and only heard (pale), the orange marks, and a dark line under every bar that sounds like the current one (the bar you chose, or the one the selected note or the playhead is in). Click or drag in it and the timeline goes there.
+- **The letters over the timeline** name the bars that sound alike: every A is a repeat of the other As. Click a letter and the other bars that sound like that one line up under the timeline, one strip a bar (see below).
+- **After a fix**, the tool looks at the other bars that sound the same at that spot and are written there as this bar was before you fixed it: the same mistake. They line up under the timeline too, under a yellow line that says how many there are. This is where one fix can stand for forty. It is never offered for a bar you have already worked through: that bar is yours.
+- **The strips.** Each strip is one bar that sounds like the one above it, at the timeline's own scale and right under that bar, so the eye goes straight down: its own piece of the pitch picture, its notes, and in dashed orange what the bar above has where the two are written differently (the line of the strip says it in words: "written F2, bar 50 has F3"). The timeline itself stays where it is. Songs repeat with small differences that are meant, so **nothing changes in a bar until you say so for that bar**:
+  - "▶ As written" plays that bar against the record as it is written now; "▶ With the change" plays it as it would be. The playhead and the timeline do not move.
+  - "✓ Change it here" changes that bar and only that bar. "Leave it" keeps it as written.
+  - A changed strip says "✓ Changed" and has "↶ Undo this one", which puts that bar back whatever you did after it (unless you have changed the same notes again since: then take that back first). `Z` and the Undo button take back the last thing as always.
+  - "Change all N without hearing them" is there for a mistake you know is everywhere. It is the last button of the line, asks twice, and counts as one fix: Undo takes all of them back together.
+  - With an offer open, `O` goes to the next bar still to decide and plays it with the change, `X` leaves all that are left, `Y` changes all that are left.
 - **Dashed notes and the marks under the letters** show where a bar you have not reached is written unlike a repeat that sounds the same there. Dark orange means the repeat is one you fixed, or one you worked through and left as it is; pale means only that most of the tool's own repeats agree against this bar. Click one to see what the repeat has, hear both, and take it or keep what is written. These are hints: worth a listen, not certainties.
 
-How far to trust this, measured on recordings with known notes ([evaluation.md](evaluation.md)): carrying fixes to the repeats saves about a sixth of the fixing overall, a few percent on most songs and more than half on the ones where the tool makes the same mistake in every repeat. A fix carried to a bar with the same mistake is right about nine times in ten for a pitch or a re-pluck, less often for a note taken out; on two test songs in forty, taking every offer unheard would have cost more than it saved. So use "Show me the next" on the first few of an offer. A dashed note points at something wrong about two times in three, and what the repeat has is the right answer about six times in ten.
+How far to trust this, measured on recordings with known notes ([evaluation.md](evaluation.md)): carrying fixes to the repeats saves about a sixth of the fixing overall, a few percent on most songs and more than half on the ones where the tool makes the same mistake in every repeat. A fix carried to a bar with the same mistake is right about nine times in ten for a pitch or a re-pluck, less often for a note taken out; on two test songs in forty, taking every offer unheard would have cost more than it saved. So hear a bar both ways before changing it. A dashed note points at something wrong about two times in three, and what the repeat has is the right answer about six times in ten.
 
 The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed beat), the bars after it are still found as repeats of each other, but not of the bars before.
 
