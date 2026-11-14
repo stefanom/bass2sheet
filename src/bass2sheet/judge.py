@@ -165,17 +165,21 @@ def code_id():
 @functools.lru_cache(maxsize=3)
 def _song(audio_path, cache_dir, stems_dir, separator, device):
     from .audio import decode, validate
+    from .common import step
     from .separate import load_stems, separate
 
-    wav = decode(audio_path)
-    validate(wav)
-    audio_id = sha1_file(audio_path)
-    if stems_dir:
-        return wav, load_stems(stems_dir, wav.shape[1]), audio_id
-    mix_path = os.path.join(cache_dir, f"mix-{audio_id[:16]}.wav")
-    if not os.path.exists(mix_path):
-        sf.write(mix_path, wav.T, SR, subtype="FLOAT")
-    return wav, separate(separator, wav, mix_path, audio_id, cache_dir, device), audio_id
+    with step("reading") as found:
+        wav = decode(audio_path)
+        found["length"] = round(validate(wav)[0], 1)
+        audio_id = sha1_file(audio_path)
+    with step("isolating") as found:
+        found["by"] = "given" if stems_dir else separator
+        if stems_dir:
+            return wav, load_stems(stems_dir, wav.shape[1]), audio_id
+        mix_path = os.path.join(cache_dir, f"mix-{audio_id[:16]}.wav")
+        if not os.path.exists(mix_path):
+            sf.write(mix_path, wav.T, SR, subtype="FLOAT")
+        return wav, separate(separator, wav, mix_path, audio_id, cache_dir, device), audio_id
 
 
 def load_song(audio_path, cache_dir=None, device=None, stems_dir=None, separator="roformer"):

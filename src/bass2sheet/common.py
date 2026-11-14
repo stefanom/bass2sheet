@@ -1,10 +1,13 @@
 """Shared constants, errors, hashing and atomic file writes."""
 
+import contextlib
+import contextvars
 import hashlib
 import logging
 import os
 import re
 import tempfile
+import time
 
 import numpy as np
 
@@ -41,6 +44,33 @@ ALTERNATIVES = dict(
 
 class Bass2SheetError(Exception):
     """A failure the user can act on; the message says what went wrong and what to do."""
+
+
+_listener = contextvars.ContextVar("bass2sheet_listener", default=None)
+
+
+@contextlib.contextmanager
+def listening(tell):
+    """While this is open, `tell` is called with every step the work goes through (see `step`)."""
+    token = _listener.set(tell)
+    try:
+        yield
+    finally:
+        _listener.reset(token)
+
+
+@contextlib.contextmanager
+def step(name):
+    """One step of hearing a song, for whoever is listening: told when it starts, as dict(step=name,
+    state="running"), and when it is done, as dict(step=name, state="done", seconds=...) with what it found, which
+    the code inside puts in the dict this yields. A step that fails is not told as done: the error says the rest.
+    With no one listening this does nothing."""
+    tell, found, began = _listener.get(), {}, time.monotonic()
+    if tell:
+        tell(dict(step=name, state="running"))
+    yield found
+    if tell:
+        tell(dict(found, step=name, state="done", seconds=round(time.monotonic() - began, 2)))
 
 
 def release_gpu_memory():

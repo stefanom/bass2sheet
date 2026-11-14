@@ -1,4 +1,6 @@
-"""The copilot's page: one person, one machine, one song at a time. See copilot.py for what it serves."""
+"""The copilot's pages: one person, one machine. The songs and the way in for a new one are at `/`
+(copilot_landing.html); one song at a time is worked on at `/song` (copilot_page.html). See copilot.py for what is
+served, and copilot_adding.py for how a new song comes in."""
 
 import json
 import mimetypes
@@ -8,10 +10,12 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import copilot
+from . import copilot, copilot_adding
 from .common import Bass2SheetError
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
+LANDING_PATH = os.path.join(os.path.dirname(__file__), "copilot_landing.html")
+LOCAL = ("127.0.0.1", "localhost", "::1")  # where a page that may change things here is served from
 SERVED = re.compile(
     r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/bass\.(pdf|musicxml)|sheet/bass_as_played\.mid)$"
 )
@@ -38,12 +42,15 @@ class Desks:
 
 
 def songs(workdir):
+    """The prepared songs, for the list: each with how far the person is with it (copilot.progress) and whose
+    notes it started from."""
     out = []
     for song_id, song in copilot.load_songs(workdir).items():
         folder = copilot.song_dir(workdir, song_id)
         machine, mine = (copilot.read_json(os.path.join(folder, name)) for name in ("machine.json", "notes.json"))
         if machine is None or mine is None:
             continue
+        far = copilot.progress(machine, mine)
         out.append(
             dict(
                 id=song_id,
@@ -52,14 +59,33 @@ def songs(workdir):
                 length=machine["length"],
                 notes=len(mine["notes"]),
                 checked=round(sum(b - a for a, b in mine["checked"]), 1),
+                worked=round(sum(b - a for a, b in far["worked"]), 1),
+                spans=dict(heard=mine["checked"], worked=far["worked"]),
+                fixes=far["fixes"],
+                finder=machine["settings"].get("notes", "own"),
+                at=mine.get("at"),
+                touched=os.path.getmtime(os.path.join(folder, "notes.json")),
             )
         )
     return out
 
 
+class Counted:
+    """What is being read of a request, counting the bytes."""
+
+    def __init__(self, stream):
+        self.stream, self.count = stream, 0
+
+    def read(self, n):
+        block = self.stream.read(n)
+        self.count += len(block)
+        return block
+
+
 class Handler(BaseHTTPRequestHandler):
     workdir = "."
     desks = None
+    adding = None
     server_version = "bass2sheet-copilot"
 
     def log_message(self, fmt, *args):  # one person, one machine: no access log
@@ -118,11 +144,19 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
-            if url.path == "/":
-                with open(PAGE_PATH, "rb") as f:
+            if url.path in ("/", "/song"):  # the songs; one song (an old link to /#song is sent on by the page)
+                with open(LANDING_PATH if url.path == "/" else PAGE_PATH, "rb") as f:
                     self.send_body(f.read(), "text/html; charset=utf-8")
             elif url.path == "/api/songs":
                 self.send_json(songs(self.workdir))
+            elif url.path == "/api/adding":
+                self.send_json(self.adding_now())
+            elif url.path == "/api/strip":
+                pic = copilot_adding.strip(self.workdir, q.get("song", ""), int(q.get("columns", "600")))
+                if pic is None or q.get("song") not in copilot.load_songs(self.workdir):
+                    return self.send_json(dict(error="not found"), 404)
+                size = {"X-Rows": str(pic.shape[0]), "X-Columns": str(pic.shape[1])}
+                self.send_body(pic.tobytes(), "application/octet-stream", extra=size)
             elif url.path == "/api/song":
                 with self.desks.lock:
                     desk = self.desks.get(q.get("id", ""))
@@ -136,10 +170,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_file(song_id, rel)
             else:
                 self.send_json(dict(error="not found"), 404)
-        except (Bass2SheetError, StopIteration) as e:
+        except (Bass2SheetError, StopIteration, ValueError) as e:
             self.send_json(dict(error=str(e) or "no such note"), 404)
 
     do_HEAD = do_GET
+
+    def adding_now(self):
+        """What the landing page shows of the way in: the songs being added, and what a new one may be."""
+        return dict(
+            jobs=self.adding.listing(),
+            finders=copilot_adding.finders(),
+            kinds=copilot_adding.AUDIO,
+            limit=copilot_adding.MAX_BYTES,
+        )
+
+    def from_here(self):
+        """Whether a request that changes things comes from one of this server's own pages. A page of another
+        site, open in the same browser, can send requests here too; the browser says where they come from."""
+        origin = self.headers.get("Origin")
+        return origin is None or urlparse(origin).hostname in LOCAL
+
+    def upload(self, q):
+        """A new song: the file is the body of the request, its name and the note finder are in the address."""
+        length = self.headers.get("Content-Length")
+        length = int(length) if length and length.isdigit() else None
+        body = Counted(self.rfile)
+        try:
+            job = self.adding.accept(q.get("name", ""), length, body, q.get("notes") or "own")
+        except copilot_adding.Refused as e:
+            # The browser hears the answer only once it has sent the whole file: the rest of a file of a
+            # reasonable size is read and dropped; one that is too large is not read, and the line is cut.
+            left = (length or 0) - body.count
+            while 0 < left <= copilot_adding.MAX_BYTES and (block := self.rfile.read(min(left, 1 << 20))):
+                left -= len(block)
+            self.close_connection = True
+            return self.send_json(dict(error=str(e)), e.status)
+        self.send_json(dict(id=job["id"], title=job["title"]))
 
     def warm(self, desk):
         """Load what the first guess needs while the page is still loading the sound."""
@@ -151,9 +217,18 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     def do_POST(self):
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        path = url.path
+        if not self.from_here():
+            self.close_connection = True
+            return self.send_json(dict(error="this copilot only takes changes from its own pages"), 403)
         try:
+            if path == "/api/upload":
+                return self.upload({k: v[0] for k, v in parse_qs(url.query).items()})
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            if path == "/api/adding":  # a song being added: try it again, or take it out of the row
+                getattr(self.adding, dict(again="again", remove="remove")[data.get("do")])(data.get("id", ""))
+                return self.send_json(self.adding_now())
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
                 if path == "/api/act":
@@ -176,11 +251,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(error=str(e) or type(e).__name__), 400)
 
 
-def make_server(workdir, port=8770):
+def make_server(workdir, port=8770, stems_dir=None):
+    """The server for a working directory, which may hold no song yet: the first one can be added on the page.
+    `stems_dir` is for tests (copilot_adding.Adding)."""
     workdir = os.path.abspath(workdir)
-    if not songs(workdir):
-        raise Bass2SheetError(f"no prepared songs in {workdir}: run `bass2sheet-copilot add SONG... --dir {workdir}`")
-    handler = type("CopilotHandler", (Handler,), dict(workdir=workdir, desks=Desks(workdir)))
+    if os.path.exists(workdir) and not os.path.isdir(workdir):
+        raise Bass2SheetError(f"{workdir} is not a directory")
+    adding = copilot_adding.Adding(workdir, stems_dir)
+    handler = type("CopilotHandler", (Handler,), dict(workdir=workdir, desks=Desks(workdir), adding=adding))
     try:
         return ThreadingHTTPServer(("127.0.0.1", port), handler)
     except OSError as e:
@@ -189,11 +267,15 @@ def make_server(workdir, port=8770):
 
 def serve(workdir, port=8770):
     server = make_server(workdir, port)
-    print(f"{len(songs(workdir))} songs. Open http://localhost:{port}", flush=True)
+    n = len(songs(server.RequestHandlerClass.workdir))
+    print(f"{n} {'song' if n == 1 else 'songs'}. Open http://localhost:{port}", flush=True)
+    if not n:
+        print("Add your first song on the page, or with `bass2sheet-copilot add SONG`.", flush=True)
     print("Stop with Ctrl-C; your fixes are saved as you make them.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print()
     finally:
+        server.RequestHandlerClass.adding.close()
         server.server_close()

@@ -630,7 +630,7 @@ def _post(url, data):
 
 def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
     url, workdir = server
-    assert b"bass2sheet" in _get(url + "/")[2]
+    assert b'id="roll"' in _get(url + "/song")[2]  # the songs are at /: see test_copilot_landing.py
     songs = json.loads(_get(url + "/api/songs")[2])
     assert [s["id"] for s in songs] == ["mix"] and songs[0]["notes"] >= 60
     song = json.loads(_get(url + "/api/song?id=mix")[2])
@@ -678,11 +678,6 @@ def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
     assert (
         links["musicxml"] == "/data/mix/sheet/bass.musicxml" and b"<score-partwise" in _get(url + links["musicxml"])[2]
     )
-
-
-def test_serving_an_empty_directory_says_what_to_do(tmp_path):
-    with pytest.raises(Bass2SheetError, match="bass2sheet-copilot add"):
-        copilot_server.make_server(str(tmp_path), 0)
 
 
 def test_the_page_has_every_element_its_script_reaches_for():

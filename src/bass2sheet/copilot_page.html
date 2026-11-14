@@ -41,6 +41,7 @@
 </head>
 <body>
 <header>
+  <a href="/" title="All your songs, and the way in for a new one" style="text-decoration:none;white-space:nowrap">‹ Songs</a>
   <b>bass2sheet · copilot</b>
   <select id="song" title="Song"></select>
   <span id="progress" class="soft"></span>
@@ -183,6 +184,7 @@ const note = id => S && S.notes.find(n => n.id === id);
 // ---------------------------------------------------------------------------------------------------- loading
 async function start() {
   const songs = await api("/api/songs");
+  if (!songs.length) return location.replace("/");  // nothing to open yet: the songs' page says how to add one
   $("song").innerHTML = songs.map(s => `<option value="${s.id}">${s.artist ? s.artist + " – " : ""}${s.title}</option>`).join("");
   const want = decodeURIComponent(location.hash.slice(1));
   const id = songs.some(s => s.id === want) ? want : songs[0].id;

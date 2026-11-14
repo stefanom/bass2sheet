@@ -28,7 +28,7 @@ import soundfile as sf
 
 from . import judge, ownsound, together
 from . import repeats as repeats_
-from .common import DEFAULTS, LOWEST_NOTE, SR, Bass2SheetError, atomic_write_text, clock, note_name
+from .common import DEFAULTS, LOWEST_NOTE, SR, Bass2SheetError, atomic_write_text, clock, note_name, step
 
 LOW, HIGH = 26, 72  # the pitches the picture shows: D1 to C5
 PER_SEMI = 3  # picture rows per semitone
@@ -171,13 +171,19 @@ def prepare(workdir, song, opts=None, say=None):
         )
         for k, n in enumerate(heard["notes"])
     ]
-    for n, h in zip(notes, ownsound.check(mono, notes)):
+    with step("checks") as found:  # each note against the song's other notes of its pitch
+        own_sound = ownsound.check(mono, notes)
+        found["doubted"] = sum(bool(h and ownsound.doubtful(h)) for h in own_sound)
+    for n, h in zip(notes, own_sound):
         if h and ownsound.doubtful(h):
             n["doubt"] = dict(explained=round(h["explained"], 2), better=h["better"])
     for n, h in zip(notes, heard["notes"]):
         if h.get("flag") == "alone":  # MuScriptor's note, and bass2sheet's own finder does not hear it (muscriptor.py)
             n["doubt"] = dict(n.get("doubt", {}), alone=True)
-    feat = features(audio.bass_mono, audio.cache_dir, audio.device, kw["crepe_model"])
+    with step("picture") as found:  # what the page shows of the bass track, and what the guesses are made from
+        feat = features(audio.bass_mono, audio.cache_dir, audio.device, kw["crepe_model"])
+        shown = picture_file(folder, mono)
+        found["columns"] = shown["columns"]
     suffix = "" if kw["crepe_model"] == "full" else f"-{kw['crepe_model']}"
     probs = np.load(os.path.join(audio.cache_dir, f"crepe-{sha1_array(audio.bass_mono)[:16]}{suffix}.npz"))["probs"]
     f0, per = feat["f0_c"], feat["per_c"]
@@ -186,7 +192,6 @@ def prepare(workdir, song, opts=None, say=None):
     pyin = np.where(
         np.isfinite(pyin) & (pyin > 0), 69 + 12 * np.log2(np.maximum(np.nan_to_num(pyin), 1e-6) / 440), np.nan
     )
-    shown = picture_file(folder, mono)
     line.tofile(os.path.join(folder, "pitch.bin"))
     np.savez_compressed(os.path.join(folder, "desk.npz"), semis=semitone_mass(probs), pyin=pyin.astype(np.float32))
     peak = max(float(np.abs(audio.mix).max()), float(np.abs(audio.bass).max()), 1e-9)
@@ -305,6 +310,20 @@ def slowed(workdir, song_id, name, percent):
 # ------------------------------------------------------------------------------------------- one song, open
 
 
+def progress(machine, state):
+    """How far the person is with a song, from the tool's version (`machine.json`) and theirs (`notes.json`)
+    alone, with nothing else of the song loaded: how many `fixes` they made (notes changed, added or taken
+    out), how far they have `reached` (see Desk.reached) and the spans they have `worked` through."""
+    notes = state["notes"]
+    have = {n["id"] for n in notes} | {i for n in notes for i in n.get("merged", [])}
+    gone = [m["start"] for m in machine["notes"] if m["id"] not in have]
+    marks = [n["start"] for n in notes if n["state"] != "machine"] + gone
+    marks += [state["upto"]] if state.get("upto") is not None else []
+    far = round(max(marks), 4) if marks else None
+    worked = [] if far is None else [[a, min(b, far)] for a, b in state["checked"] if a < far]
+    return dict(fixes=sum(n["state"] != "machine" for n in notes) + len(gone), reached=far, worked=worked)
+
+
 def merged(intervals, gap=0.05):
     """Intervals sorted and joined where they touch or nearly do."""
     out = []
@@ -380,23 +399,18 @@ class Desk:
 
     def fixes(self):
         """How many notes the person has changed, added or taken out."""
-        return sum(n["state"] != "machine" for n in self.notes) + self.deleted()
+        return progress(self.machine, self.state)["fixes"]
 
     def reached(self):
         """How far the person has worked through the song, in seconds; None before they have. People listen
         ahead, before they start fixing and after: playing past something does not make it theirs. What does:
         everything up to their last fix, or up to where they said they have checked (`upto`)."""
-        have = {n["id"] for n in self.notes} | {i for n in self.notes for i in n.get("merged", [])}
-        marks = [n["start"] for n in self.notes if n["state"] != "machine"]
-        marks += [m["start"] for m in self.machine["notes"] if m["id"] not in have]
-        marks += [self.state["upto"]] if self.state.get("upto") is not None else []
-        return round(max(marks), 4) if marks else None
+        return progress(self.machine, self.state)["reached"]
 
     def worked(self):
         """The spans of the song the person has worked through: what they played, as far as `reached`. What they
         left untouched there counts as right. The rest of what they played is only heard."""
-        far = self.reached()
-        return [] if far is None else [[a, min(b, far)] for a, b in self.state["checked"] if a < far]
+        return progress(self.machine, self.state)["worked"]
 
     def trust(self):
         """Whose word each sixteenth is (repeats.Repeats.trust), as things stand."""
