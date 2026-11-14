@@ -86,6 +86,10 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 "Make the sheet" writes the PDF, the MusicXML and a MIDI file from your notes, with the bars, the rhythm and the tab as the tool writes them (those pieces get their own steps later). The line under the title says how much of the song you have worked through.
 
+The score then opens in a panel over the song's page: its pages one under the other, as MuseScore draws them, with buttons to download the PDF, the MusicXML and the MIDI file, and "Make it again" after more fixes. "Close", Esc or a click beside the panel goes back to the notes, which are as you left them. The same view has an address of its own, `/score#SONG_ID`.
+
+Drawing the pages needs [MuseScore 4](https://musescore.org) on the computer. Without it the MusicXML and the MIDI file are still written, and the panel says so and offers them.
+
 ## What the tool learns
 
 `report` compares the tool's version with yours: wrong pitch, wrong octave, extra note, missed note, two notes written as one, one note written as two, a start or an end moved. Notes you left alone in what you have worked through count as right. That is ground truth on your own songs, which no dataset has.
@@ -102,7 +106,7 @@ scores/
   <song>/audio/         the record and the isolated bass, for the page, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/repeats.npz    which bars sound alike, measured once from the bass track
-  <song>/sheet/         the score made from your notes
+  <song>/sheet/         the score made from your notes: PDF, MusicXML, MIDI and a picture of each page
 ```
 
 The directory holds your recordings. Keep it out of any repository. Preparing a song again after the tool has changed replaces `machine.json` and leaves your notes alone.

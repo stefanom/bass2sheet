@@ -401,6 +401,39 @@ def musicxml(
     )
 
 
+def engrave_pages(xml_path, pdf_path, mscore, timeout=300):
+    """MusicXML -> PDF and a picture of each page, in one run of MuseScore: the pictures are SVG files beside
+    the PDF, named after it (bass.pdf: bass-1.svg, bass-2.svg, ...). Pictures left from an earlier, longer score
+    are removed. Returns (an error string or None, the pictures in page order)."""
+    import glob
+    import json
+
+    folder, stem = os.path.dirname(pdf_path), os.path.splitext(pdf_path)[0]
+    numbered = lambda: sorted(
+        (p for p in glob.glob(glob.escape(stem) + "-*.svg") if p[len(stem) + 1 : -4].isdigit()),
+        key=lambda p: int(p[len(stem) + 1 : -4]),
+    )
+    for old in numbered():
+        os.remove(old)
+    style, job = os.path.join(folder, ".bass2sheet.mss"), os.path.join(folder, ".bass2sheet.json")
+    with open(style, "w") as f:
+        f.write(STYLE)
+    with open(job, "w") as f:
+        json.dump([{"in": xml_path, "out": [pdf_path, stem + ".svg"]}], f)
+    try:
+        r = subprocess.run([mscore, "-S", style, "-j", job], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"MuseScore timed out after {timeout} s", []
+    finally:
+        os.remove(style)
+        os.remove(job)
+    if r.returncode != 0 or not os.path.exists(pdf_path):
+        tail = "\n".join(line for line in (r.stderr or "").splitlines() if "sandbox_extension" not in line)[-800:]
+        return f"MuseScore exited {r.returncode}: {tail}", []
+    log.info("engraved %s", pdf_path)
+    return None, numbered()
+
+
 def engrave(xml_path, pdf_path, mscore, timeout=300):
     """MusicXML -> PDF with MuseScore; returns an error string or None."""
     style = os.path.join(os.path.dirname(xml_path), ".bass2sheet.mss")

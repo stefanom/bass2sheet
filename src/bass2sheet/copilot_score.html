@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>score · copilot</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --ink: #1f2328; --soft: #59636e; --line: #d1d9e0; --blue: #0969da; --green: #1a7f37; --red: #cf222e; --bg: #eceff2; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; font: 15px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 10px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+  header b { font-size: 16px; }
+  header .spacer { flex: 1; }
+  .soft { color: var(--soft); }
+  .hidden { display: none !important; }
+  a { color: var(--blue); }
+  header a.nav { text-decoration: none; white-space: nowrap; }
+  button, a.file { font: inherit; color: var(--ink); padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  button:hover, a.file:hover { background: #f3f4f6; }
+  button:disabled { color: #9aa4ae; cursor: default; }
+  button.main { font-weight: 600; background: var(--blue); border-color: var(--blue); color: #fff; }
+  button.main:hover { background: #0860ca; }
+  #files { display: flex; align-items: center; gap: 8px; }
+  #status.bad { color: var(--red); }
+  main { flex: 1; overflow: auto; padding: 20px; }
+  #pages { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  #pages img { display: block; width: min(100%, 980px); height: auto; background: #fff; box-shadow: 0 1px 6px rgba(31, 35, 40, .22); }
+  #notice { max-width: 720px; margin: 40px auto; padding: 22px 26px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  #notice p { margin: 0 0 12px; }
+  #notice p:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+<header>
+  <a id="back" class="nav" href="/">‹ Songs</a>
+  <span><b id="title">Score</b> <span id="artist" class="soft"></span></span>
+  <span id="made" class="soft"></span>
+  <span id="status" class="soft"></span>
+  <span class="spacer"></span>
+  <span id="files"></span>
+  <button id="make">Make it again</button>
+  <a id="notes" class="file" href="/song">Fix the notes ›</a>
+  <button id="close" class="hidden" title="Back to the notes (Esc)">Close ✕</button>
+</header>
+<main>
+  <div id="notice" class="hidden"></div>
+  <div id="pages"></div>
+</main>
+
+<script id="logic">
+// What needs no page: tested on its own (tests/copilot_score_logic.js).
+const Score = (() => {
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+  // "2026-11-14T12:55:38" as a person reads it; `now` is the moment it is read
+  function when(stamp, now) {
+    const t = new Date(stamp), day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (isNaN(t)) return "";
+    const days = Math.round((day(now) - day(t)) / 86400000);
+    const clock = t.getHours() + ":" + String(t.getMinutes()).padStart(2, "0");
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return (days === 0 ? "today" : days === 1 ? "yesterday" : `${t.getDate()} ${months[t.getMonth()]}`) + " at " + clock;
+  }
+  // from how much of the person's work a score was made
+  function from(m) {
+    const share = m.checked >= 0.995 ? "all of it checked by ear" : m.checked > 0 ? `${Math.round(100 * m.checked)}% checked by ear` : "not checked by ear yet";
+    return `${count(m.fixes, "fix", "fixes")} · ${share}`;
+  }
+  return {esc, count, when, from};
+})();
+if (typeof module !== "undefined") module.exports = Score;
+</script>
+
+<script id="app">
+const $ = id => document.getElementById(id);
+const embedded = new URLSearchParams(location.search).has("embed");  // shown in a panel over the song's page
+const song = decodeURIComponent(location.hash.slice(1));
+let view = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || ("error " + r.status));
+  return j;
+}
+function say(text, bad) { $("status").textContent = text || ""; $("status").classList.toggle("bad", !!bad); }
+function notice(html) { $("notice").innerHTML = html || ""; $("notice").classList.toggle("hidden", !html); }
+
+function show() {
+  const v = view, m = v.made, fresh = "?" + Date.now();  // a score made again has the same addresses
+  document.title = v.title + " · score";
+  $("title").textContent = v.title; $("artist").textContent = v.artist;
+  $("notes").href = "/song#" + encodeURIComponent(v.id);
+  $("make").textContent = m ? "Make it again" : "Make the score";
+  $("make").classList.toggle("main", !m);
+  $("made").textContent = m ? `Made ${Score.when(m.when, new Date())} · ${Score.from(m)}` : "";
+  const file = (k, text) => m && v.files[k] ? `<a class="file" href="${v.files[k]}${fresh}" download="${Score.esc(v.title)}.${k === "midi" ? "mid" : k}" title="Download">${text}</a>` : "";
+  $("files").innerHTML = file("pdf", "PDF") + file("musicxml", "MusicXML") + file("midi", "MIDI");
+  $("pages").innerHTML = m ? v.pages.map((src, k) => `<img src="${src}${fresh}" alt="Page ${k + 1}">`).join("") : "";
+  if (!m) notice(`<p><b>No score has been made of this song yet.</b></p><p class="soft">It is written from your notes as they stand: what you fixed, and the tool's notes for the rest.</p>`);
+  else if (!v.pages.length) notice(`<p><b>The score is written, but it cannot be drawn here: MuseScore 4 is not on this computer.</b></p>
+    <p>The <a href="${v.files.musicxml}${fresh}" download="${Score.esc(v.title)}.musicxml">MusicXML</a> opens in any notation program. With <a href="https://musescore.org" target="_blank" rel="noopener">MuseScore 4</a> installed, "Make it again" draws the pages here and writes the PDF.</p>`);
+  else notice("");
+}
+async function load() {
+  if (!song) { $("make").classList.add("hidden"); return notice(`<p><b>No song is named in the address.</b></p><p><a href="/">Choose one of your songs.</a></p>`); }
+  try { view = await api("/api/score?song=" + encodeURIComponent(song)); show(); }
+  catch (e) { $("make").classList.add("hidden"); notice(`<p><b>${Score.esc(e.message)}</b></p><p><a href="/">Your songs</a></p>`); }
+}
+async function make() {
+  $("make").disabled = true; say("writing the score…");
+  try { await api("/api/sheet", {song}); say(""); await load(); }
+  catch (e) { say(e.message, true); }
+  $("make").disabled = false;
+}
+const close = () => window.parent.postMessage("copilot-score-close", location.origin);
+
+if (typeof document !== "undefined" && document.getElementById("pages")) {
+  $("make").onclick = make;
+  if (embedded) {
+    for (const id of ["back", "notes"]) $(id).classList.add("hidden");
+    $("close").classList.remove("hidden");
+    $("close").onclick = close;
+    document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  }
+  window.addEventListener("hashchange", () => location.reload());
+  load();
+}
+</script>
+</body>
+</html>

@@ -995,8 +995,9 @@ def report(workdir):
 
 
 def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
-    """Write the score from the person's notes: MusicXML, MIDI and, with MuseScore, the PDF. The line under the
-    title says how much of it they have played through. Returns {file name: path}."""
+    """Write the score from the person's notes: MusicXML, MIDI and, with MuseScore, the PDF and a picture of each
+    page for the copilot's own page to show (`score_made`). The line under the title says how much of it they
+    have played through. Returns {file name: path}."""
     from . import render, score
     from .pipeline import bar_times
     from .rhythm import quantize, simplify
@@ -1043,14 +1044,34 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     files = dict(musicxml=os.path.join(out, "bass.musicxml"), midi=os.path.join(out, "bass_as_played.mid"))
     atomic_write_text(files["musicxml"], xml)
     render.write_midi(notes, m["tempo"], files["midi"], steady=False)
-    ms = score.find_mscore(mscore)
+    ms, pages = score.find_mscore(mscore), []
+    for name in ("bass.pdf", "sheet.json"):  # what is left of the sheet as it was made before
+        if os.path.exists(os.path.join(out, name)):
+            os.remove(os.path.join(out, name))
     if ms:
-        err = score.engrave(files["musicxml"], os.path.join(out, "bass.pdf"), ms)
+        err, pages = score.engrave_pages(files["musicxml"], os.path.join(out, "bass.pdf"), ms)
         if err:
             raise Bass2SheetError(f"the PDF was not written: {err}")
         files["pdf"] = os.path.join(out, "bass.pdf")
+    made = dict(
+        when=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        notes=len(notes),
+        checked=round(share, 3),
+        fixes=desk.fixes(),
+        worked=round(sum(b - a for a, b in checked), 1),
+        files={k: os.path.basename(v) for k, v in files.items()},
+        pages=[os.path.basename(p) for p in pages],
+    )
+    atomic_write_text(os.path.join(out, "sheet.json"), json.dumps(made))
     desk.log(dict(kind="sheet", song=song_id, notes=len(notes), checked=round(share, 3)))
     return files
+
+
+def score_made(workdir, song_id):
+    """The score of a song as it was last made, for the page that shows it: when, from how many fixes and how
+    much worked through, the `files` to download and the pictures of its `pages` (file names in the song's
+    `sheet` folder; no pages where MuseScore was not there to draw them). None before a score is made."""
+    return read_json(os.path.join(song_dir(workdir, song_id), "sheet", "sheet.json"))
 
 
 def main(argv=None):

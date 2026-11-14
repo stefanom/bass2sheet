@@ -15,9 +15,13 @@ from .common import Bass2SheetError
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
 LANDING_PATH = os.path.join(os.path.dirname(__file__), "copilot_landing.html")
+SCORE_PATH = os.path.join(os.path.dirname(__file__), "copilot_score.html")
+SCORE_PANEL_PATH = os.path.join(os.path.dirname(__file__), "copilot_score_panel.js")
+PAGES = {"/": LANDING_PATH, "/song": PAGE_PATH, "/score": SCORE_PATH}
 LOCAL = ("127.0.0.1", "localhost", "::1")  # where a page that may change things here is served from
 SERVED = re.compile(
-    r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/bass\.(pdf|musicxml)|sheet/bass_as_played\.mid)$"
+    r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/bass(\.pdf|\.musicxml|-\d+\.svg)"
+    r"|sheet/bass_as_played\.mid)$"
 )
 
 
@@ -67,6 +71,24 @@ def songs(workdir):
                 touched=os.path.getmtime(os.path.join(folder, "notes.json")),
             )
         )
+    return out
+
+
+def score_of(workdir, song_id):
+    """A song's score as it was last made, for the page that shows it: the addresses of its pages and files."""
+    song = copilot.load_songs(workdir).get(song_id)
+    if song is None or not os.path.exists(os.path.join(copilot.song_dir(workdir, song_id), "machine.json")):
+        raise Bass2SheetError(f"no song {song_id}")
+    from .score import find_mscore
+
+    made = copilot.score_made(workdir, song_id)
+    at = lambda name: f"/data/{song_id}/sheet/{name}"
+    out = dict(id=song_id, title=song.get("title", song_id), artist=song.get("artist", ""), made=None)
+    out["mscore"] = find_mscore() is not None  # whether a score made now would be drawn
+    if made:
+        out["made"] = {k: made[k] for k in ("when", "notes", "checked", "fixes", "worked")}
+        out["files"] = {k: at(v) for k, v in made["files"].items()}
+        out["pages"] = [at(name) for name in made["pages"]]
     return out
 
 
@@ -144,9 +166,14 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
-            if url.path in ("/", "/song"):  # the songs; one song (an old link to /#song is sent on by the page)
-                with open(LANDING_PATH if url.path == "/" else PAGE_PATH, "rb") as f:
+            if url.path in PAGES:  # the songs; one song (an old link to /#song is sent on by the page); its score
+                with open(PAGES[url.path], "rb") as f:
                     self.send_body(f.read(), "text/html; charset=utf-8")
+            elif url.path == "/score-panel.js":  # what a song's page needs to show the score over itself
+                with open(SCORE_PANEL_PATH, "rb") as f:
+                    self.send_body(f.read(), "text/javascript; charset=utf-8")
+            elif url.path == "/api/score":
+                self.send_json(score_of(self.workdir, q.get("song", "")))
             elif url.path == "/api/songs":
                 self.send_json(songs(self.workdir))
             elif url.path == "/api/adding":

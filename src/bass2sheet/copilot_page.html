@@ -156,6 +156,7 @@ const Logic = (() => {
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
 
+<script src="/score-panel.js"></script>
 <script id="app">
 const $ = id => document.getElementById(id);
 const RULER = 20, LANE = 24, TOP = RULER + LANE, GUTTER = 46, TILE = 1024;  // the ruler, the patterns under it, then the notes
@@ -549,8 +550,9 @@ async function makeSheet() {
   try {
     const r = await api("/api/sheet", {song: S.id});
     const link = (k, text) => r[k] ? `<a href="${r[k]}?${Date.now()}" target="_blank">${text}</a>` : "";
-    $("sheetlinks").innerHTML = [link("pdf", "PDF"), link("musicxml", "MusicXML"), link("midi", "MIDI")].filter(Boolean).join(" · ");
+    $("sheetlinks").innerHTML = [`<a href="/score#${encodeURIComponent(S.id)}" onclick="showScore(S.id); return false">See the score</a>`, link("pdf", "PDF"), link("musicxml", "MusicXML"), link("midi", "MIDI")].filter(Boolean).join(" · ");
     say(r.pdf ? "the sheet is written" : "the MusicXML is written; the PDF needs MuseScore 4");
+    showScore(S.id);  // over this page (copilot_score_panel.js): closed, the notes are as they were
   } catch (e) { say(e.message, true); }
   $("sheet").disabled = false;
 }
