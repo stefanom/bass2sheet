@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test songs · bass2sheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --ink: #1f2328; --soft: #59636e; --line: #d1d9e0; --blue: #0969da; --green: #1a7f37; --amber: #9a6700; --red: #a40e26; --bg: #f6f8fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 8px 18px; background: #fff; border-bottom: 1px solid var(--line); }
+  header .spacer { flex: 1; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  main { max-width: 1120px; margin: 0 auto; padding: 18px 18px 110px; }
+  .soft { color: var(--soft); }
+  .lead { font-size: 15px; max-width: 800px; margin: 4px 0 16px; }
+  button { font: inherit; color: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; white-space: nowrap; }
+  button:hover { background: #eef1f4; }
+  table { border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  th, td { padding: 6px 14px; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  tr:last-child td { border-bottom: 0; font-weight: 600; }
+  th { font-weight: 600; color: var(--soft); }
+  #summary p { margin: 8px 0 0; max-width: 800px; }
+  h2 { margin: 30px 0 4px; font-size: 17px; }
+  .about { margin: 0 0 12px; max-width: 800px; color: var(--soft); }
+  .song { display: grid; grid-template-columns: minmax(230px, 1.3fr) minmax(190px, 1fr) auto; gap: 6px 18px; align-items: center; padding: 10px 14px; margin-bottom: 8px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  .song.on { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+  .song .title { font-weight: 600; }
+  .song .facts { color: var(--soft); font-size: 13px; }
+  .scores { font-size: 13px; }
+  .scores b { font-variant-numeric: tabular-nums; }
+  .hear { display: flex; gap: 6px; flex-wrap: wrap; }
+  .answer { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .answer .q { color: var(--soft); margin-right: 4px; }
+  .answer button.yes.sel { background: var(--green); border-color: var(--green); color: #fff; }
+  .answer button.partly.sel { background: var(--amber); border-color: var(--amber); color: #fff; }
+  .answer button.no.sel { background: var(--red); border-color: var(--red); color: #fff; }
+  .answer input { flex: 1; min-width: 200px; font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .hidden { display: none !important; }
+  #player { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: #24292f; color: #fff; }
+  #player button { background: #3d444d; border-color: #57606a; color: #fff; min-width: 44px; }
+  #player button.sel { background: #fff; color: #24292f; }
+  #player input[type=range] { flex: 1; }
+  #player .what { max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #error { color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <b>bass2sheet · test songs</b>
+  <span class="soft" id="count"></span>
+  <span id="error"></span>
+  <span class="spacer"></span>
+  <label><input type="checkbox" id="hideRated"> Hide the ones I have rated</label>
+  <a href="/">The copilot</a>
+</header>
+<main>
+  <p class="lead">The scores of the tool's note finders are measured on these songs. Listen to each one and say whether it is like the music you care about. The table then counts the scores only on the songs that are.</p>
+  <section id="summary"></section>
+  <div id="sets"></div>
+</main>
+<div id="player" class="hidden">
+  <button id="pause" title="Pause or go on"></button>
+  <span class="what" id="what"></span>
+  <button id="asRecord">Record</button>
+  <button id="asBass">Bass alone</button>
+  <input type="range" id="seek" min="0" max="1" step="0.1" value="0">
+  <span id="time"></span>
+</div>
+<script id="logic">
+// Pure helpers, also run by tests/testsongs_page_logic.js under node.
+const Logic = {
+  clock(t) { t = Math.max(0, Math.floor(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; },
+  score(v) { return v === null || v === undefined ? "–" : v.toFixed(2); },
+  esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); },
+  // where a song starts to play: on with the same song where it is, a new song at its busiest stretch
+  startAt(song, now, time) { return now && now.song === song.id ? time : Math.min(song.busy, Math.max(0, song.length - 10)); },
+  shown(song, hideRated) { return !(hideRated && song.rating); },
+};
+if (typeof module !== "undefined") module.exports = Logic;
+</script>
+<script id="app">
+const $ = id => document.getElementById(id);
+const ANSWERS = [["yes", "Like my music"], ["partly", "Partly"], ["no", "Not like it"]];
+let T = null, now = null, queue = Promise.resolve();
+const audio = new Audio();
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function send(body, redraw) {  // answers are sent one after the other, in the order they were given
+  queue = queue.then(() => api("/api/rate", body)).then(t => { T = t; $("error").textContent = ""; if (redraw) render(); else summary(); })
+    .catch(e => { $("error").textContent = e.message; });
+  return queue;
+}
+
+function summary() {
+  const head = `<tr><th>Songs that are</th><th>Songs</th>${T.labels.map(l => `<th>${Logic.esc(l)}</th>`).join("")}</tr>`;
+  const rows = T.summary.map(g => `<tr><td>${Logic.esc(g.words)}</td><td>${g.songs}</td>${T.labels.map(l => `<td>${g.songs ? Logic.score(g.scores[l]) : "–"}</td>`).join("")}</tr>`).join("");
+  const none = T.rated ? "" : " Nothing is rated yet, so for now every song counts.";
+  $("summary").innerHTML = `<table>${head}${rows}</table><p class="soft">A score of 1.00 means every note right and none extra.${none}</p>`;
+  $("count").textContent = `${T.rated} of ${T.total} rated`;
+}
+
+function songRow(s) {
+  const sub = [s.artist, ...s.facts, Logic.clock(s.length)].filter(Boolean).map(Logic.esc).join(" · ");
+  const scores = T.labels.map(l => `${Logic.esc(l)} <b>${Logic.score(s.scores[l])}</b>`).join(" &nbsp; ");
+  const playing = now && now.song === s.id;
+  const answers = ANSWERS.map(([k, words]) => `<button class="${k}${s.rating === k ? " sel" : ""}" data-rate="${k}">${words}</button>`).join("");
+  return `<div class="song${playing ? " on" : ""}" data-song="${Logic.esc(s.id)}">
+    <div><div class="title">${Logic.esc(s.title)}</div><div class="facts">${sub}</div></div>
+    <div class="scores">${scores}</div>
+    <div class="hear"><button data-hear="record">▶ Listen</button><button data-hear="bass">▶ Bass alone</button><a href="/song#${encodeURIComponent(s.id)}" target="_blank" title="Its notes, in the copilot">Open</a></div>
+    <div class="answer"><span class="q">Like the music you care about?</span>${answers}
+      <input type="text" data-note placeholder="What is different? (optional)" value="${Logic.esc(s.note)}"></div>
+  </div>`;
+}
+
+function render() {
+  summary();
+  const hide = $("hideRated").checked;
+  $("sets").innerHTML = T.sets.map(set => {
+    const songs = set.songs.map(id => T.songs[id]).filter(s => Logic.shown(s, hide));
+    const left = set.songs.length - songs.length;
+    return `<h2>${Logic.esc(set.name)} <span class="soft" style="font-weight:400">· ${set.songs.length} songs${left ? `, ${left} rated and hidden` : ""}</span></h2>
+      <p class="about">${Logic.esc(set.about)}</p>${songs.map(songRow).join("")}`;
+  }).join("");
+}
+
+function player() {
+  $("player").classList.toggle("hidden", !now);
+  if (!now) return;
+  const s = T.songs[now.song];
+  $("what").textContent = [s.title, s.artist].filter(Boolean).join(" · ");
+  $("pause").textContent = audio.paused ? "▶" : "❚❚";
+  $("asRecord").classList.toggle("sel", now.kind === "record");
+  $("asBass").classList.toggle("sel", now.kind === "bass");
+  $("seek").max = s.length;
+  $("seek").value = audio.currentTime || 0;
+  $("time").textContent = `${Logic.clock(audio.currentTime || 0)} / ${Logic.clock(s.length)}`;
+  for (const row of document.querySelectorAll(".song")) row.classList.toggle("on", row.dataset.song === now.song);
+}
+
+function hear(id, kind) {
+  const s = T.songs[id];
+  if (now && now.song === id && now.kind === kind) { if (audio.paused) audio.play(); else audio.pause(); return; }
+  const at = Logic.startAt(s, now, audio.currentTime);
+  now = {song: id, kind};
+  audio.src = `/data/${encodeURIComponent(id)}/audio/${kind}.flac`;
+  audio.addEventListener("loadedmetadata", () => { audio.currentTime = at; audio.play(); }, {once: true});
+  audio.load();
+  player();
+}
+
+for (const name of ["timeupdate", "play", "pause", "ended"]) audio.addEventListener(name, player);
+audio.addEventListener("error", () => { if (now) $("error").textContent = "that song's sound could not be loaded"; });
+$("pause").onclick = () => { if (audio.paused) audio.play(); else audio.pause(); };
+$("asRecord").onclick = () => now && hear(now.song, "record");
+$("asBass").onclick = () => now && hear(now.song, "bass");
+$("seek").oninput = () => { audio.currentTime = +$("seek").value; };
+$("hideRated").onchange = render;
+$("sets").addEventListener("click", e => {
+  const row = e.target.closest(".song"), b = e.target.closest("button");
+  if (!row || !b) return;
+  const id = row.dataset.song;
+  if (b.dataset.hear) hear(id, b.dataset.hear);
+  else if (b.dataset.rate) send({song: id, rating: T.songs[id].rating === b.dataset.rate ? null : b.dataset.rate}, true);
+});
+$("sets").addEventListener("change", e => {
+  const row = e.target.closest(".song");
+  if (row && e.target.matches("[data-note]")) send({song: row.dataset.song, note: e.target.value}, false);
+});
+api("/api/tests").then(t => { T = t; render(); }).catch(e => { $("error").textContent = e.message; });
+</script>
+</body>
+</html>

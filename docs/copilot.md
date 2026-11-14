@@ -116,6 +116,25 @@ Drawing the pages needs [MuseScore 4](https://musescore.org) on the computer. Wi
 
 `report` compares the tool's version with yours: wrong pitch, wrong octave, extra note, missed note, two notes written as one, one note written as two, a start or an end moved. Notes you left alone in what you have worked through count as right. That is ground truth on your own songs, which no dataset has.
 
+## Judging the test songs
+
+The tool's scores ([evaluation.md](evaluation.md)) are measured on research datasets. A score measured on songs unlike yours says little about yours, and whether they are like yours is for you to say.
+
+```bash
+bass2sheet-copilot testset ~/data/RWC/RWC-P --annotations ~/data/rwc-annotations \
+    --scores bass2sheet=runs/rwc --scores MuScriptor=runs/rwc-muscriptor --dir tests
+bass2sheet-copilot testset ~/data/babyslakh_16k --name BabySlakh --scores bass2sheet=runs/babyslakh --dir tests
+bass2sheet-copilot serve --dir tests        # then open http://localhost:8770/tests
+```
+
+`testset` adds a dataset's songs to a working directory as ordinary songs: the ones a `bass2sheet-eval` run measured, each with the score every note finder named in `--scores` got on it. The page at `/tests` lists them by set, says what kind of recordings the set holds and what is known of each song (for RWC Popular, for one, whether the bass was played live).
+
+- **Listen** plays the record from the stretch where the bass is busiest; **Bass alone** plays the isolated bass from the same moment. The bar at the bottom moves through the song and switches between the two. **Open** shows the song's notes in the copilot.
+- For each song you answer **Like my music**, **Partly** or **Not like it**, and can write what is different. Pressing the answer again takes it back.
+- The table at the top counts the scores by your answers as you give them: what the note finders score on the songs that are like yours, and how many such songs there are. `bass2sheet-copilot report --dir tests` prints the same table and your notes.
+
+Your answers are kept in `ratings.json` in the working directory, and every change in `ratings.jsonl`.
+
 ## Playing along
 
 The sheet is for playing the song yourself, with the record. The play-along page is the sheet made for that: on a phone held sideways, on the music stand or the amp.
@@ -154,6 +173,7 @@ scores/
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
+  tests.json, ratings.json, ratings.jsonl   in a directory of test songs: what they are, and your answers
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/repeats.npz    which bars sound alike, measured once from the bass track

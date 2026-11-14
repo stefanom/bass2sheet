@@ -10,7 +10,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import copilot, copilot_adding, playalong
+from . import copilot, copilot_adding, playalong, testsongs
 from .common import Bass2SheetError
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
@@ -182,6 +182,11 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_body(f.read(), "text/javascript; charset=utf-8")
             elif url.path == "/api/score":
                 self.send_json(score_of(self.workdir, q.get("song", ""), q.get("version")))
+            elif url.path == "/tests":  # the songs the scores are measured on, to hear and to rate
+                with open(testsongs.PAGE_PATH, "rb") as f:
+                    self.send_body(f.read(), "text/html; charset=utf-8")
+            elif url.path == "/api/tests":
+                self.send_json(testsongs.state(self.workdir))
             elif url.path == "/api/songs":
                 self.send_json(songs(self.workdir))
             elif url.path == "/api/adding":
@@ -271,6 +276,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/adding":  # a song being added: try it again, or take it out of the row
                 getattr(self.adding, dict(again="again", remove="remove")[data.get("do")])(data.get("id", ""))
                 return self.send_json(self.adding_now())
+            if path == "/api/rate":  # the person's answer for a test song
+                return self.send_json(testsongs.rate_request(self.workdir, data))
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
                 if path == "/api/act":
@@ -319,6 +326,8 @@ def serve(workdir, port=8770, lan=False):
     if not n:
         print("Add your first song on the page, or with `bass2sheet-copilot add SONG`.", flush=True)
     print(f"To play along: http://localhost:{port}/play", flush=True)
+    if testsongs.load(server.RequestHandlerClass.workdir)["songs"]:
+        print(f"The test songs, to hear and to rate: http://localhost:{port}/tests", flush=True)
     for line in playalong.announce(port) if lan else []:
         print(line, flush=True)
     print("Stop with Ctrl-C; your fixes are saved as you make them.", flush=True)

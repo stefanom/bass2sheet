@@ -1063,6 +1063,8 @@ def report(workdir):
         if not os.path.exists(os.path.join(song_dir(workdir, song_id), "machine.json")):
             continue
         m = mistakes(workdir, song_id)
+        if song.get("test") and not m["kinds"] and not m["checked_seconds"]:
+            continue  # a test song nobody has worked on: testsongs.report speaks of those
         share = m["checked_seconds"] / max(m["length"], 1e-9)
         lines += [f"## {song.get('title', song_id)}", ""]
         lines += [
@@ -1218,7 +1220,26 @@ def main(argv=None):
     h.add_argument("song", help="the song's id, as `report` lists it")
     h.add_argument("--mscore", help="path to the MuseScore 4 binary")
     r = sub.add_parser("report", help="print what the tool got wrong so far")
-    for p in (a, s, h, r):
+    t = sub.add_parser(
+        "testset",
+        help="add the songs of an evaluation dataset as test songs: hear what the tool's scores are measured on "
+        "and say, at /tests, which are like your music",
+    )
+    t.add_argument("dataset", help="a dataset directory bass2sheet-eval knows")
+    t.add_argument("--annotations", help="for RWC Popular: a checkout of github.com/rwc-music/rwc-annotations")
+    t.add_argument(
+        "--scores",
+        action="append",
+        default=[],
+        metavar="NAME=RUN_DIR",
+        help="a bass2sheet-eval run directory and the name its scores go by (repeat for each note finder); the "
+        "songs of the first one are the ones added",
+    )
+    t.add_argument("--name", help="what to call the set (default: the kind of dataset)")
+    t.add_argument("--tracks", help="comma-separated track ids, in place of the first run's")
+    t.add_argument("--cache-dir", help="where models, stems and pitch tracks are cached")
+    t.add_argument("--device", help="mps, cuda or cpu (default: the best available)")
+    for p in (a, s, h, r, t):
         p.add_argument("--dir", default="scores", help="working directory (default ./scores)")
     args = ap.parse_args(argv)
     try:
@@ -1237,8 +1258,20 @@ def main(argv=None):
         elif args.command == "sheet":
             for name, path in sheet(args.dir, args.song, args.mscore).items():
                 print(f"{name}: {path}")
+        elif args.command == "testset":
+            from . import testsongs
+
+            if any("=" not in x for x in args.scores):
+                raise Bass2SheetError("--scores takes NAME=RUN_DIR")
+            runs = dict(x.split("=", 1) for x in args.scores)
+            opts = {k: v for k, v in dict(cache_dir=args.cache_dir, device=args.device).items() if v}
+            only = args.tracks.split(",") if args.tracks else None
+            n = len(testsongs.add_set(args.dataset, args.dir, args.annotations, runs, args.name, only, opts)["songs"])
+            print(f"{n} test songs. Hear and rate them: bass2sheet-copilot serve --dir {args.dir}, then /tests")
         else:
-            print(report(args.dir), end="")
+            from . import testsongs
+
+            print(testsongs.report(args.dir) + report(args.dir), end="")
     except Bass2SheetError as e:
         print(f"bass2sheet-copilot: {e}")
         return 1

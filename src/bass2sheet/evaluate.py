@@ -135,6 +135,14 @@ def rwc_tracks(audio_root, annotations):
                 beats_csv=beats if os.path.exists(beats) else None,
                 span=(float(m["audio_start"]), float(m["audio_end"])),
                 bass=[dict(id="bass", audio=None, patch=(pm.instruments[bass[0]].name or "").strip())],
+                about=dict(  # what the database says of the song (testsongs.py shows it)
+                    title=m.get("Title", ""),
+                    artist=m.get("Artist", ""),
+                    genre=m.get("GenreSub", ""),
+                    tempo=m.get("Tempo", ""),
+                    live=m.get("LiveInstruments", ""),
+                    drums=m.get("DrumInformation", ""),
+                ),
             )
         )
     return out

@@ -37,6 +37,8 @@ None of these datasets is redistributed here, and the non-commercial ones are fo
 
 ### What each one can tell you
 
+None of these is a commercial release, and whether they are like the music you want scores for is for you to judge: `bass2sheet-copilot testset` puts a dataset's songs in the copilot to be heard and rated, and counts the scores on the ones that are ([copilot.md](copilot.md), "Judging the test songs").
+
 - **BabySlakh / Slakh** has exact ground truth and clean stems, so it separates the stages: separation (`mix` vs `stem`), notes, and the rhythm grid.
   - The audio is synthetic and the mixes are mono, with the bass louder and cleaner than in a commercial mix. Good scores here are necessary, not sufficient.
   - Slakh's bass stems sound one octave below their MIDI notes. The harness measures that from each clean stem and corrects the reference.
