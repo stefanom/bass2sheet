@@ -135,6 +135,26 @@ bass2sheet-copilot serve --dir tests        # then open http://localhost:8770/te
 
 Your answers are kept in `ratings.json` in the working directory, and every change in `ratings.jsonl`.
 
+## An answer key from somebody's transcription
+
+For most well-known songs somebody has written the bass line down: a MIDI file of the whole arrangement, a Guitar Pro tab, a score. `reference` takes such a file as an answer key for one of your songs:
+
+```bash
+bass2sheet-copilot reference SONG_ID billie-jean.mid --dir scores
+bass2sheet-copilot report --dir scores
+```
+
+The file counts bars and beats, not the seconds of your recording, and it may be in another key, at another tempo, with an intro of another length or a verse more or less. So it is first lined up with the recording (`reference.py`): its key and tempo are found, the two are run side by side, what one has and the other lacks is jumped over, and the timing is settled on the recording's onsets. How close that comes is measured in [evaluation.md](evaluation.md). Then the file's bass part, in your recording's time, is kept beside the song (`reference/NAME.json`).
+
+`report` scores the song's notes against each key, on the part of the recording the key covers: the tool's notes, and where you have worked, the tool's notes and your version side by side. A note counts as right when the key has that pitch starting within a tenth of a second. Beside the score it says what becomes of the key's notes: the version has the note, has it an octave away, has another pitch there, or has nothing there.
+
+- **It is a reading, not the truth.** Two transcriptions of one song differ, most often in the octave of a note and in what they leave out. Give it several and see where they agree.
+- **Formats.** MIDI is read as it is. Guitar Pro, MusicXML and MuseScore files are turned into MIDI by MuseScore first, which has to be installed.
+- **The bass part** is the one called a bass, by its name or its General MIDI program; the command says which it took and which others it could have been (`--part N` takes another). If the file writes the bass an octave from where it sounds, the whole part is moved to where the isolated bass sounds.
+- **A file that is only part of the song** is placed where it fits best. In a song that repeats, that can be another occurrence of the same music.
+- **Where the file comes from matters.** Some sites do not allow their tabs to be downloaded by a program, or to be used to evaluate software at all. Read their terms; `reference` only reads a file you already have.
+- The key's notes are not shown on the song's page yet.
+
 ## Playing along
 
 The sheet is for playing the song yourself, with the record. The play-along page is the sheet made for that: on a phone held sideways, on the music stand or the amp.
@@ -173,6 +193,7 @@ scores/
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
+  <song>/reference/     answer keys: somebody's transcription of the song, lined up with the recording
   tests.json, ratings.json, ratings.jsonl   in a directory of test songs: what they are, and your answers
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need

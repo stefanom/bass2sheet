@@ -211,6 +211,29 @@ With `--notes muscriptor` a note is flagged on the word of two witnesses, both r
 - **MuScriptor has already heard the attack.** The rise finds re-plucks among held notes; MuScriptor writes a note at 3% of the held moments and at 86% of the re-plucks. Once it has written a note, the level adds little: within each group of notes (bass2sheet has it, holds the pitch, hears another, hears nothing) the rise tells right from wrong 56 to 63% of the time on RWC.
 - **On the synthesized BabySlakh the original would sharpen the flag**: taken off where both rise by 6 dB, it falls on 1.8% of the notes and 58% of them are wrong; the 371 notes that lose it are right 91% of the time. There the flag's trouble is another one (bass2sheet's finder and MuScriptor differ by an octave on notes MuScriptor has right), and the isolated bass has clean attacks. A rule had to hold on both sets, and RWC is the one made of recordings.
 
+### Lining a transcription up with a recording
+
+`python dev/reference_eval.py --dataset RWC_DIR --annotations RWC_ANNOTATIONS --dataset BABYSLAKH_DIR`
+
+`bass2sheet-copilot reference` takes somebody's transcription of a song (a MIDI file, a tab) as an answer key for your recording of it ([copilot.md](copilot.md)). For that the file has to be lined up with the recording first (`reference.py`). How close that comes is measured where the truth is known: from each test song's answer key a file is made as someone would have sequenced it, and the step has to find the way back. For RWC Popular every note of the arrangement is put on a steady beat, 7% faster than the recording, after three seconds of nothing; the recording's own tempo wanders, the file's does not. For BabySlakh the arrangement is slowed by 7%, with a tempo that wanders by 3% either way.
+
+| | RWC Popular (24 songs) | BabySlakh (16 songs) |
+|---|---|---|
+| Bass notes of the key that are placed | 99.3% | 100% |
+| A song's own offset from the dataset's times | +24 ms (+14 to +43) | +19 ms (+12 to +25) |
+| Spread of the notes around that offset | 6 ms | 2 ms |
+| Notes within 50 ms / 100 ms of their true time | 98.0% / 100% | 99.6% / 100% |
+| bass2sheet's score against the dataset's key | 0.761 | 0.915 |
+| ... against the key lined up by this step | 0.765 | 0.913 |
+| Largest difference between the two for one song | 0.021 | 0.017 |
+| With eight seconds left out of the file: the gap found | 23 of 24 songs | 15 of 16 songs |
+| ... and notes placed more than 100 ms off | 25 of 15,109 | 11 of 5,846 |
+
+- **A key lined up this way scores a transcription as the dataset's own key does**: the two scores differ by 0.005 a song on average.
+- **The offset is the datasets', not the step's.** The step puts a note where its sound starts. Slakh's samplers start to sound 5 to 40 ms after their MIDI note, and RWC's aligned MIDI runs ahead of the sound by about as much: bass2sheet's and MuScriptor's own notes are 11 to 20 ms later than both keys too.
+- **What made it work.** Chroma alone runs two readings of a song side by side to within a few tenths of a second, and is stiff where the tempo wanders. Onsets alone are exact and cannot tell a stretch from the same stretch half a beat later: left to themselves they moved two whole songs of the 24 by an eighth note. Together: chroma says where, to a tenth of a second; the onsets say exactly where, along one smooth course that may not stray far from what the chroma said.
+- **What it does not measure**: files that are wrong about the notes, which real tabs are. The files here are the answer keys themselves, re-timed. On a real file the step still finds where each bar belongs; how much the tab's notes are worth is another matter, and two tabs of one song are the way to see it.
+
 ### Notes played together
 
 `python dev/together_eval.py IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`

@@ -166,11 +166,16 @@ def octave_shift(audio_path, notes):
     """How far the stem sounds from its MIDI, as a whole number of octaves in semitones, measured with pYIN on
     the clean stem. Slakh's bass patches sound an octave below their MIDI notes, so the MIDI alone is not the
     sounding pitch. Returns (shift, share of measured notes that agree)."""
-    import librosa
     import soundfile as sf
 
     y, sr = sf.read(audio_path, dtype="float32", always_2d=True)
-    y = y.mean(1)
+    return octave_shift_of(y.mean(1), sr, notes)
+
+
+def octave_shift_of(y, sr, notes):
+    """octave_shift for a bass track already in memory (mono samples at `sr`)."""
+    import librosa
+
     hop = sr // 100
     f0, _, _ = librosa.pyin(y, fmin=28, fmax=600, sr=sr, frame_length=2048 * max(1, sr // 16000), hop_length=hop)
     t = np.arange(len(f0)) * hop / sr

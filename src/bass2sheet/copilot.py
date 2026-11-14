@@ -1239,7 +1239,16 @@ def main(argv=None):
     t.add_argument("--tracks", help="comma-separated track ids, in place of the first run's")
     t.add_argument("--cache-dir", help="where models, stems and pitch tracks are cached")
     t.add_argument("--device", help="mps, cuda or cpu (default: the best available)")
-    for p in (a, s, h, r, t):
+    k = sub.add_parser(
+        "reference",
+        help="take somebody's transcription of a song (a MIDI file, a Guitar Pro tab, a MusicXML score) as an "
+        "answer key: it is lined up with the recording, and the notes are scored against its bass part",
+    )
+    k.add_argument("song", help="the song's id, as `report` lists it")
+    k.add_argument("file", help="the transcription: .mid, or anything MuseScore opens (.gp, .gpx, .gp5, .musicxml)")
+    k.add_argument("--part", type=int, help="the number of the part to take as the bass, when the wrong one is found")
+    k.add_argument("--mscore", help="path to the MuseScore 4 binary")
+    for p in (a, s, h, r, t, k):
         p.add_argument("--dir", default="scores", help="working directory (default ./scores)")
     args = ap.parse_args(argv)
     try:
@@ -1258,6 +1267,16 @@ def main(argv=None):
         elif args.command == "sheet":
             for name, path in sheet(args.dir, args.song, args.mscore).items():
                 print(f"{name}: {path}")
+        elif args.command == "reference":
+            from . import reference
+
+            name, key = reference.add(args.dir, args.song, args.file, args.part, args.mscore)
+            others = ", ".join(f'{o["index"]} "{o["name"]}" ({o["notes"]} notes)' for o in key["others"])
+            print(
+                f'Took part {key["part"]["index"]} "{key["part"]["name"]}" ({key["part"]["notes"]} notes) as the '
+                f"bass" + (f"; it could also have been {others} (--part N)" if others else "") + "."
+            )
+            print(reference.report(args.dir), end="")
         elif args.command == "testset":
             from . import testsongs
 
@@ -1269,9 +1288,9 @@ def main(argv=None):
             n = len(testsongs.add_set(args.dataset, args.dir, args.annotations, runs, args.name, only, opts)["songs"])
             print(f"{n} test songs. Hear and rate them: bass2sheet-copilot serve --dir {args.dir}, then /tests")
         else:
-            from . import testsongs
+            from . import reference, testsongs
 
-            print(testsongs.report(args.dir) + report(args.dir), end="")
+            print(testsongs.report(args.dir) + report(args.dir) + reference.report(args.dir), end="")
     except Bass2SheetError as e:
         print(f"bass2sheet-copilot: {e}")
         return 1
