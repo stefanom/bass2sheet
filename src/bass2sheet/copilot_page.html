@@ -72,10 +72,13 @@
     <span class="legend"><i style="border-color:#9a6700;background:#fbe9a4"></i>the tool doubts it</span>
     <span class="legend"><i style="border-color:#0969da;background:#cfe4fb"></i>fixed by you</span>
     <span class="legend"><i style="border-color:#8c959f;border-style:dashed;background:#fff"></i>where the tool had it</span>
+    <span class="legend"><i style="border-color:#bc4c00;border-style:dashed;background:#ffe2c6"></i>what a repeat you fixed or left has there</span>
+    <span class="legend"><i style="border-color:#9a6700;border-style:dotted;background:#fff"></i>what most repeats have there</span>
     <span class="legend"><i style="border:0;border-top:2px solid #cf222e;height:0;margin-top:2px"></i>the pitch the tracker followed</span>
     <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>played through</span><br>
     <kbd>Space</kbd> play / stop · <kbd>←</kbd> <kbd>→</kbd> the note before / after · <kbd>1</kbd>–<kbd>6</kbd> take a guess · <kbd>↑</kbd> <kbd>↓</kbd> a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave ·
     <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⇧M</kbd> join with every repeat that follows · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo · <kbd>[</kbd> <kbd>]</kbd> slower / faster<br>
+    The letters over the timeline name the bars that sound alike. Click a letter to step through its repeats; click an orange mark under it, or a dashed note, to see what a repeat has there and take it or leave it.<br>
     Click a note to select it, drag it up or down to change its pitch, drag an end to move it. Shift-click another note (or <kbd>⇧←</kbd> <kbd>⇧→</kbd>) to select all the notes in between: delete them, join them or move them together. Click anywhere else to move the playhead; double-click to add a note. Drag the timeline or scroll to move through the song, also while it plays.
   </div>
 </main>
@@ -151,10 +154,13 @@ if (typeof module !== "undefined") module.exports = Logic;
 
 <script id="app">
 const $ = id => document.getElementById(id);
-const RULER = 20, GUTTER = 46, TILE = 1024;
+const RULER = 20, LANE = 24, TOP = RULER + LANE, GUTTER = 46, TILE = 1024;  // the ruler, the patterns under it, then the notes
 let S = null, tiles = [], f0 = null, byPitch = new Map();
 let view = {t0: 0, pps: 150, free: false}, row = 12;  // free: the person moved the view; it does not follow the playhead
-let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;  // many: a run of selected notes, sel among them
+let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;
+let selBar = null, selDiff = null;  // a bar chosen in the pattern strip; a difference from a repeat that was clicked
+const barSpan = i => [S.bars[i].time, i + 1 < S.bars.length ? S.bars[i + 1].time : S.length];
+const hueOf = pattern => ([...pattern].reduce((v, c) => v * 26 + c.charCodeAt(0) - 64, 0) * 137.5) % 360;  // many: a run of selected notes, sel among them
 let playhead = 0, drag = null, pan = null, dirty = true;
 // A.record and A.bass are what plays: the song as it is, or slowed down (A.speed below 1); a moment of the song is
 // at that moment divided by A.speed in them
@@ -186,7 +192,7 @@ async function load(id) {
   S = await api("/api/song?id=" + encodeURIComponent(id));
   location.hash = id;
   document.title = S.title + " · copilot";
-  sel = null; many = []; guesses = []; guessesFor = null; hideOffer(); tiles = []; f0 = null; A.rms.clear();
+  sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); tiles = []; f0 = null; A.rms.clear();
   A.record = A.bass = A.full = null; A.slow = {}; A.speed = 1; $("speed").value = "100";
   byPitch = Logic.indexNotes(S.notes);
   playhead = S.at !== null && S.at < S.length - 1 ? S.at : Logic.resumeAt(Logic.sorted(S.notes), S.checked);
@@ -230,12 +236,12 @@ function makeTiles(data) {
 // ----------------------------------------------------------------------------------------------------- drawing
 const xOf = t => GUTTER + (t - view.t0) * view.pps;
 const tOf = x => view.t0 + (x - GUTTER) / view.pps;
-const yOf = p => RULER + (S.high - p) * row;
-const pOf = y => S.high - Math.floor((y - RULER) / row);
+const yOf = p => TOP + (S.high - p) * row;
+const pOf = y => S.high - Math.floor((y - TOP) / row);
 function resize() {
   const c = $("roll"), W = $("rollwrap").clientWidth, rows = S ? S.high - S.low + 1 : 30;
   row = Math.max(9, Math.min(16, Math.floor(470 / rows)));
-  const H = RULER + rows * row, dpr = window.devicePixelRatio || 1;
+  const H = TOP + rows * row, dpr = window.devicePixelRatio || 1;
   c.style.height = H + "px";
   c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
   dirty = true;
@@ -254,13 +260,13 @@ function draw() {
   g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
   if (!S) return;
   const t1 = tOf(W), rows = S.high - S.low + 1, P = S.picture;
-  g.save(); g.beginPath(); g.rect(GUTTER, RULER, W - GUTTER, H - RULER); g.clip();
+  g.save(); g.beginPath(); g.rect(GUTTER, TOP, W - GUTTER, H - TOP); g.clip();
   // what sounds in the bass track
   g.imageSmoothingEnabled = true;
   const sy = P.rows - P.per_semitone * (S.high - P.low + 1), sh = P.per_semitone * rows;
   tiles.forEach((cv, k) => {
     const a = k * TILE * P.step, b = a + cv.width * P.step;
-    if (b >= view.t0 && a <= t1) g.drawImage(cv, 0, sy, cv.width, sh, xOf(a), RULER, cv.width * P.step * view.pps, rows * row);
+    if (b >= view.t0 && a <= t1) g.drawImage(cv, 0, sy, cv.width, sh, xOf(a), TOP, cv.width * P.step * view.pps, rows * row);
   });
   // the pitches: a line under each, darker under the open strings
   for (let p = S.low; p <= S.high; p++) {
@@ -270,7 +276,7 @@ function draw() {
   }
   // the bars, as the tool counts them
   g.strokeStyle = "rgba(31,35,40,.16)";
-  for (const b of S.bars) { if (b.time < view.t0 - 1 || b.time > t1) continue; const x = Math.round(xOf(b.time)) + .5; g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, H); g.stroke(); }
+  for (const b of S.bars) { if (b.time < view.t0 - 1 || b.time > t1) continue; const x = Math.round(xOf(b.time)) + .5; g.beginPath(); g.moveTo(x, TOP); g.lineTo(x, H); g.stroke(); }
   // the pitch the tracker followed
   if (f0) {
     g.strokeStyle = "rgba(207,34,46,.75)"; g.lineWidth = 1.2; g.beginPath();
@@ -304,9 +310,49 @@ function draw() {
     });
     if (bs.length > 1) { g.strokeStyle = edge; g.lineWidth = 1; g.beginPath(); g.moveTo(bs[0][1] + 1.5, Math.min(...bs.map(b => b[2])) + row); g.lineTo(bs[0][1] + 1.5, Math.max(...bs.map(b => b[2]))); g.stroke(); }
   }
+  // what a repeat has where this bar is written differently: dashed, over the notes
+  const R = S.repeats;
+  for (const d of R.differences) {
+    if (d.end < view.t0 - 1 || d.start > t1 + 1) continue;
+    const strong = d.why !== "most";
+    g.setLineDash(strong ? [5, 3] : [2, 3]); g.strokeStyle = strong ? "#bc4c00" : "#9a6700"; g.lineWidth = d.id === selDiff ? 2.5 : 1.5;
+    for (const q of d.notes) {
+      const x = xOf(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), y = yOf(q.pitch);
+      g.fillStyle = strong ? "rgba(255,166,87,.25)" : "rgba(212,167,44,.12)"; g.fillRect(x, y + 1, w, row - 2);
+      g.strokeRect(x + .5, y + 1.5, w, row - 3);
+      if (w > 24 && row >= 11) { g.fillStyle = g.strokeStyle; g.fillText(name(q.pitch), x + 4, y + row / 2 + .5); }
+    }
+    if (!d.notes.length) for (const n of S.notes) {  // the repeat has nothing there: what is written is struck through
+      if (n.end <= d.start || n.start >= d.end) continue;
+      const y = yOf(n.pitch) + row / 2;
+      g.beginPath(); g.moveTo(xOf(Math.max(n.start, d.start)), y); g.lineTo(xOf(Math.min(n.end, d.end)), y); g.stroke();
+    }
+    g.setLineDash([]);
+  }
   // the playhead
   g.strokeStyle = "#cf222e"; g.lineWidth = 1.5; const px = xOf(playhead);
-  g.beginPath(); g.moveTo(px, RULER); g.lineTo(px, H); g.stroke();
+  g.beginPath(); g.moveTo(px, TOP); g.lineTo(px, H); g.stroke();
+  g.restore();
+  // the patterns: a letter for the bars that sound alike; under them, where a bar is written unlike its repeats
+  const kin = selBar !== null && R.bars[selBar] ? R.bars[selBar].of : [];
+  g.fillStyle = "#fff"; g.fillRect(GUTTER, RULER, W - GUTTER, LANE);
+  g.save(); g.beginPath(); g.rect(GUTTER, RULER, W - GUTTER, LANE); g.clip();
+  g.font = "600 10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
+  R.bars.forEach((b, i) => {
+    const [a, z] = barSpan(i), x0 = xOf(a), x1 = xOf(z);
+    if (x1 < GUTTER || x0 > W) return;
+    const chosen = i === selBar, akin = kin.includes(i);
+    g.fillStyle = !b.pattern ? "#f3f4f6" : `hsl(${hueOf(b.pattern)}, ${chosen || akin ? 75 : 55}%, ${chosen ? 60 : akin ? 72 : 90}%)`;
+    g.fillRect(x0 + .5, RULER + 1, x1 - x0 - 1, 14);
+    if (chosen) { g.strokeStyle = "#1f2328"; g.lineWidth = 2; g.strokeRect(x0 + 1.5, RULER + 2, x1 - x0 - 3, 12); }
+    if (b.pattern && x1 - x0 > 18) { g.fillStyle = "#1f2328"; g.fillText(b.pattern, x0 + 5, RULER + 8.5); }
+  });
+  for (const d of R.differences) {
+    const x0 = xOf(d.start), x1 = xOf(d.end);
+    if (x1 < GUTTER || x0 > W) continue;
+    g.fillStyle = d.why === "most" ? "#d4a72c" : "#bc4c00";
+    g.fillRect(x0 + 1, RULER + 17, Math.max(3, x1 - x0 - 2), d.id === selDiff ? 6 : 4);
+  }
   g.restore();
   // the ruler: bar numbers, and what was played through
   g.fillStyle = "#f6f8fa"; g.fillRect(GUTTER, 0, W - GUTTER, RULER);
@@ -356,7 +402,12 @@ function refresh() {
   for (const k of ["record", "bass", "notes", "split"]) $("hear" + k[0].toUpperCase() + k.slice(1)).checked = hear[k];
   const n = note(sel), panel = $("panel");
   many = many.filter(id => note(id));
-  if (many.length > 1) {
+  const diff = S.repeats.differences.find(d => d.id === selDiff);
+  if (!diff) selDiff = null;
+  if (diff || (selBar !== null && S.repeats.bars[selBar])) {
+    panel.innerHTML = diff ? diffPanel(diff) : barPanel(selBar);
+    panel.querySelectorAll("button[data-do]").forEach(b => b.onclick = () => doPanel(b.dataset.do));
+  } else if (many.length > 1) {
     const first = note(many[0]), last = note(many[many.length - 1]);
     panel.innerHTML = `<span><b>${many.length} notes</b> <span class="soft">${Logic.clock(first.start)} to ${Logic.clock(last.end)}</span></span>
       <span class="soft"><kbd>⌫</kbd> delete them · <kbd>M</kbd> join them into one · <kbd>↑</kbd> <kbd>↓</kbd> move them a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave · <kbd>Esc</kbd> let go</span>`;
@@ -384,7 +435,7 @@ function extend(id) {  // from the selected note to this one
   refresh();
 }
 function select(id, quiet) {
-  sel = id; many = [];
+  sel = id; many = []; selBar = null; selDiff = null;
   const n = note(id);
   if (n && !(guessesFor === n.id + ":" + n.pitch)) askGuesses(n);
   if (n && !quiet) {
@@ -406,7 +457,7 @@ async function askGuesses(n) {
 async function act(action) {
   try {
     const r = await api("/api/act", {song: S.id, action: Object.assign({playhead: +playhead.toFixed(2)}, action)});
-    S.notes = r.notes; S.checked = r.checked; S.undo = r.undo; S.fixes = r.fixes;
+    S.notes = r.notes; S.checked = r.checked; S.undo = r.undo; S.fixes = r.fixes; S.repeats.differences = r.differences;
     byPitch = Logic.indexNotes(S.notes); A.rms.clear();
     if (r.result.offer) showOffer(r.result.offer);
     say("");
@@ -451,8 +502,11 @@ async function nudge(n, dStart, dEnd) {
 }
 function showOffer(o) {
   offer = o; offerNext = 0;
-  const k = o.ids.length;
-  $("offer").innerHTML = `<span><b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?</span>
+  const k = o.type === "repeat" ? o.bars : o.ids.length;
+  const what = o.type === "repeat"
+    ? `<b>${k} other ${k === 1 ? "bar sounds" : "bars sound"} the same here</b> and ${k === 1 ? "is" : "are"} written as this one was. Fix ${k === 1 ? "it" : "them"} too?`
+    : `<b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?`;
+  $("offer").innerHTML = `<span>${what}</span>
     <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerYes">Fix ${k === 1 ? "it" : "all " + k} <kbd>Y</kbd></button><button id="offerNo">No <kbd>X</kbd></button></span>`;
   $("offer").classList.remove("hidden");
   $("offerShow").onclick = offerShow; $("offerYes").onclick = offerYes; $("offerNo").onclick = offerNo;
@@ -460,18 +514,27 @@ function showOffer(o) {
 function hideOffer() { offer = null; $("offer").classList.add("hidden"); }
 function offerShow() {
   if (!offer) return;
+  if (offer.type === "repeat") {  // go to the next bar it would change, and hear the spot
+    const item = offer.items[offerNext++ % offer.items.length], [a, b] = stretchOf(item);
+    stop(); sel = null; many = []; selDiff = null; selBar = item.bar;
+    view.t0 = Math.max(-0.2, a - 1.5); view.free = true;
+    refresh(); hearSpan(a, b);
+    return;
+  }
   const n = note(offer.ids[offerNext++ % offer.ids.length]);
   if (n) { select(n.id); audition(n); }
 }
 async function offerYes() {
   if (!offer) return;
   const o = offer; hideOffer();
-  await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
+  if (o.type === "repeat") await act({kind: "repeats", items: o.items, how: "offer"});
+  else await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
 }
 async function offerNo() {
   if (!offer) return;
   const o = offer; hideOffer();
-  await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+  if (o.type === "repeat") await act({kind: "refuse", items: o.items});
+  else await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
 }
 async function makeSheet() {
   $("sheet").disabled = true; say("writing the sheet…");
@@ -559,7 +622,7 @@ function reportPlayed(pos) {
   const a = A.seg, b = Math.min(pos, S.length);
   A.seg = b;
   if (b - a < 0.3) return;
-  api("/api/checked", {song: S.id, start: +a.toFixed(2), end: +b.toFixed(2)}).then(r => { S.checked = r.checked; refresh(); }).catch(e => say(e.message, true));
+  api("/api/checked", {song: S.id, start: +a.toFixed(2), end: +b.toFixed(2)}).then(r => { S.checked = r.checked; S.repeats.differences = r.differences; refresh(); }).catch(e => say(e.message, true));
 }
 function stop() {
   if (!A.playing) return;
@@ -617,15 +680,70 @@ function hit(x, y) {
       return {note: n, mode: edges && x < bx + 5 ? "start" : edges && x > bx + w - 5 ? "end" : "pitch"};
     }
   }
+  for (const d of S.repeats.differences) for (const q of d.notes) {  // what a repeat has there
+    const bx = xOf(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), by = yOf(q.pitch);
+    if (y >= by && y < by + row && x >= bx - 2 && x <= bx + w + 2) return {diff: d};
+  }
   return null;
+}
+function laneClick(x, y) {  // the pattern strip: a difference mark, or a bar
+  const t = tOf(x);
+  const d = y >= RULER + 15 ? S.repeats.differences.find(d => t >= d.start && t <= d.end) : null;
+  if (d) return selectDiff(d.id);
+  const i = S.repeats.bars.findIndex((b, i) => t >= barSpan(i)[0] && t < barSpan(i)[1]);
+  if (i >= 0) selectBar(i);
+}
+function selectDiff(id) { stop(); sel = null; many = []; selBar = null; selDiff = id; refresh(); }
+function selectBar(i, show) {
+  stop(); sel = null; many = []; selDiff = null; selBar = i;
+  if (show) { view.t0 = Math.max(-0.2, barSpan(i)[0] - 1); view.free = true; playhead = barSpan(i)[0]; }
+  refresh();
+}
+function hearSpan(a, b) {  // a stretch in its place, without counting as played through
+  if (!A.record) return;
+  playhead = a; play(Math.max(0, a - 0.6), Math.min(S.length, b + 0.4));
+}
+function stretchOf(item) {  // when sixteenths k0..k1 of a bar are, near enough to go there and hear them
+  const [a, z] = barSpan(item.bar), step = (z - a) / 16;
+  return [a + item.k0 * step, a + (item.k1 + 1) * step];
+}
+function diffPanel(d) {
+  const has = d.notes.length ? d.notes.map(q => name(q.pitch)).join(" ") : "nothing";
+  const why = d.why === "fixed" ? `Bar ${d.source + 1} sounds the same here, and there you fixed it: it has <b>${has}</b>.`
+    : d.why === "passed" ? `Bar ${d.source + 1} sounds the same here, and there you left what is written: <b>${has}</b>.`
+    : `${d.count} of the bars that sound the same here have <b>${has}</b>.`;
+  return `<span><b>Bar ${d.bar + 1}</b> <span class="soft">${Logic.clock(d.start)}</span> · ${why} <span class="soft">Worth a listen.</span></span>
+    <span class="group"><button data-do="use">Use it <kbd>U</kbd></button><button data-do="keep">Keep what is written <kbd>K</kbd></button><button data-do="hearThis">Hear this bar</button><button data-do="hearThat">Hear bar ${d.source + 1}</button></span>`;
+}
+function barPanel(i) {
+  const b = S.repeats.bars[i];
+  if (!b.of.length) return `<span><b>Bar ${i + 1}</b> <span class="soft">sounds like no other bar of the song</span></span><span class="group"><button data-do="hearBar">Hear it</button></span>`;
+  return `<span><b>Bar ${i + 1}</b> <span class="soft">pattern ${b.pattern} · ${b.of.length} other ${b.of.length === 1 ? "bar sounds" : "bars sound"} like it</span></span>
+    <span class="group"><button data-do="prevRepeat">◀ Previous</button><button data-do="nextRepeat">Next ▶</button><button data-do="hearBar">Hear it</button></span>`;
+}
+async function doPanel(what) {
+  const d = S.repeats.differences.find(d => d.id === selDiff), item = d => ({source: d.source, bar: d.bar, k0: d.k0, k1: d.k1});
+  if (d && what === "use") { if (await act({kind: "repeats", items: [item(d)], how: "difference", why: d.why})) { selDiff = null; refresh(); hearSpan(d.start, d.end); } }
+  else if (d && what === "keep") { if (await act({kind: "keep", start: d.start, end: d.end, id: d.id})) { selDiff = null; refresh(); } }
+  else if (d && what === "hearThis") hearSpan(d.start, d.end);
+  else if (d && what === "hearThat") { const off = barSpan(d.source)[0] - barSpan(d.bar)[0]; hearSpan(d.start + off, d.end + off); }
+  else if (selBar !== null && what === "hearBar") hearSpan(...barSpan(selBar));
+  else if (selBar !== null && (what === "prevRepeat" || what === "nextRepeat")) {
+    const of = S.repeats.bars[selBar].of;
+    const to = what === "nextRepeat" ? (of.find(j => j > selBar) ?? of[0]) : ([...of].reverse().find(j => j < selBar) ?? of[of.length - 1]);
+    if (to !== undefined) selectBar(to, true);
+  }
 }
 function wire() {
   const c = $("roll");
   c.addEventListener("mousedown", e => {
     if (!S || e.button) return;
     const {x, y} = at(e);
-    if (y < RULER || x < GUTTER) { if (x >= GUTTER) seek(tOf(x)); return; }
+    if (x < GUTTER) return;
+    if (y < RULER) return seek(tOf(x));
+    if (y < TOP) return laneClick(x, y);
     const h = hit(x, y);
+    if (h && h.diff) return selectDiff(h.diff.id);
     if (!h) { pan = {x, t0: view.t0, moved: false}; c.style.cursor = "grabbing"; e.preventDefault(); return; }  // drag the timeline, or click it
     if (e.shiftKey && sel) { extend(h.note.id); return; }
     select(h.note.id, true);
@@ -640,8 +758,8 @@ function wire() {
       return;
     }
     if (!drag) {
-      const inRoll = y >= RULER && x >= GUTTER, h = inRoll ? hit(x, y) : null;
-      c.style.cursor = h ? (h.mode === "pitch" ? "ns-resize" : "ew-resize") : inRoll ? "grab" : x >= GUTTER ? "pointer" : "default";
+      const inRoll = y >= TOP && x >= GUTTER, h = inRoll ? hit(x, y) : null;
+      c.style.cursor = h ? (h.diff ? "pointer" : h.mode === "pitch" ? "ns-resize" : "ew-resize") : inRoll ? "grab" : x >= GUTTER ? "pointer" : "default";
       return;
     }
     const n = note(drag.id); if (!n) { drag = null; return; }
@@ -671,7 +789,7 @@ function wire() {
   });
   c.addEventListener("dblclick", e => {
     const {x, y} = at(e);
-    if (S && y >= RULER && x >= GUTTER && !hit(x, y)) addHere(tOf(x), pOf(y));
+    if (S && y >= TOP && x >= GUTTER && !hit(x, y)) addHere(tOf(x), pOf(y));
   });
   c.addEventListener("wheel", e => {
     if (!S) return;
@@ -726,6 +844,8 @@ function keys(e) {
   if (offer && (k === "y" || k === "Y")) { offerYes(); return done(); }
   if (offer && (k === "x" || k === "X")) { offerNo(); return done(); }
   if (k === "Escape") { stop(); select(null); return done(); }
+  if (selDiff && (k === "u" || k === "U")) { doPanel("use"); return done(); }
+  if (selDiff && (k === "k" || k === "K")) { doPanel("keep"); return done(); }
   if (!n) return;
   if (many.length > 1) {  // several notes: moved, joined or deleted together
     const ids = many.slice(), keepThem = r => { if (r) { many = ids.filter(id => note(id)); sel = many[0] || null; refresh(); } };

@@ -35,13 +35,26 @@ Press Space and listen. When something is wrong, press Space again, then `←` t
 | make two notes one | `M` joins it with the next; Shift+`M` with every repeat of it that follows (a held note the tool chopped up) |
 | work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave) |
 | move where it starts or ends | drag an end, or Alt with `←` `→` (Shift for the end), 10 ms a press |
+| take what a repeat has, or keep what is written | click a dashed note or a mark under the letters, then "Use it" (`U`) or "Keep what is written" (`K`) |
 | take it back | `Z` |
 
 After every change the passage plays again, so you hear the result.
 
 **The guesses** come from everything that had an opinion about the note: the spectrum's own peaks, the second pitch tracker, the first tracker's runner-up pitches, the octave either way, and how well the song's notes of each pitch explain this one's sound. Measured on recordings with known notes, the right pitch is the first guess for 59% of wrong notes on real bass alone, and among the first four for 74%; for a note an octave off it is among the first three nearly always. When it is not among them, the arrow keys are as quick.
 
-**After a fix** the tool looks for the other notes that carry the label you just changed and sound like the note you fixed, and offers to change them too. You can step through them, take them all or decline. It never changes a note you have touched or played past. This is the one place where the tool's mistakes that repeat (a riff misheard the same way every time) cost you one fix instead of forty. When the mistake does not repeat, less than half of what is offered needs the fix, so listen to a few before taking them.
+**After a fix** in a bar that repeats, the tool offers the same fix for the repeats (see below). In a bar that does not, it looks for the other notes that carry the label you just changed and sound like the note you fixed, and offers to change those. It never changes a note you have touched or played past. Of what it offers that way, less than half needs the fix unless the mistake is one the tool made all through the song, so listen to a few before taking them.
+
+## Repeats
+
+Music repeats itself, and the tool does not hear every repeat the same way. So the tool looks for the bars that sound alike, in the bass track itself and not in its own notes, which are the part that may be wrong. Two bars are compared sixteenth by sixteenth: where they sound the same, they should be written the same.
+
+- **The letters over the timeline** name the bars that sound alike: every A is a repeat of the other As. Click a letter to see how many bars sound like that one and to step through them.
+- **After a fix**, the tool looks at the other bars that sound the same at that spot and are written there as this bar was before you fixed it: the same mistake. A yellow bar offers to fix them too. You can step through them first, take them all, or decline. This is where one fix can stand for forty. It is never offered for a bar you have already been through: that bar is yours.
+- **Dashed notes and the marks under the letters** show where a bar you have not reached is written unlike a repeat that sounds the same there. Dark orange means the repeat is one you fixed, or one you played past and left as it is; pale means only that most of the tool's own repeats agree against this bar. Click one to see what the repeat has, hear both, and take it or keep what is written. These are hints: worth a listen, not certainties.
+
+How far to trust this, measured on recordings with known notes ([evaluation.md](evaluation.md)): carrying fixes to the repeats saves about a sixth of the fixing overall, a few percent on most songs and more than half on the ones where the tool makes the same mistake in every repeat. A fix carried to a bar with the same mistake is right about nine times in ten for a pitch or a re-pluck, less often for a note taken out; on two test songs in forty, taking every offer unheard would have cost more than it saved. So use "Show me the next" on the first few of an offer. A dashed note points at something wrong about two times in three, and what the repeat has is the right answer about six times in ten.
+
+The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed beat), the bars after it are still found as repeats of each other, but not of the bars before.
 
 **What you play past without touching counts as right.** The green band over the timeline shows it. Only playing through counts, not the short replays after a change. The page picks up where you stopped.
 
@@ -63,6 +76,7 @@ scores/
   <song>/log.jsonl      every fix, offer and play-through, appended
   <song>/audio/         the record and the isolated bass, for the page, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
+  <song>/repeats.npz    which bars sound alike, measured once from the bass track
   <song>/sheet/         the score made from your notes
 ```
 

@@ -178,6 +178,35 @@ Every note the tool finds is also a sample of what this bass sounds like at that
 
 The share is reported as a gate (`own_sound`, warning above 15%) that is not part of the verdict yet: the verdict's thresholds were set before it existed.
 
+### Repeats
+
+`python dev/repeats_eval.py --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
+
+The copilot finds the bars of a song that sound alike (`repeats.py`): two bars are compared sixteenth by sixteenth by the spectrum of the separated bass, on the tool's own beat grid. 79% of the bars of BabySlakh and 86% of RWC's have a repeat. Where two such bars sound the same in a sixteenth, the reference has the same pitch in both 99% of the time on BabySlakh and 94% on RWC.
+
+To measure what that is worth, the reference plays the person: it goes through each song bar by bar and note by note and makes what is wrong right. A sixteenth is right when the pitch at its middle is the reference's and a note starts there if and only if one does in the reference. As in the copilot, a fix that only makes a note shorter or longer is not carried.
+
+| | BabySlakh (16 songs) | RWC Popular (24 songs) |
+|---|---|---|
+| Sixteenths to fix by hand, without help | 3,645 | 10,401 |
+| With every fix carried to the bars with the same mistake | 3,140 (14% fewer) | 8,464 (19% fewer) |
+| The saving per song: 10th percentile / median / 90th | 0% / 3% / 13% | −1% / 13% / 59% |
+| The best song and the worst | 29% fewer, 3% more | 65% fewer, 61% more |
+| Carried: the octave, right | 100% (of 232) | 83% (of 425) |
+| Carried: another pitch, right | 5 of 11 | 88% (of 784) |
+| Carried: where a note starts (a re-pluck), right | 6 of 6 | 90% (of 962) |
+| Carried: a note taken out, right | 95% (of 288) | 59% (of 469) |
+| Carried: a note put in, right | 11 of 14 | 97% (of 225) |
+| Marked, a repeat the person fixed: the marked sixteenth is wrong / the repeat's version is right | 98% / 75% (of 199) | 67% / 57% (of 1,035) |
+| Marked, a repeat the person played past | 69% / 63% (of 67) | 68% / 61% (of 537) |
+| Marked, most of the tool's own repeats | 92% / 29% (of 27) | 62% / 51% (of 98) |
+
+- **A fix is carried** to the other bars that sound the same at that spot and are written there as the fixed bar was: the same mistake. "Right" counts a carried change that made a wrong sixteenth right against one that broke a right one. It saves about a sixth of the fixing, very unevenly: more than half on the four songs where the tool makes one mistake in every repeat, a few percent on most. On two RWC songs, taking every offer unheard would have made more work than it saved, which is why the page lets the person hear the bars an offer would change before taking it.
+- **RWC's figures are the pessimistic ones.** Its references are aligned by hand at the beat, so two repeats can differ in the reference by a sixteenth, or by an octave, where the record does not. BabySlakh's references are exact, but its songs have few wrong pitches to carry, apart from one song an octave low throughout.
+- **A bar the person has been through is never changed or marked.** Carrying into such bars broke more than it fixed (113 sixteenths in one song), and marking them was wrong every time in this simulation, where the person misses nothing.
+- **Marks are hints.** A sixteenth marked as written unlike a repeat is wrong about two times in three, more often when the repeat is one the person fixed; what the repeat has there is the right answer about six times in ten. The tool against itself (most of its repeats agree against one bar) points at wrong notes as often, and its answer is right less often. A note against silence is marked only as a whole note: how long a note is held is not. Nor is the line between two notes falling a sixteenth earlier in one bar than in another.
+- Tried and not adopted: counting a sixteenth where neither bar sounds as sounding the same (it carried changes between bars the reference has different notes in), and carrying every bar the person has passed, fixed or not, to its repeats (as much saved on average, far more broken on the songs where it goes wrong).
+
 ### Verdicts against measured scores
 
 The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.

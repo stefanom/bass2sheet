@@ -292,12 +292,18 @@ def _same_mistake_everywhere(workdir, shift=5):
     return sounds + shift, sounds, ids
 
 
-def test_after_a_fix_the_notes_that_sound_the_same_are_offered_and_the_person_decides(workdir):
+@pytest.fixture
+def no_repeats(monkeypatch):
+    """As for a song with no two bars alike: after a fix, the notes that sound the same are what is offered."""
+    monkeypatch.setattr(copilot.Desk, "repeats", property(lambda self: None))
+
+
+def test_after_a_fix_the_notes_that_sound_the_same_are_offered_and_the_person_decides(workdir, no_repeats):
     label, sounds, ids = _same_mistake_everywhere(workdir)
     d = _desk(workdir)
     result = d.act(dict(kind="pitch", id=ids[0], pitch=sounds, how="guess", rank=1))
     offer = result["offer"]
-    assert (offer["seed"], offer["label"], offer["pitch"]) == (ids[0], label, sounds)
+    assert (offer["type"], offer["seed"], offer["label"], offer["pitch"]) == ("alike", ids[0], label, sounds)
     assert set(offer["ids"]) == set(ids[1:])  # the others with the same wrong label, and nothing else
     d.act(dict(kind="pitches", ids=offer["ids"], pitch=sounds, how="offer", seed=ids[0]))
     assert all(d.note(i)["pitch"] == sounds and d.note(i)["state"] == "fixed" for i in ids)
@@ -307,7 +313,7 @@ def test_after_a_fix_the_notes_that_sound_the_same_are_offered_and_the_person_de
     assert log[-1]["kind"] == "refuse" and d.note(ids[1])["pitch"] == label
 
 
-def test_what_the_person_played_past_is_not_offered_and_tells_right_from_wrong(workdir):
+def test_what_the_person_played_past_is_not_offered_and_tells_right_from_wrong(workdir, no_repeats):
     d = _desk(workdir)
     pitches = [n["pitch"] for n in d.notes]
     common = max(set(pitches), key=pitches.count)
@@ -319,6 +325,167 @@ def test_what_the_person_played_past_is_not_offered_and_tells_right_from_wrong(w
     # the rest sound like the ones found right at least as much as like this one: nothing to offer
     assert "offer" not in result
     assert d.alike(same[5]["id"]) == (None, [])  # and a note that was not changed has no look-alikes to fix
+
+
+# -------------------------------------------------------------------------------------------------- repeats
+
+
+def _bars_of_a_pattern(d):
+    """The bars of the first pattern with three bars or more, and the notes that cover their ninth sixteenth."""
+    rep = d.repeats
+    family = next(f for f in range(int(rep.family.max()) + 1) if (rep.family == f).sum() >= 3)
+    bars = [int(b) for b in np.flatnonzero(rep.family == family)]
+    owner = rep.tokens(d.notes)[2]
+    return bars, [d.notes[owner[b, 8]]["id"] for b in bars]
+
+
+def _write_wrong(workdir, ids, shift=7):
+    """As if the tool had written those notes a fifth too high."""
+    for name in ("machine.json", "notes.json"):
+        path = os.path.join(workdir, "mix", name)
+        data = json.load(open(path))
+        for n in data["notes"]:
+            if n["id"] in ids:
+                n["pitch"] += shift
+        json.dump(data, open(path, "w"))
+
+
+def test_the_songs_bars_are_sorted_into_patterns_from_the_sound(workdir):
+    d = _desk(workdir)
+    rep = d.repeats
+    assert os.path.exists(os.path.join(workdir, "mix", "repeats.npz"))  # measured once, then kept
+    assert rep.bars >= 12 and (rep.family == rep.family.max()).sum() >= 3 and rep.family.max() == 3  # four chords
+    shown = d.public()["repeats"]
+    assert len(shown["bars"]) == rep.bars and shown["differences"] == []
+    bars, _ = _bars_of_a_pattern(d)
+    assert shown["bars"][bars[0]] == dict(pattern="A", of=bars[1:]) and shown["bars"][0] == dict(pattern=None, of=[])
+    again = _desk(workdir).repeats
+    assert (again.family == rep.family).all() and (again.related == rep.related).all()
+
+
+def test_a_fix_is_offered_to_the_bars_that_sound_the_same_and_are_written_as_this_one_was(workdir):
+    bars, ids = _bars_of_a_pattern(_desk(workdir))
+    _write_wrong(workdir, ids)
+    d = _desk(workdir)
+    start = json.dumps(sorted(d.notes, key=lambda n: n["id"]))
+    right = d.note(ids[0])["pitch"] - 7
+    offer = d.act(dict(kind="pitch", id=ids[0], pitch=right, how="drag"))["offer"]
+    assert offer["type"] == "repeat" and offer["bars"] == len(bars) - 1
+    assert offer["items"] == [dict(source=bars[0], bar=b, k0=8, k1=11) for b in bars[1:]]
+    result = d.act(dict(kind="repeats", items=offer["items"], how="offer"))
+    assert "offer" not in result  # what was carried is not carried again
+    assert all(d.note(i)["pitch"] == right and d.note(i)["state"] == "fixed" for i in ids)
+    assert all(d.note(i)["was"]["pitch"] == right + 7 for i in ids) and len(d.notes) == len(d.machine["notes"])
+    assert copilot.mistakes(workdir, "mix")["kinds"] == {"wrong pitch": len(bars)}
+    assert d.differences() == []
+    assert [d.act(dict(kind="undo"))["undone"] for _ in range(2)] == ["repeats", "pitch"]
+    assert json.dumps(sorted(d.notes, key=lambda n: n["id"])) == start
+    # a bar the person has been through is theirs: it is neither in the offer nor marked
+    d.mark_checked(0, d.repeats.slot_time(bars[0] * 16 + 16) + 0.01)
+    offer = d.act(dict(kind="pitch", id=ids[-1], pitch=right, how="drag"))["offer"]  # the last bar fixed first
+    assert [i["bar"] for i in offer["items"]] == bars[1:-1]
+    marked = d.differences()  # as long as the offer is not taken, the bars in it are marked
+    assert [(m["bar"], m["k0"], m["k1"], m["source"], m["why"]) for m in marked] == [
+        (b, 8, 11, bars[-1], "fixed") for b in bars[1:-1]
+    ]
+    ghost = marked[0]["notes"]  # what the repeat has there, laid where it would be in this bar
+    assert [n["pitch"] for n in ghost] == [right] and abs(ghost[0]["start"] - d.note(ids[1])["start"]) < 0.03
+    d.act(dict(kind="refuse", items=offer["items"]))  # an offer turned down is worth knowing, and changes nothing
+    assert json.loads(open(os.path.join(workdir, "mix", "log.jsonl")).read().splitlines()[-1])["kind"] == "refuse"
+
+
+def test_a_difference_is_taken_from_the_repeat_or_left_as_written(workdir):
+    bars, ids = _bars_of_a_pattern(_desk(workdir))
+    _write_wrong(workdir, ids[:2])  # two bars wrong, the third right
+    d = _desk(workdir)
+    assert [(m["bar"], m["why"]) for m in d.differences()] == [(bars[2], "most")]  # two against one, and wrong
+    right = d.note(ids[2])["pitch"]
+    d.act(dict(kind="pitch", id=ids[0], pitch=right, how="drag", offer=False))
+    marked = d.differences()  # what the person fixed is the word now: the other wrong bar is marked, the right one not
+    assert [(m["bar"], m["source"], m["why"]) for m in marked] == [(bars[1], bars[0], "fixed")]
+    m = marked[0]
+    kept = d.act(dict(kind="keep", start=m["start"], end=m["end"]))
+    assert kept == {} and d.differences() == [] and d.state["kept"] == [[m["start"], m["end"]]]
+    assert d.act(dict(kind="undo"))["undone"] == "keep" and d.state["kept"] == [] and len(d.differences()) == 1
+    d.act(
+        dict(kind="repeats", items=[dict(source=m["source"], bar=m["bar"], k0=m["k0"], k1=m["k1"])], how="difference")
+    )
+    assert d.note(ids[1])["pitch"] == right and d.note(ids[1])["state"] == "fixed" and d.differences() == []
+    for bad in (
+        dict(source=0, bar=0, k0=0, k1=3),
+        dict(source=bars[0], bar=99, k0=0, k1=3),
+        dict(source=1, bar=2, k0=5, k1=2),
+    ):
+        with pytest.raises(Bass2SheetError, match="no such stretch"):
+            d.act(dict(kind="repeats", items=[bad]))
+    with pytest.raises(Bass2SheetError, match="nothing to take"):
+        d.act(dict(kind="repeats", items=[]))
+
+
+def test_one_bar_is_made_to_read_as_another_over_any_stretch_and_the_rest_is_left_alone(workdir):
+    d = _desk(workdir)
+    rep = d.repeats
+    rng = np.random.default_rng(7)
+    pairs = [(int(i), int(j)) for i in range(rep.bars) for j in np.flatnonzero(rep.related[i])]
+    for trial in range(40):
+        made = 0
+        for _ in range(int(rng.integers(0, 5))):  # first some fixes of the person's, anywhere
+            n = d.notes[int(rng.integers(len(d.notes)))]
+            what = int(rng.integers(4))
+            try:
+                if what == 0:
+                    d.act(dict(kind="pitch", id=n["id"], pitch=n["pitch"] + int(rng.integers(1, 8)), offer=False))
+                elif what == 1:
+                    d.act(dict(kind="delete", id=n["id"], offer=False))
+                elif what == 2:
+                    d.act(dict(kind="split", id=n["id"], at=(n["start"] + n["end"]) / 2, offer=False))
+                else:
+                    d.act(dict(kind="merge", id=n["id"], offer=False))
+                made += 1
+            except Bass2SheetError:
+                pass
+        i, j = pairs[int(rng.integers(len(pairs)))]
+        k0 = int(rng.integers(16))
+        k1 = int(rng.integers(k0, 16))
+        before_json = json.dumps(sorted(d.notes, key=lambda n: n["id"]), sort_keys=True)
+        p0, s0, _ = rep.tokens(d.notes)
+        d.act(dict(kind="repeats", items=[dict(source=i, bar=j, k0=k0, k1=k1)]))
+        p1, s1, _ = rep.tokens(d.notes)
+        ks = slice(k0, k1 + 1)
+        where = f"trial {trial}: bar {i} to bar {j}, sixteenths {k0} to {k1}"
+        assert p1[j, ks].tolist() == p0[i, ks].tolist(), where  # the stretch reads as the repeat does
+        assert s1[j, k0 + 1 : k1 + 1].tolist() == s0[i, k0 + 1 : k1 + 1].tolist(), where
+        assert s1[j, k0] or not s0[i, k0] or not p0[i, k0], where  # a note that starts there starts here too
+        outside = np.ones(p0.shape, bool)
+        outside[j, ks] = False
+        assert (p1[outside] == p0[outside]).all(), where  # nothing else moved
+        after = (j * 16 + k1 + 1) if k1 < 15 or j + 1 < rep.bars else None
+        changed = np.flatnonzero((s1 != s0).reshape(-1) & outside.reshape(-1)).tolist()
+        assert changed in ([], [after]), where  # but a note cut at the end of the stretch starts there now
+        order = sorted(d.notes, key=lambda n: n["start"])
+        assert all(n["end"] - n["start"] >= copilot.SHORTEST - 1e-6 for n in order), where
+        assert all(a["end"] <= b["start"] + 1e-6 for a, b in zip(order, order[1:])), where  # no two at once
+        assert len({n["id"] for n in order}) == len(order), where
+        assert d.act(dict(kind="undo"))["undone"] == "repeats"
+        assert json.dumps(sorted(d.notes, key=lambda n: n["id"]), sort_keys=True) == before_json, where
+        for _ in range(made):
+            d.act(dict(kind="undo"))
+    assert [n["state"] for n in d.notes] == ["machine"] * len(d.machine["notes"])
+
+
+def test_a_fix_that_fails_leaves_nothing_half_done(workdir):
+    bars, ids = _bars_of_a_pattern(_desk(workdir))
+    d = _desk(workdir)
+    start = json.dumps(d.notes)
+    good = dict(source=bars[0], bar=bars[1], k0=0, k1=15)
+    d.act(dict(kind="pitch", id=ids[0], pitch=60, offer=False))
+    middle = json.dumps(d.notes)
+    with pytest.raises(Bass2SheetError):
+        d.act(dict(kind="repeats", items=[good, dict(source=bars[0], bar=99, k0=0, k1=3)]))  # the second cannot be
+    assert json.dumps(d.notes) == middle and d.public()["undo"] == 1
+    assert json.dumps(_desk(workdir).notes) == middle
+    d.act(dict(kind="undo"))
+    assert json.dumps(d.notes) == start
 
 
 # ------------------------------------------------------------------------------------------- the record
@@ -410,8 +577,14 @@ def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
     assert r["fixes"] == 1 and r["undo"] == 1 and next(x for x in r["notes"] if x["id"] == n["id"])["state"] == "fixed"
     guesses = json.loads(_get(url + f"/api/guesses?song=mix&id={n['id']}")[2])["guesses"]
     assert n["pitch"] in guesses[:3]
-    assert _post(url + "/api/checked", dict(song="mix", start=0, end=5.5))["checked"] == [[0.0, 5.5]]
-    assert _post(url + "/api/act", dict(song="mix", action=dict(kind="undo")))["fixes"] == 0
+    assert song["repeats"]["bars"][1]["pattern"] == "A" and song["repeats"]["differences"] == []
+    assert [d["why"] for d in r["differences"]] == ["fixed", "fixed"]  # its two repeats are written differently now
+    assert r["differences"][0]["notes"][0]["pitch"] == n["pitch"] + 12
+    assert _post(url + "/api/checked", dict(song="mix", start=0, end=5.5)) == dict(
+        checked=[[0.0, 5.5]], differences=r["differences"]
+    )
+    undone = _post(url + "/api/act", dict(song="mix", action=dict(kind="undo")))
+    assert undone["fixes"] == 0 and undone["differences"] == []
     for bad, code in (
         (dict(song="mix", action=dict(kind="pitch", id="nope", pitch=40)), 400),
         (dict(song="other", action=dict(kind="undo")), 400),

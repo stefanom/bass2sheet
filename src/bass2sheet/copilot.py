@@ -26,6 +26,7 @@ import numpy as np
 import soundfile as sf
 
 from . import judge, ownsound, together
+from . import repeats as repeats_
 from .common import DEFAULTS, LOWEST_NOTE, SR, Bass2SheetError, atomic_write_text, clock, note_name
 
 LOW, HIGH = 26, 72  # the pitches the picture shows: D1 to C5
@@ -35,6 +36,7 @@ SEMI_LO, SEMI_HI = 23, 76  # the pitches the pitch tracker's bins are summed int
 SHORTEST = 0.03  # no note is shorter than this
 UNDO_DEPTH = 200
 SPEEDS = (90, 80, 70, 60, 50)  # the slower speeds a song can be played at, in percent
+CARRIED = ("pitch", "shift", "delete", "add", "split", "merge")  # the fixes that are offered to the repeats
 PITCHES = range(SEMI_LO, 85)
 
 
@@ -292,7 +294,7 @@ class Desk:
             raise Bass2SheetError(f"{song_id} is not prepared: run `bass2sheet-copilot add SONG --dir {workdir}`")
         self.song = load_songs(workdir).get(song_id, dict(id=song_id, title=song_id, artist=""))
         self.state = read_json(os.path.join(self.folder, "notes.json"))
-        self._mono = self._extra = self._bank = None
+        self._mono = self._extra = self._bank = self._repeats = None
         self._spectra = {}
 
     # ---- what it holds
@@ -318,6 +320,134 @@ class Desk:
             if n["id"] == note_id:
                 return n
         raise Bass2SheetError(f"no note {note_id}")
+
+    @property
+    def repeats(self):
+        """The bars of the song that sound alike (repeats.Repeats), or None for a song of less than two bars.
+        Measured from the bass track the first time it is asked for, and kept in the song's folder."""
+        if self._repeats is None:
+            path, m = os.path.join(self.folder, "repeats.npz"), self.machine
+            if os.path.exists(path):
+                with np.load(path) as z:
+                    measured = {k: z[k] for k in ("alike", "sounding", "rise")}
+            else:
+                measured = repeats_.measure(self.mono, m["grid"], m["origin"])
+                np.savez_compressed(path + ".part.npz", **measured)
+                os.replace(path + ".part.npz", path)
+            rep = repeats_.Repeats(measured, m["grid"], m["origin"])
+            self._repeats = (rep, rep.tokens(m["notes"])[0])
+        rep, _ = self._repeats
+        return rep if rep.bars >= 2 else None
+
+    def trust(self):
+        """Whose word each sixteenth is (repeats.Repeats.trust), as things stand."""
+        return self.repeats.trust(self.notes, self._repeats[1], self.state["checked"])
+
+    def differences(self):
+        """Where a bar is written unlike its repeats that sound the same there, for the page: each with when it
+        is (`start`, `end`), what the repeat has there (`notes`, as they would lie in this bar) and an `id`."""
+        rep = self.repeats
+        if rep is None:
+            return []
+        out = []
+        for d in rep.differences(self.notes, self._repeats[1], self.state["checked"], self.state.get("kept", [])):
+            g = d["bar"] * repeats_.SLOTS
+            pieces = rep.pieces(self.notes, d["source"], d["bar"], d["k0"], d["k1"])
+            out.append(
+                dict(
+                    d,
+                    id=f"{d['bar']}:{d['k0']}:{d['k1']}:{d['source']}",
+                    start=round(rep.slot_time(g + d["k0"]), 3),
+                    end=round(rep.slot_time(g + d["k1"] + 1), 3),
+                    notes=[dict(start=p["start"], end=p["end"], pitch=p["pitch"]) for p in pieces],
+                )
+            )
+        return out
+
+    def _copy(self, source, bar, k0, k1, keep, made):
+        """Make `bar` read as bar `source` does from sixteenth k0 to k1, and leave the rest of it alone. What
+        `bar` has there is cut out: a note reaching in from before, or going on after, keeps the part outside.
+        The repeat's notes are put in, as far into their sixteenths as they are there. A note of `bar` that
+        starts on the same sixteenth as one of the repeat's stays the same note, with the repeat's pitch and
+        end. Where the repeat's note comes from before the stretch, it carries on from this bar's note."""
+        rep, notes = self.repeats, self.notes
+        if not (0 <= source < rep.bars and 0 <= bar < rep.bars and 0 <= k0 <= k1 < repeats_.SLOTS and source != bar):
+            raise Bass2SheetError("no such stretch of a bar")
+        pieces = rep.pieces(notes, source, bar, k0, k1)
+        g0, g1 = bar * repeats_.SLOTS + k0, bar * repeats_.SLOTS + k1 + 1
+        d0, d1 = round(rep.slot_time(g0), 4), round(rep.slot_time(g1), 4)
+        starting = {p["slot"]: p for p in pieces if p["starts_here"]}
+
+        def fresh(**fields):
+            self.state["seq"] += 1
+            n = dict(id=f"u{self.state['seq']}", state="added", via="repeat", **fields)
+            notes.append(n)
+            made.append(n["id"])
+            return n
+
+        tails, stays = [], {}  # what the cut leaves after the stretch; this bar's notes that stay, by sixteenth
+        for n in sorted(notes, key=lambda n: n["start"]):
+            a, b = rep.cover(n)
+            blip = a >= b and d0 <= n["start"] < d1
+            if not blip and not (a < b and b > g0 and a < g1):
+                continue
+            keep(n)
+            reaches_in, goes_on = a < b and a < g0, a < b and b > g1
+            if blip or (not reaches_in and a not in starting and not goes_on):
+                notes.remove(n)
+                continue
+            self._touch(n)
+            if goes_on and (reaches_in or a in starting):  # the part after the stretch becomes a note of its own
+                tail = fresh(start=d1, end=n["end"], pitch=n["pitch"], also=list(n.get("also", [])), split_from=n["id"])
+                tails.append(tail)
+                n["end"] = d1
+            if reaches_in:
+                n["end"] = d0
+            elif a in starting:
+                stays[a] = n
+            else:  # it starts in the stretch, where the repeat has no note starting, and goes on after it
+                n["start"] = d1
+                tails.append(n)
+            self._settle(n)
+        for p in pieces:
+            end = p["end"] if p["ends_here"] else d1
+            n = stays.get(p["slot"]) if p["starts_here"] else None
+            if n is not None:  # the same note: the repeat's pitch and end
+                self._touch(n)
+                n["pitch"], n["also"], n["end"] = p["pitch"], list(p["also"]), max(end, n["start"] + SHORTEST)
+                n["via"] = "repeat"
+            elif not p["starts_here"] and (
+                left := next(
+                    (x for x in notes if abs(x["end"] - d0) < 0.03 and x["start"] < d0 and x["pitch"] == p["pitch"]),
+                    None,
+                )
+            ):
+                keep(left)  # the repeat's note comes from before the stretch: this bar's note carries on
+                self._touch(left)
+                left["end"] = end
+                n = left
+            elif end - p["start"] >= SHORTEST:
+                n = fresh(start=p["start"] if p["starts_here"] else d0, end=end, pitch=p["pitch"], also=list(p["also"]))
+            else:
+                continue
+            if not p["ends_here"]:  # ... and goes on after it: it takes back what the cut left there
+                tail = next((x for x in tails if x is not n and x["pitch"] == n["pitch"] and x in notes), None)
+                if tail is not None:
+                    n["end"] = tail["end"]
+                    notes.remove(tail)
+                    if tail["id"] in made:
+                        made.remove(tail["id"])
+            for x in notes:  # no two notes at once: its neighbours give way by the few milliseconds it needs
+                if x is n or x["end"] <= n["start"] or x["start"] >= n["end"]:
+                    continue
+                if x["start"] < n["start"]:
+                    keep(x)
+                    self._touch(x)
+                    x["end"] = n["start"]
+                    self._settle(x)
+                else:
+                    n["end"] = max(x["start"], n["start"] + SHORTEST)
+            self._settle(n)
 
     def bank(self):
         """The song's notes as samples (ownsound.Bank), as they stand now."""
@@ -433,6 +563,7 @@ class Desk:
             if not n.get("merged"):
                 n["state"] = "machine"
                 del n["was"]
+                n.pop("via", None)
 
     def _check_pitch(self, pitch):
         if not isinstance(pitch, int) or pitch not in PITCHES:
@@ -445,9 +576,45 @@ class Desk:
         kind = action.get("kind")
         if kind == "undo":
             return self.undo()
-        before, made, result = [], [], {}
-        keep = lambda n: before.append(json.loads(json.dumps(n)))
-        notes = self.notes
+        before, made, result, seen = [], [], {}, set()
+
+        def keep(n):  # a note as it was before this fix, once
+            if n["id"] not in seen and n["id"] not in made:
+                seen.add(n["id"])
+                before.append(json.loads(json.dumps(n)))
+
+        notes, rep = self.notes, self.repeats
+        carries = rep is not None and kind in CARRIED and action.get("offer", True)
+        written = rep.tokens(notes) if carries else None
+        kept = len(self.state.get("kept", []))
+        try:
+            self._apply(kind, action, notes, keep, made, result)
+        except Exception:  # nothing half done: the notes are as they were
+            ids = {b["id"] for b in before} | set(made)
+            self.state["notes"] = sorted(
+                [n for n in notes if n["id"] not in ids] + before, key=lambda n: (n["start"], n["pitch"])
+            )
+            self.state["kept"] = self.state.get("kept", [])[:kept]
+            self._bank = None
+            raise
+        if kind == "refuse":
+            return {}
+        self.state["undo"].append(dict(kind=kind, before=before, made=made, kept=kept))
+        self.save()
+        self.log(dict(action, song=self.song_id, before=before, made=made))
+        if carries:  # the other bars that sound the same there and are written as this one was
+            settled = rep.within(self.state.get("kept", []))
+            items = rep.same_mistake(written, rep.tokens(self.notes), self.trust(), settled)
+            if items:
+                result["offer"] = dict(type="repeat", items=items, bars=len({i["bar"] for i in items}))
+        if kind == "pitch" and action.get("offer", True) and "offer" not in result:
+            label, ids = self.alike(action["id"])
+            if ids:
+                pitch = self.note(action["id"])["pitch"]
+                result["offer"] = dict(type="alike", seed=action["id"], label=label, pitch=pitch, ids=ids)
+        return result
+
+    def _apply(self, kind, action, notes, keep, made, result):
         if kind == "pitch":
             n = self.note(action["id"])
             keep(n)
@@ -465,7 +632,16 @@ class Desk:
                 self._settle(n)
         elif kind == "refuse":  # an offer turned down: nothing changes, but it is worth knowing
             self.log(dict(action, song=self.song_id))
-            return {}
+        elif kind == "repeats":  # stretches of bars made to read as their repeats do
+            if self.repeats is None or not action.get("items"):
+                raise Bass2SheetError("there is nothing to take from a repeat")
+            for item in action["items"]:
+                self._copy(int(item["source"]), int(item["bar"]), int(item["k0"]), int(item["k1"]), keep, made)
+        elif kind == "keep":  # what is written here stands, whatever the repeats have
+            start, end = float(action["start"]), float(action["end"])
+            if not end > start:
+                raise Bass2SheetError("nothing to keep")
+            self.state.setdefault("kept", []).append([round(start, 3), round(end, 3)])
         elif kind == "also":
             n = self.note(action["id"])
             keep(n)
@@ -592,14 +768,6 @@ class Desk:
             result["joined"] = len(chosen)
         else:
             raise Bass2SheetError(f"unknown kind of fix: {kind}")
-        self.state["undo"].append(dict(kind=kind, before=before, made=made))
-        self.save()
-        self.log(dict(action, song=self.song_id, before=before, made=made))
-        if kind == "pitch" and action.get("offer", True):
-            label, ids = self.alike(action["id"])
-            if ids:
-                result["offer"] = dict(seed=action["id"], label=label, pitch=self.note(action["id"])["pitch"], ids=ids)
-        return result
 
     def undo(self):
         if not self.state["undo"]:
@@ -607,6 +775,8 @@ class Desk:
         last = self.state["undo"].pop()
         ids = {b["id"] for b in last["before"]} | set(last["made"])
         self.state["notes"] = [n for n in self.notes if n["id"] not in ids] + last["before"]
+        if "kept" in last:
+            self.state["kept"] = self.state.get("kept", [])[: last["kept"]]
         self.save()
         self.log(dict(kind="undo", song=self.song_id, undone=last["kind"]))
         return dict(undone=last["kind"], ids=[b["id"] for b in last["before"]])
@@ -642,7 +812,20 @@ class Desk:
             undo=len(self.state["undo"]),
             fixes=sum(n["state"] != "machine" for n in self.notes) + self.deleted(),
             names={str(p): note_name(p) for p in PITCHES},
+            repeats=self.patterns(),
         )
+
+    def patterns(self):
+        """For the page: each bar's pattern (a letter; None for a bar that does not repeat) and the bars that
+        sound like it (`of`, counted from 0), and the differences as things stand."""
+        rep = self.repeats
+        if rep is None:
+            return dict(bars=[], differences=[])
+        bars = [
+            dict(pattern=repeats_.letter(int(f)) if f >= 0 else None, of=np.flatnonzero(rep.related[i]).tolist())
+            for i, f in enumerate(rep.family)
+        ]
+        return dict(bars=bars, differences=self.differences())
 
     def deleted(self):
         have = {n["id"] for n in self.notes} | {i for n in self.notes for i in n.get("merged", [])}
