@@ -1062,16 +1062,44 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
         files={k: os.path.basename(v) for k, v in files.items()},
         pages=[os.path.basename(p) for p in pages],
     )
+    # Every score that is made is kept as a version, in a folder of its own beside the latest: sheet/v1, v2, ...
+    # A score made again with nothing changed is the version it was.
+    kept = score_versions(workdir, song_id)
+    last = kept[0] if kept else None
+    if last is not None and bool(last["pages"]) == bool(pages):
+        with open(os.path.join(out, f"v{last['version']}", last["files"]["musicxml"])) as f:
+            if f.read() == xml:
+                made = last
+    if made is not last:
+        made["version"] = last["version"] + 1 if last else 1
+        folder = os.path.join(out, f"v{made['version']}")
+        os.makedirs(folder, exist_ok=True)
+        for name in (*made["files"].values(), *made["pages"]):
+            shutil.copyfile(os.path.join(out, name), os.path.join(folder, name))
+        atomic_write_text(os.path.join(folder, "sheet.json"), json.dumps(made))
     atomic_write_text(os.path.join(out, "sheet.json"), json.dumps(made))
-    desk.log(dict(kind="sheet", song=song_id, notes=len(notes), checked=round(share, 3)))
+    desk.log(dict(kind="sheet", song=song_id, notes=len(notes), checked=round(share, 3), version=made["version"]))
     return files
 
 
-def score_made(workdir, song_id):
-    """The score of a song as it was last made, for the page that shows it: when, from how many fixes and how
-    much worked through, the `files` to download and the pictures of its `pages` (file names in the song's
-    `sheet` folder; no pages where MuseScore was not there to draw them). None before a score is made."""
-    return read_json(os.path.join(song_dir(workdir, song_id), "sheet", "sheet.json"))
+def score_made(workdir, song_id, version=None):
+    """The score of a song as it was last made, or one of its earlier versions, for the page that shows it: when
+    it was made, from how many fixes and how much worked through, the `files` to download and the pictures of its
+    `pages` (file names; no pages where MuseScore was not there to draw them). A score with a `version` has its
+    files in `sheet/v<version>`; the latest has them in `sheet` as well. None before a score is made, and for a
+    version there is not."""
+    folder = os.path.join(song_dir(workdir, song_id), "sheet")
+    return read_json(
+        os.path.join(folder, "sheet.json" if version is None else os.path.join(f"v{int(version)}", "sheet.json"))
+    )
+
+
+def score_versions(workdir, song_id):
+    """Every version kept of a song's score (see `score_made`), the latest first."""
+    folder = os.path.join(song_dir(workdir, song_id), "sheet")
+    names = os.listdir(folder) if os.path.isdir(folder) else []
+    numbers = sorted((int(d[1:]) for d in names if d[:1] == "v" and d[1:].isdigit()), reverse=True)
+    return [made for made in (score_made(workdir, song_id, n) for n in numbers) if made]
 
 
 def main(argv=None):

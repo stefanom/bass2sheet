@@ -20,8 +20,8 @@ SCORE_PANEL_PATH = os.path.join(os.path.dirname(__file__), "copilot_score_panel.
 PAGES = {"/": LANDING_PATH, "/song": PAGE_PATH, "/score": SCORE_PATH}
 LOCAL = ("127.0.0.1", "localhost", "::1")  # where a page that may change things here is served from
 SERVED = re.compile(
-    r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/bass(\.pdf|\.musicxml|-\d+\.svg)"
-    r"|sheet/bass_as_played\.mid)$"
+    r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/(v\d+/)?bass(\.pdf|\.musicxml|-\d+\.svg)"
+    r"|sheet/(v\d+/)?bass_as_played\.mid)$"
 )
 
 
@@ -75,21 +75,26 @@ def songs(workdir):
     return out
 
 
-def score_of(workdir, song_id):
-    """A song's score as it was last made, for the page that shows it: the addresses of its pages and files."""
+def score_of(workdir, song_id, version=None):
+    """A song's score for the page that shows it: as it was last made, or the `version` asked for, with the
+    addresses of its pages and files, and every version there is to choose from."""
     song = copilot.load_songs(workdir).get(song_id)
     if song is None or not os.path.exists(os.path.join(copilot.song_dir(workdir, song_id), "machine.json")):
         raise Bass2SheetError(f"no song {song_id}")
     from .score import find_mscore
 
-    made = copilot.score_made(workdir, song_id)
-    at = lambda name: f"/data/{song_id}/sheet/{name}"
+    made = copilot.score_made(workdir, song_id, int(version) if version else None)
+    if made is None and version:
+        raise Bass2SheetError(f"{song_id} has no version {version} of its score")
+    facts = ("version", "when", "notes", "checked", "fixes", "worked")
     out = dict(id=song_id, title=song.get("title", song_id), artist=song.get("artist", ""), made=None)
     out["mscore"] = find_mscore() is not None  # whether a score made now would be drawn
+    out["versions"] = [{k: v[k] for k in facts} for v in copilot.score_versions(workdir, song_id)]
     if made:
-        out["made"] = {k: made[k] for k in ("when", "notes", "checked", "fixes", "worked")}
-        out["files"] = {k: at(v) for k, v in made["files"].items()}
-        out["pages"] = [at(name) for name in made["pages"]]
+        where = f"/data/{song_id}/sheet/" + (f"v{made['version']}/" if "version" in made else "")
+        out["made"] = {k: made.get(k) for k in facts}
+        out["files"] = {k: where + name for k, name in made["files"].items()}
+        out["pages"] = [where + name for name in made["pages"]]
     return out
 
 
@@ -174,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                 with open(SCORE_PANEL_PATH, "rb") as f:
                     self.send_body(f.read(), "text/javascript; charset=utf-8")
             elif url.path == "/api/score":
-                self.send_json(score_of(self.workdir, q.get("song", "")))
+                self.send_json(score_of(self.workdir, q.get("song", ""), q.get("version")))
             elif url.path == "/api/songs":
                 self.send_json(songs(self.workdir))
             elif url.path == "/api/adding":

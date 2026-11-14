@@ -84,7 +84,7 @@ def test_the_score_is_drawn_page_by_page_and_shown_with_its_files(served, tmp_pa
     url, workdir = served
     count = _stand_in(tmp_path, monkeypatch)
     before = _json(url + "/api/score?song=mix")
-    assert before == dict(id="mix", title="mix", artist="", made=None, mscore=True)
+    assert before == dict(id="mix", title="mix", artist="", made=None, mscore=True, versions=[])
     desk = copilot.Desk(workdir, "mix")
     n = desk.notes[6]
     fix = dict(song="mix", action=dict(kind="pitch", id=n["id"], pitch=n["pitch"] + 12, how="key", offer=False))
@@ -104,7 +104,11 @@ def test_the_score_is_drawn_page_by_page_and_shown_with_its_files(served, tmp_pa
         and made["worked"] == pytest.approx(n["start"], abs=0.06)
     )
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", made["when"])
-    assert view["files"] == links and view["pages"] == [f"/data/mix/sheet/bass-{k}.svg" for k in (1, 2, 3)]
+    assert made["version"] == 1 and view["versions"] == [made]
+    at = lambda name, v=1: f"/data/mix/sheet/v{v}/{name}"
+    assert view["files"] == {k: at(os.path.basename(v)) for k, v in links.items()}
+    assert view["pages"] == [at(f"bass-{k}.svg") for k in (1, 2, 3)]
+    assert _get(url + links["pdf"])[1] == b"%PDF-1.4 stand-in"  # the latest is where it always was, too
     for k, page in enumerate(view["pages"]):
         headers, body = _get(url + page)
         assert headers["Content-Type"] == "image/svg+xml" and f"<title>page {k + 1}</title>".encode() in body
@@ -113,11 +117,34 @@ def test_the_score_is_drawn_page_by_page_and_shown_with_its_files(served, tmp_pa
     with open(count, "w") as f:  # made again, shorter: the page that is no more is not left behind
         f.write("2")
     _post(url + "/api/sheet", dict(song="mix"))
-    assert _json(url + "/api/score?song=mix")["pages"] == ["/data/mix/sheet/bass-1.svg", "/data/mix/sheet/bass-2.svg"]
+    assert _json(url + "/api/score?song=mix")["made"]["version"] == 1  # nothing changed: it is the version it was
+    _post(url + "/api/act", dict(song="mix", action=dict(kind="delete", id=desk.notes[20]["id"])))
+    _post(url + "/api/sheet", dict(song="mix"))
+    view = _json(url + "/api/score?song=mix")
+    assert (
+        view["made"]["version"] == 2
+        and view["made"]["fixes"] == 2
+        and view["pages"] == [at("bass-1.svg", 2), at("bass-2.svg", 2)]
+    )
+    assert [(v["version"], v["fixes"]) for v in view["versions"]] == [(2, 2), (1, 1)]
     with pytest.raises(urllib.error.HTTPError) as e:
         _get(url + "/data/mix/sheet/bass-3.svg")
     assert e.value.code == 404
-    for bad in ("/api/score?song=nope", "/api/score", "/data/mix/sheet/sheet.json", "/data/mix/sheet/bass-x.svg"):
+    first = _json(url + "/api/score?song=mix&version=1")  # the earlier version is kept whole, and can be seen
+    assert first["made"] == made and first["versions"] == view["versions"] and len(first["pages"]) == 3
+    assert _get(url + first["pages"][2])[1].endswith(b"<title>page 3</title></svg>")
+    was, now = (_get(url + v["files"]["musicxml"])[1] for v in (first, view))
+    assert was != now and b"<score-partwise" in was and _get(url + links["musicxml"])[1] == now
+    for bad in (
+        "/api/score?song=nope",
+        "/api/score",
+        "/api/score?song=mix&version=3",
+        "/api/score?song=mix&version=x",
+        "/data/mix/sheet/sheet.json",
+        "/data/mix/sheet/v1/sheet.json",
+        "/data/mix/sheet/v9/bass.pdf",
+        "/data/mix/sheet/bass-x.svg",
+    ):
         with pytest.raises(urllib.error.HTTPError) as e:
             _get(url + bad)
         assert e.value.code == 404, bad
@@ -131,8 +158,9 @@ def test_without_musescore_the_score_is_written_and_the_page_is_told_it_cannot_b
     monkeypatch.setattr(score, "MSCORE_CANDIDATES", [])  # MuseScore is gone
     links = _post(url + "/api/sheet", dict(song="mix"))
     view = _json(url + "/api/score?song=mix")
-    assert sorted(links) == ["midi", "musicxml"] and view["files"] == links
+    assert sorted(links) == ["midi", "musicxml"] and sorted(view["files"]) == sorted(links)
     assert view["pages"] == [] and view["mscore"] is False and view["made"]["notes"] >= 60
+    assert [v["version"] for v in view["versions"]] == [2, 1]  # the same notes, not drawn: another version
     assert not os.path.exists(os.path.join(workdir, "mix", "sheet", "bass.pdf"))  # not the PDF of another version
 
 
@@ -143,10 +171,13 @@ def test_musescore_draws_the_pages(prepared, tmp_path):
     files = copilot.sheet(workdir, "mix")
     made = copilot.score_made(workdir, "mix")
     assert made["files"] == {k: os.path.basename(v) for k, v in files.items()} and "pdf" in files
-    assert made["pages"] and made["pages"][0] == "bass-1.svg"
+    assert made["pages"] and made["pages"][0] == "bass-1.svg" and made["version"] == 1
     for name in made["pages"]:
-        with open(os.path.join(workdir, "mix", "sheet", name)) as f:
-            assert "<svg" in f.read(400)
+        for folder in ("sheet", os.path.join("sheet", "v1")):
+            with open(os.path.join(workdir, "mix", folder, name)) as f:
+                assert "<svg" in f.read(400)
+    assert copilot.score_versions(workdir, "mix") == [made] == [copilot.score_made(workdir, "mix", 1)]
+    assert copilot.score_made(workdir, "mix", 2) is None
     assert not [f for f in os.listdir(os.path.join(workdir, "mix", "sheet")) if f.startswith(".")]
 
 

@@ -21,6 +21,7 @@
   button:disabled { color: #9aa4ae; cursor: default; }
   button.main { font-weight: 600; background: var(--blue); border-color: var(--blue); color: #fff; }
   button.main:hover { background: #0860ca; }
+  select { font: inherit; color: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 420px; }
   #files { display: flex; align-items: center; gap: 8px; }
   #status.bad { color: var(--red); }
   main { flex: 1; overflow: auto; padding: 20px; }
@@ -35,6 +36,7 @@
 <header>
   <a id="back" class="nav" href="/">‹ Songs</a>
   <span><b id="title">Score</b> <span id="artist" class="soft"></span></span>
+  <select id="version" class="hidden" title="Every time the score is made it is kept: choose which one to see"></select>
   <span id="made" class="soft"></span>
   <span id="status" class="soft"></span>
   <span class="spacer"></span>
@@ -67,7 +69,12 @@ const Score = (() => {
     const share = m.checked >= 0.995 ? "all of it checked by ear" : m.checked > 0 ? `${Math.round(100 * m.checked)}% checked by ear` : "not checked by ear yet";
     return `${count(m.fixes, "fix", "fixes")} · ${share}`;
   }
-  return {esc, count, when, from};
+  // a version in the list to choose from: `versions` has the latest first
+  function label(m, versions, now) {
+    const latest = versions.length && versions[0].version === m.version;
+    return `${latest ? "Latest" : "Version " + m.version}: ${when(m.when, now)} · ${from(m)}`;
+  }
+  return {esc, count, when, from, label};
 })();
 if (typeof module !== "undefined") module.exports = Score;
 </script>
@@ -76,7 +83,7 @@ if (typeof module !== "undefined") module.exports = Score;
 const $ = id => document.getElementById(id);
 const embedded = new URLSearchParams(location.search).has("embed");  // shown in a panel over the song's page
 const song = decodeURIComponent(location.hash.slice(1));
-let view = null;
+let view = null, version = null;  // the version shown: null for the latest
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
@@ -94,23 +101,27 @@ function show() {
   $("notes").href = "/song#" + encodeURIComponent(v.id);
   $("make").textContent = m ? "Make it again" : "Make the score";
   $("make").classList.toggle("main", !m);
-  $("made").textContent = m ? `Made ${Score.when(m.when, new Date())} · ${Score.from(m)}` : "";
-  const file = (k, text) => m && v.files[k] ? `<a class="file" href="${v.files[k]}${fresh}" download="${Score.esc(v.title)}.${k === "midi" ? "mid" : k}" title="Download">${text}</a>` : "";
+  const now = new Date(), several = m && v.versions.length > 1, old = several && m.version !== v.versions[0].version;
+  $("version").classList.toggle("hidden", !several);
+  $("version").innerHTML = several ? v.versions.map(x => `<option value="${x.version}"${x.version === m.version ? " selected" : ""}>${Score.esc(Score.label(x, v.versions, now))}</option>`).join("") : "";
+  $("made").textContent = !m ? "" : several ? (old ? "an earlier version" : "") : `Made ${Score.when(m.when, now)} · ${Score.from(m)}`;
+  const named = Score.esc(v.title) + (old ? ` (version ${m.version})` : "");
+  const file = (k, text) => m && v.files[k] ? `<a class="file" href="${v.files[k]}${fresh}" download="${named}.${k === "midi" ? "mid" : k}" title="Download${old ? " this version" : ""}">${text}</a>` : "";
   $("files").innerHTML = file("pdf", "PDF") + file("musicxml", "MusicXML") + file("midi", "MIDI");
   $("pages").innerHTML = m ? v.pages.map((src, k) => `<img src="${src}${fresh}" alt="Page ${k + 1}">`).join("") : "";
   if (!m) notice(`<p><b>No score has been made of this song yet.</b></p><p class="soft">It is written from your notes as they stand: what you fixed, and the tool's notes for the rest.</p>`);
   else if (!v.pages.length) notice(`<p><b>The score is written, but it cannot be drawn here: MuseScore 4 is not on this computer.</b></p>
-    <p>The <a href="${v.files.musicxml}${fresh}" download="${Score.esc(v.title)}.musicxml">MusicXML</a> opens in any notation program. With <a href="https://musescore.org" target="_blank" rel="noopener">MuseScore 4</a> installed, "Make it again" draws the pages here and writes the PDF.</p>`);
+    <p>The <a href="${v.files.musicxml}${fresh}" download="${named}.musicxml">MusicXML</a> opens in any notation program. With <a href="https://musescore.org" target="_blank" rel="noopener">MuseScore 4</a> installed, "Make it again" draws the pages here and writes the PDF.</p>`);
   else notice("");
 }
 async function load() {
   if (!song) { $("make").classList.add("hidden"); return notice(`<p><b>No song is named in the address.</b></p><p><a href="/">Choose one of your songs.</a></p>`); }
-  try { view = await api("/api/score?song=" + encodeURIComponent(song)); show(); }
+  try { view = await api("/api/score?song=" + encodeURIComponent(song) + (version ? "&version=" + version : "")); show(); }
   catch (e) { $("make").classList.add("hidden"); notice(`<p><b>${Score.esc(e.message)}</b></p><p><a href="/">Your songs</a></p>`); }
 }
 async function make() {
   $("make").disabled = true; say("writing the score…");
-  try { await api("/api/sheet", {song}); say(""); await load(); }
+  try { await api("/api/sheet", {song}); say(""); version = null; await load(); }
   catch (e) { say(e.message, true); }
   $("make").disabled = false;
 }
@@ -118,6 +129,7 @@ const close = () => window.parent.postMessage("copilot-score-close", location.or
 
 if (typeof document !== "undefined" && document.getElementById("pages")) {
   $("make").onclick = make;
+  $("version").onchange = () => { version = +$("version").value; $("version").blur(); load(); };
   if (embedded) {
     for (const id of ["back", "notes"]) $(id).classList.add("hidden");
     $("close").classList.remove("hidden");

@@ -98,6 +98,8 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 The score then opens in a panel over the song's page: its pages one under the other, as MuseScore draws them, with buttons to download the PDF, the MusicXML and the MIDI file, and "Make it again" after more fixes. "Close", Esc or a click beside the panel goes back to the notes, which are as you left them. The same view has an address of its own, `/score#SONG_ID`.
 
+**Versions.** Every time the score is made it is kept, not written over: the panel has a list of the versions, each with when it was made, how many fixes it has and how much of the song was checked by ear. Choose one to see it as it was and to download its files; "Make it again" adds a new one on top. A score made again with no note changed since is the version it was. The files of the latest are also where they always were (`sheet/bass.pdf` and so on).
+
 Drawing the pages needs [MuseScore 4](https://musescore.org) on the computer. Without it the MusicXML and the MIDI file are still written, and the panel says so and offers them.
 
 ## What the tool learns
@@ -117,6 +119,7 @@ scores/
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/repeats.npz    which bars sound alike, measured once from the bass track
   <song>/sheet/         the score made from your notes: PDF, MusicXML, MIDI and a picture of each page
+  <song>/sheet/v1, v2…  every version of the score as it was made, each with its own files
 ```
 
 The directory holds your recordings. Keep it out of any repository. Preparing a song again after the tool has changed replaces `machine.json` and leaves your notes alone.
