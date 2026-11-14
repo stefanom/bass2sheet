@@ -72,22 +72,60 @@ def test_preparing_a_song_again_keeps_the_persons_work(workdir, prepared, cache_
     assert again.note(first["id"])["state"] == "fixed" and again.public()["fixes"] == 1
 
 
-def test_the_picture_puts_a_note_on_its_own_rows():
+def _plucks(spec, seconds):
     import librosa
 
     from bass2sheet.common import SR
     from bass2sheet.render import pluck
 
-    y = np.zeros(2 * SR, dtype=np.float32)
-    w = 0.4 * pluck(librosa.midi_to_hz(40), 1.0, 100)
-    y[SR // 2 : SR // 2 + len(w)] = w
-    pic = copilot.picture(y)
+    y = np.zeros(int(seconds * SR), dtype=np.float32)
+    for start, dur, pitch in spec:
+        w = 0.4 * pluck(librosa.midi_to_hz(pitch), dur, 100)
+        y[int(start * SR) : int(start * SR) + len(w)] += w
+    return y
+
+
+def test_the_picture_puts_a_note_on_its_own_rows_from_where_it_starts_to_where_it_ends():
+    pic = copilot.picture(_plucks([(0.5, 1.0, 40)], 2.0))
     assert pic.dtype == np.uint8 and pic.shape[0] == copilot.PER_SEMI * (copilot.HIGH - copilot.LOW + 1)
-    column = pic[:, int(1.0 / (copilot.PICTURE_HOP / copilot.PICTURE_SR))]
-    rows = copilot.PER_SEMI * (40 - copilot.LOW)
-    assert column[rows : rows + copilot.PER_SEMI].max() > 200  # the E2 sounds on the E2 rows
-    assert column[rows - 2 * copilot.PER_SEMI : rows - copilot.PER_SEMI].max() < 120  # and not two rows under
+    at = lambda t: pic[:, int(t / (copilot.PICTURE_HOP / copilot.PICTURE_SR))]
+    rows = lambda p: slice(copilot.PER_SEMI * (p - copilot.LOW), copilot.PER_SEMI * (p - copilot.LOW + 1))
+    assert at(1.0)[rows(40)].max() > 200  # the E2 sounds on the E2 rows
+    assert max(at(1.0)[rows(p)].max() for p in (38, 39, 41, 42)) < 40  # and on no other near it
+    assert at(1.0)[rows(52)].max() > 60  # its octave partial shows above it, fainter
     assert pic[:, 5].max() < 40  # nothing sounds before it
+    # it is there a few hundredths of a second after it starts, and not before
+    assert at(0.42).max() < 40 and at(0.58)[rows(40)].max() > 150
+    assert at(1.40)[rows(40)].max() > 100 and at(1.60).max() < 40
+
+
+def test_the_picture_keeps_quick_notes_a_semitone_apart_each_on_its_own_rows():
+    line = [(0.2 + 0.2 * k, 0.19, p) for k, p in enumerate([28, 29, 28, 29, 40, 41, 40, 41])]  # down to the low E
+    pic = copilot.picture(_plucks(line, 2.2))
+    rows = lambda p: slice(copilot.PER_SEMI * (p - copilot.LOW), copilot.PER_SEMI * (p - copilot.LOW + 1))
+    for start, dur, pitch in line:
+        middle = pic[:, int((start + dur / 2) / (copilot.PICTURE_HOP / copilot.PICTURE_SR))]
+        other = pitch + 1 if pitch in (28, 40) else pitch - 1
+        assert middle[rows(pitch)].max() > 150 and middle[rows(other)].max() < 60, (start, pitch)
+    assert (
+        copilot.picture(np.zeros(100, np.float32)).max() == 0
+        and copilot.picture(np.zeros(44100, np.float32)).max() == 0
+    )
+
+
+def test_a_song_prepared_with_another_kind_of_picture_gets_the_new_one_when_it_is_opened(workdir):
+    folder = os.path.join(workdir, "mix")
+    machine = json.load(open(os.path.join(folder, "machine.json")))
+    was = dict(machine["picture"])
+    assert was["kind"] == copilot.PICTURE_KIND and was["step"] == 0.01
+    machine["picture"] = dict(rows=141, columns=7, low=copilot.LOW, per_semitone=3, step=128 / 11025)  # as it was
+    json.dump(machine, open(os.path.join(folder, "machine.json"), "w"))
+    open(os.path.join(folder, "picture.bin"), "wb").write(bytes(141 * 7))
+    notes = open(os.path.join(folder, "notes.json")).read()
+    d = _desk(workdir)
+    assert d.public()["picture"] == was and json.load(open(os.path.join(folder, "machine.json")))["picture"] == was
+    assert os.path.getsize(os.path.join(folder, "picture.bin")) == was["rows"] * was["columns"]
+    assert open(os.path.join(folder, "notes.json")).read() == notes and len(d.machine["notes"]) == len(machine["notes"])
 
 
 def test_intervals_are_joined_where_they_touch():

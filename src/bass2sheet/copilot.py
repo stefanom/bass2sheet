@@ -32,7 +32,9 @@ from .common import DEFAULTS, LOWEST_NOTE, SR, Bass2SheetError, atomic_write_tex
 
 LOW, HIGH = 26, 72  # the pitches the picture shows: D1 to C5
 PER_SEMI = 3  # picture rows per semitone
-PICTURE_SR, PICTURE_HOP = 11025, 128  # 11.6 ms a column
+PICTURE_SR, PICTURE_HOP = 3000, 30  # 10 ms a column
+PICTURE_WINDOW, PICTURE_FFT = 300, 1024  # 100 ms: it keeps a low E's partials apart and still shows a note begin
+PICTURE_KIND = "steady tones 1"  # a song prepared with another kind of picture gets this one when it is opened
 SEMI_LO, SEMI_HI = 23, 76  # the pitches the pitch tracker's bins are summed into
 SHORTEST = 0.03  # no note is shorter than this
 UNDO_DEPTH = 200
@@ -69,26 +71,62 @@ def sieve_pitch(mono, note):
 
 
 def picture(mono):
-    """What sounds in the bass track, by pitch and time, as bytes: rows from LOW up, PER_SEMI to a semitone,
-    one column every PICTURE_HOP / PICTURE_SR seconds; 0 is silence and 255 the loudest (42 dB above)."""
+    """The steady tones of the bass track, by pitch and time, as bytes: rows from LOW up, PER_SEMI to a
+    semitone, one column every PICTURE_HOP / PICTURE_SR seconds; 0 is silence, 255 the loudest (42 dB above).
+
+    A bass note cannot be placed in pitch and in time at once by looking at how much sound each pitch holds:
+    telling the low E from the F beside it takes most of a second of sound. But its partials lie a whole
+    fundamental apart, and a tenth of a second is enough to keep them apart. So each partial is located
+    exactly, in pitch and in time, from the phase of a short-window spectrum (a reassigned spectrogram), and
+    only what behaves like a steady tone is kept: bins that agree with their neighbours on the frequency they
+    are hearing. The moment one note gives way to the next, where they do not, is left blank."""
     import librosa
 
     y = librosa.resample(np.asarray(mono, dtype=np.float32), orig_sr=SR, target_sr=PICTURE_SR)
-    c = np.abs(
-        librosa.cqt(
-            y,
-            sr=PICTURE_SR,
-            hop_length=PICTURE_HOP,
-            fmin=librosa.midi_to_hz(LOW - 1 / 3),
-            n_bins=PER_SEMI * (HIGH - LOW + 1),
-            bins_per_octave=12 * PER_SEMI,
-        )
+    rows = PER_SEMI * (HIGH - LOW + 1)
+    if len(y) < PICTURE_FFT:
+        return np.zeros((rows, 1 + len(y) // PICTURE_HOP), np.uint8)
+    freq, when, mag = librosa.reassigned_spectrogram(
+        y, sr=PICTURE_SR, n_fft=PICTURE_FFT, hop_length=PICTURE_HOP, win_length=PICTURE_WINDOW, fill_nan=True
     )
-    c = np.pad(c, ((1, 1), (0, 0)), mode="edge")  # a light blur across pitch hides the filter bank's ripple
-    c = 0.25 * c[:-2] + 0.5 * c[1:-1] + 0.25 * c[2:]
-    ref = np.percentile(c, 99.7) or 1.0
-    v = np.clip(1 + 20 * np.log10(np.maximum(c, 1e-12) / ref) / 42, 0, 1)
+    columns = mag.shape[1]
+    row = np.rint(PER_SEMI * (69 + 12 * np.log2(np.maximum(freq, 1e-3) / 440) - LOW) + 1).astype(np.int64)
+    column = np.rint(when * PICTURE_SR / PICTURE_HOP).astype(np.int64)
+    apart = np.abs(np.diff(freq, axis=0)) / (PICTURE_SR / PICTURE_FFT)  # 0 between two bins on one steady tone
+    steady = np.zeros(freq.shape, bool)
+    steady[:-1] |= apart < 0.4
+    steady[1:] |= apart < 0.4
+    ok = steady & (row >= 0) & (row < rows) & (column >= 0) & (column < columns) & (mag > mag.max() * 1e-4)
+    energy = np.bincount(
+        row[ok] * columns + column[ok], weights=mag[ok].astype(np.float64) ** 2, minlength=rows * columns
+    )
+    a = np.pad(np.sqrt(energy.reshape(rows, columns)), 1, mode="edge")
+    a = (
+        (  # a breath of blur: a line one cell thick flickers when the page stretches it
+            4 * a[1:-1, 1:-1]
+            + 2 * (a[:-2, 1:-1] + a[2:, 1:-1] + a[1:-1, :-2] + a[1:-1, 2:])
+            + (a[:-2, :-2] + a[:-2, 2:] + a[2:, :-2] + a[2:, 2:])
+        )
+        / 16
+    )
+    ref = np.percentile(a[a > 0], 99.7) if (a > 0).any() else 1.0
+    v = np.clip(1 + 20 * np.log10(np.maximum(a, 1e-12) / ref) / 42, 0, 1)
     return (v * 255).astype(np.uint8)
+
+
+def picture_file(folder, mono):
+    """Write a song's picture and return what the page needs to know about it."""
+    pic = picture(mono)
+    pic.tofile(os.path.join(folder, "picture.bin.part"))
+    os.replace(os.path.join(folder, "picture.bin.part"), os.path.join(folder, "picture.bin"))
+    return dict(
+        kind=PICTURE_KIND,
+        rows=int(pic.shape[0]),
+        columns=int(pic.shape[1]),
+        low=LOW,
+        per_semitone=PER_SEMI,
+        step=PICTURE_HOP / PICTURE_SR,
+    )
 
 
 def semitone_mass(probs):
@@ -145,8 +183,7 @@ def prepare(workdir, song, opts=None, say=None):
     pyin = np.where(
         np.isfinite(pyin) & (pyin > 0), 69 + 12 * np.log2(np.maximum(np.nan_to_num(pyin), 1e-6) / 440), np.nan
     )
-    pic = picture(mono)
-    pic.tofile(os.path.join(folder, "picture.bin"))
+    shown = picture_file(folder, mono)
     line.tofile(os.path.join(folder, "pitch.bin"))
     np.savez_compressed(os.path.join(folder, "desk.npz"), semis=semitone_mass(probs), pyin=pyin.astype(np.float32))
     peak = max(float(np.abs(audio.mix).max()), float(np.abs(audio.bass).max()), 1e-9)
@@ -163,13 +200,7 @@ def prepare(workdir, song, opts=None, say=None):
         key=[heard["key"][0], int(heard["key"][1]), bool(heard["key"][2])],
         chords=heard["chords"],
         length=round(audio.n / SR, 3),
-        picture=dict(
-            rows=int(pic.shape[0]),
-            columns=int(pic.shape[1]),
-            low=LOW,
-            per_semitone=PER_SEMI,
-            step=PICTURE_HOP / PICTURE_SR,
-        ),
+        picture=shown,
     )
     atomic_write_text(os.path.join(folder, "machine.json"), json.dumps(machine))
     if not os.path.exists(os.path.join(folder, "notes.json")):
@@ -298,6 +329,9 @@ class Desk:
         self.state = read_json(os.path.join(self.folder, "notes.json"))
         self._mono = self._extra = self._bank = self._repeats = None
         self._spectra = {}
+        if self.machine["picture"].get("kind") != PICTURE_KIND:  # prepared when the picture was made another way
+            self.machine["picture"] = picture_file(self.folder, self.mono)
+            atomic_write_text(os.path.join(self.folder, "machine.json"), json.dumps(self.machine))
 
     # ---- what it holds
 
