@@ -313,6 +313,13 @@ def transcription_gates(
         pos = f"{nt['beat']}.{nt['sixteenth']}"
         if nt["flag"] == "octave":
             add(nt["bar"], "octave_ambiguous", 1, f"octave was ambiguous at {pos} (decided from the spectrum)")
+        elif nt["flag"] == "alone":  # muscriptor.ALONE
+            add(
+                nt["bar"],
+                "uncertain",
+                1,
+                f"note at {pos} is MuScriptor's alone (bass2sheet's own finder does not hear it)",
+            )
         elif nt["flag"]:
             add(nt["bar"], "uncertain", 1, f"uncertain pitch at {pos} (pitch trackers disagree)")
     for nt, why in doubts:

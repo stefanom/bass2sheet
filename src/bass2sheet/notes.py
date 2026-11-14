@@ -32,6 +32,7 @@ class SegParams:
     octave_up_db: float = 25.0  # octave this much louder than the fundamental: the note is an octave up
     min_voiced_frames: int = 6  # 60 ms of clearly pitched sound makes a note
     lowest: int = LOWEST_NOTE  # the instrument's lowest note: lower ones are written an octave up (0: no limit)
+    finder: str = "own"  # or "muscriptor": whose notes are written; then these are the second opinion (muscriptor.py)
     glide_frames: int = 13  # an unplucked stretch shorter than this, a step from the note beside it, is a slide
     tail_db: float = 8.0  # ... and so is one this much quieter than the note before it: that note dying away
     thump_frames: int = 10  # a plucked stretch shorter than this, right before a note with no pluck: its attack

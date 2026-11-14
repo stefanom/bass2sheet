@@ -400,7 +400,7 @@ function frame() {
 function refresh() {
   if (!S) return;
   const done = Logic.total(S.worked);
-  $("progress").textContent = `worked through ${Logic.clock(done)} of ${Logic.clock(S.length)} · ${S.fixes} ${S.fixes === 1 ? "fix" : "fixes"}`;
+  $("progress").textContent = `${S.finder === "muscriptor" ? "notes by MuScriptor · " : ""}worked through ${Logic.clock(done)} of ${Logic.clock(S.length)} · ${S.fixes} ${S.fixes === 1 ? "fix" : "fixes"}`;
   $("undo").disabled = !S.undo;
   $("clock").textContent = Logic.clock(playhead);
   $("play").textContent = A.playing ? "■ Stop" : "▶ Play";
@@ -421,7 +421,8 @@ function refresh() {
   } else {
     const [bar, into] = Logic.barAt(S.bars, n.start);
     const was = n.was && n.was.pitch !== n.pitch ? ` · the tool had ${name(n.was.pitch)}` : n.state === "added" ? " · added by you" : "";
-    const doubt = n.state === "machine" && n.doubt ? ` · <span style="color:var(--amber)">doubted${n.doubt.better ? ": sounds more like " + name(n.doubt.better) : ""}</span>` : "";
+    const why = n.doubt ? [n.doubt.alone ? "my own note finder does not hear it" : "", n.doubt.better ? "sounds more like " + name(n.doubt.better) : ""].filter(Boolean).join("; ") : "";
+    const doubt = n.state === "machine" && n.doubt ? ` · <span style="color:var(--amber)">doubted${why ? ": " + why : ""}</span>` : "";
     const also = (n.also || []).length ? " + " + n.also.map(name).join(" + ") : "";
     const offers = guessesFor === n.id + ":" + n.pitch
       ? (guesses.length ? guesses.map((p, k) => `<button class="guess" data-guess="${k}"><small>${k + 1}</small>${name(p)}</button>`).join("") : `<span class="soft">no guess</span>`)

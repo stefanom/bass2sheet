@@ -58,6 +58,10 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 **What you leave as it is counts as right, as far as you have worked.** Playing past a note does not make it yours: people listen ahead, before they start fixing and after. What counts is everything you played up to your last fix. The band over the timeline shows it in dark green; what you have only heard is pale. When you have listened further and found nothing to fix, "Checked up to here" moves the mark to the playhead. The page picks up where you stopped.
 
+## Starting from MuScriptor's notes
+
+`bass2sheet-copilot add SONG --notes muscriptor --dir scores-muscriptor` prepares a song with MuScriptor's notes in place of the tool's own ([muscriptor.md](muscriptor.md)). The page says "notes by MuScriptor" beside the progress. A note is amber where the tool's own finder does not hear it, and the note's line says so. A song keeps the notes it was added with, so MuScriptor's version of a song you have worked on goes in another working directory; `report` then counts MuScriptor's mistakes there and the tool's in the first.
+
 ## The sheet
 
 "Make the sheet" writes the PDF, the MusicXML and a MIDI file from your notes, with the bars, the rhythm and the tab as the tool writes them (those pieces get their own steps later). The line under the title says how much of the song you have worked through.

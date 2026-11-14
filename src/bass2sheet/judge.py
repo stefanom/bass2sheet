@@ -201,6 +201,8 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
 
     together = settings.get("together", DEFAULTS["together"])  # versions from before the choice existed
     parts = [code_id(), "given" if stems_dir else settings["separator"], settings["replucks"], together]
+    finder = settings.get("notes", "own")  # whose notes: see pipeline.seg_params
+    parts += [finder] if finder != "own" else []
     path = os.path.join(keep, "-".join([*parts, settings["beat_tracker"], crepe_model]) + ".json") if keep else None
     if path and os.path.exists(path):
         with open(path) as f:
@@ -209,7 +211,7 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
     c = find_notes(
         stems,
         cache_dir,
-        seg_params(settings["replucks"], together),
+        seg_params(settings["replucks"], together, notes=finder),
         device,
         crepe_model,
         wav.mean(0),

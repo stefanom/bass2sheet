@@ -85,6 +85,10 @@ The song plays through on a timeline: the isolated bass as a picture of pitch ag
 
 Every fix is the tool's record of a mistake, with the right answer attached: `bass2sheet-copilot report` lists them by kind. See [docs/copilot.md](docs/copilot.md).
 
+## Another note finder: MuScriptor
+
+`--notes muscriptor` writes the notes of [MuScriptor](https://github.com/muscriptor/muscriptor), Kyutai and Mirelo's transcription model, in place of bass2sheet's own, which become the second opinion that says which notes to doubt. On the bass bass2sheet isolates, MuScriptor is the better note finder (0.83 against 0.76 on RWC Popular, 0.91 against 0.79 on a bass played alone). It is optional, runs through a program you build separately, and its weights are for non-commercial use under conditions of their authors. See [docs/muscriptor.md](docs/muscriptor.md).
+
 ## How it works
 
 1. **Decode and validate.** Any format to 44.1 kHz stereo. Unreadable, silent, very short or very long input is refused with a message.
@@ -167,6 +171,7 @@ bass2sheet is MIT licensed (see [LICENSE](LICENSE)). It stands on other people's
 - Pitch: [CREPE](https://github.com/marl/crepe) through [torchcrepe](https://github.com/maxrmorrison/torchcrepe), and pYIN in [librosa](https://librosa.org)
 - Beats: [Beat This!](https://github.com/CPJKU/beat_this)
 - Second opinion: [Basic Pitch](https://github.com/spotify/basic-pitch)
+- Optional note finder: [MuScriptor](https://github.com/muscriptor/muscriptor) through [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp) (weights CC BY-NC 4.0 with conditions of use; not downloaded by bass2sheet)
 - Evaluation: [mir_eval](https://github.com/mir-evaluation/mir_eval), [pretty_midi](https://github.com/craffel/pretty-midi)
 - Engraving: [MuseScore](https://musescore.org)
 

@@ -174,6 +174,9 @@ def prepare(workdir, song, opts=None, say=None):
     for n, h in zip(notes, ownsound.check(mono, notes)):
         if h and ownsound.doubtful(h):
             n["doubt"] = dict(explained=round(h["explained"], 2), better=h["better"])
+    for n, h in zip(notes, heard["notes"]):
+        if h.get("flag") == "alone":  # MuScriptor's note, and bass2sheet's own finder does not hear it (muscriptor.py)
+            n["doubt"] = dict(n.get("doubt", {}), alone=True)
     feat = features(audio.bass_mono, audio.cache_dir, audio.device, kw["crepe_model"])
     suffix = "" if kw["crepe_model"] == "full" else f"-{kw['crepe_model']}"
     probs = np.load(os.path.join(audio.cache_dir, f"crepe-{sha1_array(audio.bass_mono)[:16]}{suffix}.npz"))["probs"]
@@ -862,6 +865,7 @@ class Desk:
         high = min(HIGH, max(max(pitches) + 3, low + 24))
         return dict(
             id=self.song_id,
+            finder=m["settings"].get("notes", "own"),
             title=self.song.get("title", self.song_id),
             artist=self.song.get("artist", ""),
             length=m["length"],
@@ -942,6 +946,7 @@ def mistakes(workdir, song_id):
     rows.sort(key=lambda r: r["time"])
     return dict(
         song=song_id,
+        finder=desk.machine["settings"].get("notes", "own"),
         notes=len(desk.machine["notes"]),
         right=right,
         unchecked=unchecked,
@@ -962,7 +967,8 @@ def report(workdir):
         share = m["checked_seconds"] / max(m["length"], 1e-9)
         lines += [f"## {song.get('title', song_id)}", ""]
         lines += [
-            f"Worked through {clock(m['checked_seconds'])} of {clock(m['length'])} ({share:.0%}). Of the tool's "
+            f"Worked through {clock(m['checked_seconds'])} of {clock(m['length'])} ({share:.0%}). Of "
+            f"{'MuScriptor' if m['finder'] == 'muscriptor' else 'the tool'}'s "
             f"{m['notes']} notes, {m['right']} were left as they were there; {m['unchecked']} are not checked yet.",
             "",
         ]
@@ -1044,6 +1050,12 @@ def main(argv=None):
     a = sub.add_parser("add", help="add songs and prepare them")
     a.add_argument("songs", nargs="+", help="audio files you have the rights to use")
     a.add_argument("--judging", help="a bass2sheet-judge directory: its songs take the settings your picks settled on")
+    a.add_argument(
+        "--notes",
+        choices=["own", "muscriptor"],
+        help="whose notes you start from: bass2sheet's own (default), or MuScriptor's with bass2sheet's as the "
+        "second opinion (a separate program with non-commercial weights: see docs/muscriptor.md)",
+    )
     a.add_argument("--cache-dir", help="where models, stems and pitch tracks are cached")
     a.add_argument("--device", help="mps, cuda or cpu (default: the best available)")
     s = sub.add_parser("serve", help="open the page on this machine")
@@ -1061,7 +1073,8 @@ def main(argv=None):
             if missing:
                 raise Bass2SheetError(f"no such file: {missing[0]}")
             opts = {k: v for k, v in dict(cache_dir=args.cache_dir, device=args.device).items() if v}
-            add(args.songs, args.dir, opts, judging=args.judging)
+            chosen = dict(notes=args.notes) if args.notes else None
+            add(args.songs, args.dir, opts, settings=chosen, judging=args.judging)
             print(f"Ready. Open the page with: bass2sheet-copilot serve --dir {args.dir}")
         elif args.command == "serve":
             from .copilot_server import serve

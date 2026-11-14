@@ -41,6 +41,9 @@ from .separate import load_stems, separate
 EXIT_OK, EXIT_ERROR, EXIT_FAILED_GATES = 0, 1, 2
 
 
+NOTE_FINDERS = ("own", "muscriptor")  # whose notes are written (seg_params)
+
+
 def guess_title(path):
     """'Artist - Title (Official Video) [videoid].ext' -> (title, artist)."""
     base = clean_name(path)
@@ -53,10 +56,13 @@ def guess_title(path):
 BEAT_TRACKERS = ("auto", "beat_this", "librosa")
 
 
-def seg_params(replucks, together=None, lowest=LOWEST_NOTE):
-    """Note segmentation for a re-pluck policy, for whether notes played together are written (see DEFAULTS) and
-    for the instrument's lowest note (a MIDI number; 0 for no limit)."""
+def seg_params(replucks, together=None, lowest=LOWEST_NOTE, notes=None):
+    """Note segmentation for a re-pluck policy, for whether notes played together are written (see DEFAULTS), for
+    the instrument's lowest note (a MIDI number; 0 for no limit) and for whose notes are written: bass2sheet's
+    own ("own", the default) or MuScriptor's with bass2sheet's as the second opinion ("muscriptor")."""
     together = together or DEFAULTS["together"]
+    if (notes or "own") not in NOTE_FINDERS:
+        raise Bass2SheetError(f"unknown note finder {notes!r}; expected one of {', '.join(NOTE_FINDERS)}")
     if replucks not in ALTERNATIVES["replucks"]:
         raise Bass2SheetError(f"unknown re-pluck policy {replucks!r}; expected 'every' or 'clear'")
     if together not in ALTERNATIVES["together"]:
@@ -66,6 +72,7 @@ def seg_params(replucks, together=None, lowest=LOWEST_NOTE):
         split_held=replucks == "every",
         together=together == "write",
         lowest=int(lowest or 0),
+        finder=notes or "own",
     )
 
 
@@ -93,6 +100,10 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
     others = [v.mean(0) for k, v in stems.items() if k != "bass"]
     rest = sum(v[: len(bass_mono)] for v in others) if others else None  # the record without the bass track
     notes, _, _ = segment_notes(feat, bass_mono, params, rest)
+    if params.finder == "muscriptor":  # its notes are written; the ones just found say which of them to doubt
+        from . import muscriptor
+
+        notes = muscriptor.as_notes(muscriptor.heard(bass_mono, feat["stem_id"], cache_dir), notes, bass_mono, params)
     if len(notes) < 8:
         raise Bass2SheetError(f"only {len(notes)} bass notes found; the stem has no clearly pitched bass")
     if mix is None:
@@ -183,13 +194,15 @@ def run(
     tab=None,
     together=None,
     lowest=LOWEST_NOTE,
+    notes=None,
 ):
     """Runs the whole pipeline and writes the outputs; returns the exit code.
 
     `replucks`, `together`, `rhythm` and `tab` default to the standing choices in DEFAULTS, as do the first
     separator and the beat tracker when those are left on "auto". `lowest` is the instrument's lowest note as a
     MIDI number (E1 by default, for the four-string bass the tab is written for): what is heard below it is
-    written an octave up; 0 leaves the notes as heard.
+    written an octave up; 0 leaves the notes as heard. `notes` is whose notes are written: bass2sheet's own
+    (the default) or "muscriptor" (see muscriptor.py; it has to be set up).
 
     `bass_stem` is an audio file used as the bass in place of the separated one (the rest of the separation is kept
     for the beat grid and chords). It exists for evaluation: with a dataset's clean stem it shows how much of the
@@ -229,7 +242,7 @@ def run(
     order = [DEFAULTS["separator"]] + [m for m in ALTERNATIVES["separator"] if m != DEFAULTS["separator"]]
     methods = ["given stems"] if stems_dir else order if separator == "auto" else [separator]
     attempts, candidates = [], []
-    params = seg_params(replucks, together, lowest)
+    params = seg_params(replucks, together, lowest, notes)
     for i, method in enumerate(methods):
         last = i == len(methods) - 1
         t0 = time.time()

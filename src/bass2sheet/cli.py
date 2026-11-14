@@ -56,6 +56,12 @@ def main(argv=None):
         help="write two notes where two are played together (default), or one note at a time",
     )
     ap.add_argument(
+        "--notes",
+        choices=["own", "muscriptor"],
+        help="whose notes are written: bass2sheet's own (default), or MuScriptor's with bass2sheet's as the second "
+        "opinion. MuScriptor is a separate program with non-commercial weights; see docs/muscriptor.md",
+    )
+    ap.add_argument(
         "--lowest",
         metavar="NOTE",
         default="E1",
@@ -130,6 +136,7 @@ def main(argv=None):
             beat_tracker=args.beat_tracker,
             replucks=args.replucks,
             together=args.together,
+            notes=args.notes,
             lowest=0 if args.lowest.lower() == "none" else note_number(args.lowest),
             rhythm=args.rhythm,
             tab=args.tab,

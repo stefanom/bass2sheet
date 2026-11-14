@@ -445,7 +445,7 @@ def score_f0(ref_t, ref_hz, est):
 # ---------------------------------------------------------------- runner
 
 
-def run_one(track, cond, out_dir, force, cache_dir, run=True):
+def run_one(track, cond, out_dir, force, cache_dir, run=True, notes=None):
     """Run the tool for one track and condition (unless already done) and score it. With `run=False` nothing is
     run: the result is None for a track without outputs."""
     from . import pipeline
@@ -489,6 +489,7 @@ def run_one(track, cond, out_dir, force, cache_dir, run=True):
                 bass_stem=stem,
                 cache_dir=cache_dir,
                 lowest=0,  # the datasets' basses are not all four-string: score the notes as heard
+                notes=notes,
             )
         except Bass2SheetError as e:
             atomic_write_text(err_path, str(e))
@@ -749,6 +750,7 @@ def main(argv=None):
     ap.add_argument(
         "--conditions", default="mix,stem", help="mix, stem or both (stem only where the dataset has clean stems)"
     )
+    ap.add_argument("--notes", choices=["own", "muscriptor"], help="whose notes are written (see bass2sheet --notes)")
     ap.add_argument("--tracks", help="comma-separated track ids (default: all usable tracks)")
     ap.add_argument("--sample", type=int, help="use this many tracks, evenly spaced through the dataset")
     ap.add_argument("--limit", type=int, help="use the first N tracks")
@@ -808,7 +810,8 @@ def main(argv=None):
     rows = []
     for k, t in enumerate(tracks):
         for cond in conds:
-            row = run_one(t, cond, os.path.join(args.out, t["id"], cond), args.force, args.cache_dir, not args.no_run)
+            where = os.path.join(args.out, t["id"], cond)
+            row = run_one(t, cond, where, args.force, args.cache_dir, not args.no_run, args.notes)
             if row is None:
                 continue
             rows.append(row)
