@@ -4,7 +4,8 @@ A song is prepared once: the tool hears it as it would for a sheet, and what it 
 (`machine.json`). The person then goes through the notes with the record playing, and fixes what is wrong:
 another pitch, a note that is not there, one that is missing, two that are one, one that is two, a start or an
 end. Their version lives beside the tool's (`notes.json`), every fix is logged (`log.jsonl`), and what they
-played past without touching counts as checked. The sheet is written from their version.
+played past without touching, as far as they have worked, counts as checked. The sheet is written from their
+version.
 
 The tool helps in two ways. For a wrong note it offers guesses, best first (`Desk.guesses`): what the other
 witnesses heard there and what the song's own notes make it sound like. After a fix it offers the other notes
@@ -37,6 +38,7 @@ SHORTEST = 0.03  # no note is shorter than this
 UNDO_DEPTH = 200
 SPEEDS = (90, 80, 70, 60, 50)  # the slower speeds a song can be played at, in percent
 CARRIED = ("pitch", "shift", "delete", "add", "split", "merge")  # the fixes that are offered to the repeats
+FIXES = ("pitch", "pitches", "also", "shift", "delete", "add", "move", "split", "merge", "repeats")
 PITCHES = range(SEMI_LO, 85)
 
 
@@ -339,9 +341,29 @@ class Desk:
         rep, _ = self._repeats
         return rep if rep.bars >= 2 else None
 
+    def fixes(self):
+        """How many notes the person has changed, added or taken out."""
+        return sum(n["state"] != "machine" for n in self.notes) + self.deleted()
+
+    def reached(self):
+        """How far the person has worked through the song, in seconds; None before they have. People listen
+        ahead, before they start fixing and after: playing past something does not make it theirs. What does:
+        everything up to their last fix, or up to where they said they have checked (`upto`)."""
+        have = {n["id"] for n in self.notes} | {i for n in self.notes for i in n.get("merged", [])}
+        marks = [n["start"] for n in self.notes if n["state"] != "machine"]
+        marks += [m["start"] for m in self.machine["notes"] if m["id"] not in have]
+        marks += [self.state["upto"]] if self.state.get("upto") is not None else []
+        return round(max(marks), 4) if marks else None
+
+    def worked(self):
+        """The spans of the song the person has worked through: what they played, as far as `reached`. What they
+        left untouched there counts as right. The rest of what they played is only heard."""
+        far = self.reached()
+        return [] if far is None else [[a, min(b, far)] for a, b in self.state["checked"] if a < far]
+
     def trust(self):
         """Whose word each sixteenth is (repeats.Repeats.trust), as things stand."""
-        return self.repeats.trust(self.notes, self._repeats[1], self.state["checked"])
+        return self.repeats.trust(self.notes, self._repeats[1], self.worked())
 
     def differences(self):
         """Where a bar is written unlike its repeats that sound the same there, for the page: each with when it
@@ -350,7 +372,7 @@ class Desk:
         if rep is None:
             return []
         out = []
-        for d in rep.differences(self.notes, self._repeats[1], self.state["checked"], self.state.get("kept", [])):
+        for d in rep.differences(self.notes, self._repeats[1], self.worked(), self.state.get("kept", [])):
             g = d["bar"] * repeats_.SLOTS
             pieces = rep.pieces(self.notes, d["source"], d["bar"], d["k0"], d["k1"])
             out.append(
@@ -515,7 +537,7 @@ class Desk:
         fixed = notes[i]
         if "was" not in fixed or fixed["was"]["pitch"] == fixed["pitch"]:
             return None, []
-        label, bank, checked = fixed["was"]["pitch"], self.bank(), self.state["checked"]
+        label, bank, checked = fixed["was"]["pitch"], self.bank(), self.worked()
         mine = ownsound._length(bank.lasts[i])
         if mine is None:
             return label, []
@@ -586,7 +608,7 @@ class Desk:
         notes, rep = self.notes, self.repeats
         carries = rep is not None and kind in CARRIED and action.get("offer", True)
         written = rep.tokens(notes) if carries else None
-        kept = len(self.state.get("kept", []))
+        kept, upto = len(self.state.get("kept", [])), self.state.get("upto")
         try:
             self._apply(kind, action, notes, keep, made, result)
         except Exception:  # nothing half done: the notes are as they were
@@ -595,11 +617,12 @@ class Desk:
                 [n for n in notes if n["id"] not in ids] + before, key=lambda n: (n["start"], n["pitch"])
             )
             self.state["kept"] = self.state.get("kept", [])[:kept]
+            self.state["upto"] = upto
             self._bank = None
             raise
         if kind == "refuse":
             return {}
-        self.state["undo"].append(dict(kind=kind, before=before, made=made, kept=kept))
+        self.state["undo"].append(dict(kind=kind, before=before, made=made, kept=kept, upto=upto))
         self.save()
         self.log(dict(action, song=self.song_id, before=before, made=made))
         if carries:  # the other bars that sound the same there and are written as this one was
@@ -637,6 +660,11 @@ class Desk:
                 raise Bass2SheetError("there is nothing to take from a repeat")
             for item in action["items"]:
                 self._copy(int(item["source"]), int(item["bar"]), int(item["k0"]), int(item["k1"]), keep, made)
+        elif kind == "upto":  # "I have checked the song up to here": what was left as it is before that is right
+            time_ = float(action["time"])
+            if not 0 <= time_ <= self.machine["length"] + 1:
+                raise Bass2SheetError("that is not a moment of the song")
+            self.state["upto"] = round(time_, 3)
         elif kind == "keep":  # what is written here stands, whatever the repeats have
             start, end = float(action["start"]), float(action["end"])
             if not end > start:
@@ -777,6 +805,8 @@ class Desk:
         self.state["notes"] = [n for n in self.notes if n["id"] not in ids] + last["before"]
         if "kept" in last:
             self.state["kept"] = self.state.get("kept", [])[: last["kept"]]
+        if "upto" in last:
+            self.state["upto"] = last["upto"]
         self.save()
         self.log(dict(kind="undo", song=self.song_id, undone=last["kind"]))
         return dict(undone=last["kind"], ids=[b["id"] for b in last["before"]])
@@ -808,9 +838,10 @@ class Desk:
             high=high,
             notes=self.notes,
             checked=self.state["checked"],
+            worked=self.worked(),
             at=self.state.get("at"),
             undo=len(self.state["undo"]),
-            fixes=sum(n["state"] != "machine" for n in self.notes) + self.deleted(),
+            fixes=self.fixes(),
             names={str(p): note_name(p) for p in PITCHES},
             repeats=self.patterns(),
         )
@@ -841,11 +872,11 @@ def mistakes(workdir, song_id):
     Kinds: `wrong octave`, `wrong pitch`, `extra note` (the person deleted it), `missed note` (they added it),
     `two notes written as one` (they split it), `one note written as two` (they joined them), `start` and `end`
     (moved by more than 50 ms), `second note` (a note played together added or removed). `right` counts the
-    notes left as the tool had them in what the person played through; `unchecked` the rest."""
+    notes left as the tool had them in what the person worked through (`Desk.worked`); `unchecked` the rest."""
     desk = Desk(workdir, song_id)
     mine = {n["id"]: n for n in desk.notes}
     absorbed = {i for n in desk.notes for i in n.get("merged", [])}
-    checked, rows, right, unchecked = desk.state["checked"], [], 0, 0
+    checked, rows, right, unchecked = desk.worked(), [], 0, 0
     row = lambda kind, m, n=None: rows.append(
         dict(kind=kind, time=round(m["start"], 2), had=note_name(m["pitch"]), now=note_name(n["pitch"]) if n else None)
     )
@@ -897,7 +928,7 @@ def report(workdir):
         share = m["checked_seconds"] / max(m["length"], 1e-9)
         lines += [f"## {song.get('title', song_id)}", ""]
         lines += [
-            f"Checked {clock(m['checked_seconds'])} of {clock(m['length'])} ({share:.0%}). Of the tool's "
+            f"Worked through {clock(m['checked_seconds'])} of {clock(m['length'])} ({share:.0%}). Of the tool's "
             f"{m['notes']} notes, {m['right']} were left as they were there; {m['unchecked']} are not checked yet.",
             "",
         ]
@@ -933,7 +964,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     notes = quantize(notes, grid, m["origin"])
     if (rhythm or m["settings"]["rhythm"]) == "simple":
         notes = simplify(notes)
-    checked = desk.state["checked"]
+    checked = desk.worked()
     share = sum(inside(n["start"], checked) for n in notes) / max(1, len(notes))
     done = share >= 0.995
     subtitle = (

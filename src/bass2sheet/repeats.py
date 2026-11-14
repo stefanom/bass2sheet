@@ -159,16 +159,14 @@ class Repeats:
             out |= (mid >= a) & (mid <= b)
         return out
 
-    def trust(self, notes, machine_pitch, checked):
-        """How far each sixteenth is the person's word: 2 where they changed something; 1 where they played past
-        it and left it, as far as their last change (people listen ahead before they start fixing: what lies
-        beyond the last change has been heard, not worked through); 0 where it is only what the tool wrote."""
+    def trust(self, notes, machine_pitch, worked):
+        """How far each sixteenth is the person's word: 2 where they changed something; 1 where they worked
+        through it and left it (`worked`: spans of the song, in seconds); 0 where it is only what the tool
+        wrote."""
         pitch, _, owner = self.tokens(notes)
         mine = np.array([n.get("state", "machine") != "machine" for n in notes] + [False])
-        mid = self.mid[: self.n].reshape(self.bars, SLOTS)
         level = np.where((pitch != machine_pitch) | mine[owner], 2, 0)
-        reached = mid[level == 2].max() if (level == 2).any() else -np.inf
-        return np.maximum(level, (self.within(checked) & (mid <= reached)).astype(int))
+        return np.maximum(level, self.within(worked).astype(int))
 
     # ---- what the repeats say
 
@@ -180,11 +178,11 @@ class Repeats:
             return self.rise[i, k] < HELD_DB
         return True
 
-    def differences(self, notes, machine_pitch, checked, kept=()):
+    def differences(self, notes, machine_pitch, worked, kept=()):
         """Where a bar is written unlike its repeats that sound the same there: see `differences_of`. `kept`
         are spans the person said to leave as they are written: nothing is marked there."""
         pitch, start, _ = self.tokens(notes)
-        return self.differences_of(pitch, start, self.trust(notes, machine_pitch, checked), self.within(kept))
+        return self.differences_of(pitch, start, self.trust(notes, machine_pitch, worked), self.within(kept))
 
     def differences_of(self, pitch, start, level, settled=None):
         """From what is written (`tokens`) and whose word it is (`trust`): a list of

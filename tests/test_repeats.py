@@ -107,15 +107,14 @@ def test_whose_word_a_sixteenth_is():
     rep = _rep(4)
     notes = _notes([0, 1, 2, 3])
     machine = rep.tokens(notes)[0]
-    assert not rep.trust(notes, machine, [[0, 8]]).any()  # played past, but nothing fixed yet: only heard
+    assert not rep.trust(notes, machine, []).any()
     notes[8]["pitch"], notes[8]["state"] = 48, "fixed"  # bar 1, sixteenths 6 and 7
     del notes[20]  # bar 3, sixteenths 6 and 7: a note of the tool's taken out
-    level = rep.trust(notes, machine, [[0, 3.2], [6.5, 8]])
-    assert level[1, 6:8].tolist() == [2, 2] and level[3, 6:8].tolist() == [2, 2]
-    assert (level[0] == 1).all() and level[1, :6].tolist() == [1] * 6  # played past and left, before the last fix
-    assert level[2].tolist() == [0] * 16  # never played
-    assert level[3, :6].tolist() == [0, 0, 0, 0, 1, 1]  # played from the fifth sixteenth on
-    assert level[3, 8:].tolist() == [0] * 8  # played too, but after the last fix: only heard
+    level = rep.trust(notes, machine, [[0, 3.2], [6.5, 6.9]])
+    assert level[1, 6:8].tolist() == [2, 2] and level[3, 6:8].tolist() == [2, 2]  # what they changed
+    assert (level[0] == 1).all() and level[1, :6].tolist() == [1] * 6  # what they worked through and left
+    assert level[2].tolist() == [0] * 16  # the rest is the tool's
+    assert level[3].tolist() == [0, 0, 0, 0, 1, 1, 2, 2] + [0] * 8
     assert rep.within([[2.0, 2.2], [7.9, 9]])[[1, 3]].sum() == 2 + 1
 
 

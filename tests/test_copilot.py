@@ -319,6 +319,8 @@ def test_what_the_person_played_past_is_not_offered_and_tells_right_from_wrong(w
     common = max(set(pitches), key=pitches.count)
     same = [n for n in d.notes if n["pitch"] == common]
     assert len(same) >= 6
+    last = max(d.notes, key=lambda n: n["start"])
+    d.act(dict(kind="pitch", id=last["id"], pitch=last["pitch"] + 1, offer=False))  # they are at work on the song
     d.mark_checked(0, same[3]["start"] + 0.01)  # four of them played past: found right
     odd = same[4]
     result = d.act(dict(kind="pitch", id=odd["id"], pitch=common + 7, how="key"))  # one "fixed" all the same
@@ -488,6 +490,31 @@ def test_a_fix_that_fails_leaves_nothing_half_done(workdir):
     assert json.dumps(d.notes) == start
 
 
+def test_listening_ahead_is_not_working_through(workdir):
+    d = _desk(workdir)
+    length = d.machine["length"]
+    d.mark_checked(0, length)  # the whole song heard, and nothing fixed
+    assert d.reached() is None and d.worked() == [] and d.public()["checked"] == [[0.0, length]]
+    assert copilot.mistakes(workdir, "mix")["right"] == 0
+    early = next(n for n in d.notes if n["start"] > 5)
+    d.act(dict(kind="pitch", id=early["id"], pitch=early["pitch"] + 12, offer=False))
+    assert d.reached() == early["start"] and d.worked() == [[0.0, early["start"]]]  # as far as the fix, no further
+    m = copilot.mistakes(workdir, "mix")
+    assert (
+        m["kinds"] == {"wrong octave": 1} and 0 < m["right"] < 20 and m["checked_seconds"] == round(early["start"], 1)
+    )
+    later = next(n for n in d.notes if n["start"] > 12)
+    d.act(dict(kind="delete", id=later["id"], offer=False))  # a note taken out further on: they have worked to there
+    assert d.reached() == later["start"]
+    d.act(dict(kind="upto", time=20.0))  # "I have checked it up to here"
+    assert d.reached() == 20.0 and d.worked() == [[0.0, 20.0]] and d.public()["worked"] == [[0.0, 20.0]]
+    assert copilot.mistakes(workdir, "mix")["right"] > m["right"]
+    assert d.act(dict(kind="undo"))["undone"] == "upto" and d.reached() == later["start"]
+    assert d.act(dict(kind="undo"))["undone"] == "delete" and d.reached() == early["start"]
+    with pytest.raises(Bass2SheetError, match="not a moment"):
+        d.act(dict(kind="upto", time=-3))
+
+
 # ------------------------------------------------------------------------------------------- the record
 
 
@@ -534,10 +561,10 @@ def test_the_sheet_is_written_from_the_persons_notes(workdir):
     played = pretty_midi.PrettyMIDI(files["midi"]).instruments[0].notes
     assert len(played) == len(d.notes) and n["pitch"] + 12 in {x.pitch for x in played}
     d.mark_checked(0, d.machine["length"])
-    assert (
-        "Bass: checked by ear against the record<"
-        in open(copilot.sheet(workdir, "mix", mscore="/x")["musicxml"]).read()
-    )
+    written = lambda: open(copilot.sheet(workdir, "mix", mscore="/x")["musicxml"]).read()
+    assert "the rest is the machine" in written()  # played to the end, but worked through only as far as the fixes
+    d.act(dict(kind="upto", time=d.machine["length"]))
+    assert "Bass: checked by ear against the record<" in written()
 
 
 # --------------------------------------------------------------------------------------------------- the page
@@ -581,8 +608,9 @@ def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
     assert [d["why"] for d in r["differences"]] == ["fixed", "fixed"]  # its two repeats are written differently now
     assert r["differences"][0]["notes"][0]["pitch"] == n["pitch"] + 12
     assert _post(url + "/api/checked", dict(song="mix", start=0, end=5.5)) == dict(
-        checked=[[0.0, 5.5]], differences=r["differences"]
-    )
+        checked=[[0.0, 5.5]], worked=[[0.0, n["start"]]], differences=r["differences"]
+    )  # played to 5.5 s, worked through as far as the fix
+    assert r["worked"] == [] and song["worked"] == []
     undone = _post(url + "/api/act", dict(song="mix", action=dict(kind="undo")))
     assert undone["fixes"] == 0 and undone["differences"] == []
     for bad, code in (

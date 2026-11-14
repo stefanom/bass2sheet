@@ -44,6 +44,7 @@
   <b>bass2sheet · copilot</b>
   <select id="song" title="Song"></select>
   <span id="progress" class="soft"></span>
+  <button id="upto" title="Everything before the playhead that you played and left as it is counts as right from now on">Checked up to here</button>
   <span class="spacer"></span>
   <span id="sheetlinks"></span>
   <button id="undo" title="Undo the last fix (Z)">Undo</button>
@@ -75,7 +76,8 @@
     <span class="legend"><i style="border-color:#bc4c00;border-style:dashed;background:#ffe2c6"></i>what a repeat you fixed or left has there</span>
     <span class="legend"><i style="border-color:#9a6700;border-style:dotted;background:#fff"></i>what most repeats have there</span>
     <span class="legend"><i style="border:0;border-top:2px solid #cf222e;height:0;margin-top:2px"></i>the pitch the tracker followed</span>
-    <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>played through</span><br>
+    <span class="legend"><i style="border-color:#1a7f37;background:#1a7f37;height:5px"></i>worked through</span>
+    <span class="legend"><i style="border-color:#aceebb;background:#aceebb;height:5px"></i>only heard</span><br>
     <kbd>Space</kbd> play / stop · <kbd>←</kbd> <kbd>→</kbd> the note before / after · <kbd>1</kbd>–<kbd>6</kbd> take a guess · <kbd>↑</kbd> <kbd>↓</kbd> a semitone · <kbd>⇧↑</kbd> <kbd>⇧↓</kbd> an octave ·
     <kbd>Enter</kbd> hear the note again · <kbd>⌫</kbd> delete · <kbd>A</kbd> add a note here · <kbd>S</kbd> split · <kbd>M</kbd> join with the next · <kbd>⇧M</kbd> join with every repeat that follows · <kbd>⌥←</kbd> <kbd>⌥→</kbd> move the start · <kbd>⌥⇧←</kbd> <kbd>⌥⇧→</kbd> move the end · <kbd>Z</kbd> undo · <kbd>[</kbd> <kbd>]</kbd> slower / faster<br>
     The letters over the timeline name the bars that sound alike. Click a letter to step through its repeats; click an orange mark under it, or a dashed note, to see what a repeat has there and take it or leave it.<br>
@@ -357,8 +359,10 @@ function draw() {
   // the ruler: bar numbers, and what was played through
   g.fillStyle = "#f6f8fa"; g.fillRect(GUTTER, 0, W - GUTTER, RULER);
   g.save(); g.beginPath(); g.rect(GUTTER, 0, W - GUTTER, RULER); g.clip();
-  g.fillStyle = "#1a7f37";
-  for (const [a, b] of S.checked) if (b >= view.t0 && a <= t1) g.fillRect(xOf(a), RULER - 5, (b - a) * view.pps, 5);
+  for (const [spans, colour] of [[S.checked, "#aceebb"], [S.worked, "#1a7f37"]]) {  // heard; worked through
+    g.fillStyle = colour;
+    for (const [a, b] of spans) if (b >= view.t0 && a <= t1) g.fillRect(xOf(a), RULER - 5, (b - a) * view.pps, 5);
+  }
   g.fillStyle = "#59636e"; g.font = "10px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "top";
   let lastX = -99;
   for (const b of S.bars) { const x = xOf(b.time); if (x < GUTTER - 30 || x > W) continue; if (x - lastX < 34) continue; g.fillText(String(b.bar), x + 3, 2); lastX = x; }
@@ -394,8 +398,8 @@ function frame() {
 // ---------------------------------------------------------------------------------------------- the panel
 function refresh() {
   if (!S) return;
-  const done = Logic.total(S.checked);
-  $("progress").textContent = `played through ${Logic.clock(done)} of ${Logic.clock(S.length)} · ${S.fixes} ${S.fixes === 1 ? "fix" : "fixes"}`;
+  const done = Logic.total(S.worked);
+  $("progress").textContent = `worked through ${Logic.clock(done)} of ${Logic.clock(S.length)} · ${S.fixes} ${S.fixes === 1 ? "fix" : "fixes"}`;
   $("undo").disabled = !S.undo;
   $("clock").textContent = Logic.clock(playhead);
   $("play").textContent = A.playing ? "■ Stop" : "▶ Play";
@@ -457,7 +461,7 @@ async function askGuesses(n) {
 async function act(action) {
   try {
     const r = await api("/api/act", {song: S.id, action: Object.assign({playhead: +playhead.toFixed(2)}, action)});
-    S.notes = r.notes; S.checked = r.checked; S.undo = r.undo; S.fixes = r.fixes; S.repeats.differences = r.differences;
+    S.notes = r.notes; S.checked = r.checked; S.worked = r.worked; S.undo = r.undo; S.fixes = r.fixes; S.repeats.differences = r.differences;
     byPitch = Logic.indexNotes(S.notes); A.rms.clear();
     if (r.result.offer) showOffer(r.result.offer);
     say("");
@@ -622,7 +626,7 @@ function reportPlayed(pos) {
   const a = A.seg, b = Math.min(pos, S.length);
   A.seg = b;
   if (b - a < 0.3) return;
-  api("/api/checked", {song: S.id, start: +a.toFixed(2), end: +b.toFixed(2)}).then(r => { S.checked = r.checked; S.repeats.differences = r.differences; refresh(); }).catch(e => say(e.message, true));
+  api("/api/checked", {song: S.id, start: +a.toFixed(2), end: +b.toFixed(2)}).then(r => { S.checked = r.checked; S.worked = r.worked; S.repeats.differences = r.differences; refresh(); }).catch(e => say(e.message, true));
 }
 function stop() {
   if (!A.playing) return;
@@ -800,6 +804,7 @@ function wire() {
   window.addEventListener("resize", () => { resize(); });
   $("play").onclick = () => A.playing ? stop() : play(playhead);
   $("undo").onclick = () => act({kind: "undo"});
+  $("upto").onclick = () => act({kind: "upto", time: +playhead.toFixed(2)});
   $("sheet").onclick = makeSheet;
   $("zoomIn").onclick = () => zoom(1.3); $("zoomOut").onclick = () => zoom(1 / 1.3);
   $("song").onchange = () => load($("song").value);
