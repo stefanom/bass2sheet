@@ -320,6 +320,55 @@ class Repeats:
                 out.append(dict(source=int(i), bar=int(j), k0=k0, k1=k1))
         return out
 
+    def unlike(self, pitch, start, i, j):
+        """Where bar j is written unlike bar i while the two sound the same there: [(k0, k1)], stretches of
+        sixteenths, from what is written (`tokens`). This is one bar against one other, for a person to look at
+        and hear; nothing follows from it by itself. As in `differences_of`: a difference only in where a note
+        starts counts where bar j's own sound agrees with it; a note against silence counts only as a whole
+        note (how long a note is held is not a difference); and the same notes with the line between two of
+        them a sixteenth earlier or later are the same notes."""
+        inside = lambda q: 0 <= q < SLOTS
+        flagged = []
+        for k in range(SLOTS):
+            there, here = int(pitch[i, k]), int(pitch[j, k])
+            if (there, bool(start[i, k])) == (here, bool(start[j, k])) or not self.same[i, j, k]:
+                continue
+            if there == here:  # the same note, begun here in one bar and held on in the other
+                if not self._allowed(j, k, bool(start[j, k]), bool(start[i, k])):
+                    continue
+                if any(
+                    inside(k + d)
+                    and pitch[i, k + d] == pitch[j, k + d] == there
+                    and start[i, k + d] == start[j, k]
+                    and start[j, k + d] == start[i, k]
+                    for d in (-1, 1)
+                ):
+                    continue
+            elif there and here:
+                if any(
+                    inside(k + d) and inside(k - d) and pitch[j, k + d] == there and pitch[i, k - d] == here
+                    for d in (-1, 1)
+                ):
+                    continue
+            else:  # a note one bar has and the other has not: all of it, from its start, or it is not counted
+                x, other, p = (i, j, there) if there else (j, i, here)
+                a = k
+                while a > 0 and pitch[x, a] == p and not start[x, a]:
+                    a -= 1
+                b = k + 1
+                while b < SLOTS and pitch[x, b] == p and not start[x, b]:
+                    b += 1
+                if not (start[x, a] and all(pitch[other, q] == 0 and self.same[i, j, q] for q in range(a, b))):
+                    continue
+            flagged.append(k)
+        out = []
+        for k in flagged:
+            if out and k == out[-1][1] + 1:
+                out[-1] = (out[-1][0], k)
+            else:
+                out.append((k, k))
+        return out
+
     # ---- making one bar read as another
 
     def pieces(self, notes, i, j, k0, k1):

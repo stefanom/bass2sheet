@@ -117,4 +117,16 @@ same([...three.slice(51 * 3, 51 * 3 + 3)], [40, 0, 0]);
 same([...three.slice(204 * 3, 204 * 3 + 3)], [100, 120, 0]);
 assert.ok(L.palette([[0, 0, 0], [255, 255, 255]], 0.5)[64 * 3] > L.palette([[0, 0, 0], [255, 255, 255]], 2)[64 * 3] + 80);  // faint tones show
 
+// the repeats of a bar, one under the other: the pitches their strips show, and where each bar is drawn
+same(L.pitchRange([40, 45, 43], 26, 59), [38, 47]);            // a margin of two around the notes
+same(L.pitchRange([40], 26, 59), [36, 45]);                    // never fewer than ten rows
+same(L.pitchRange([27, 30], 26, 59), [26, 35]);                // nor outside what the picture has
+same(L.pitchRange([58], 26, 59), [50, 59]);
+same(L.pitchRange([], 26, 59), [26, 35]);
+same(L.pitchRange([30, 55], 26, 59), [28, 57]);
+assert.strictEqual(L.alignX(300, 200, 50, 1000), 300);         // right under the bar it is compared with
+assert.strictEqual(L.alignX(-400, 200, 50, 1000), 50);         // that bar is out of sight to the left: at the left edge
+assert.strictEqual(L.alignX(950, 200, 50, 1000), 800);         // or to the right: all of it still in sight
+assert.strictEqual(L.alignX(300, 2000, 50, 1000), 50);         // a bar wider than the window starts at its left
+
 console.log("ok");

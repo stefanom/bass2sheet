@@ -35,10 +35,31 @@
   #roll { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: default; }
   #panel { border-bottom: 0; border-top: 1px solid var(--line); min-height: 50px; }
   #panel b { font-size: 15px; }
-  #offer { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); max-width: calc(100% - 80px); border: 1px solid #bf8700; border-radius: 8px; background: #fff8c5; box-shadow: 0 4px 16px rgba(31,35,40,.25); z-index: 3; }
+  #offer { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); max-width: calc(100% - 80px); border: 1px solid #bf8700; border-radius: 8px; background: #fff8c5; box-shadow: 0 4px 16px rgba(31,35,40,.25); z-index: 3; }
   .hidden { display: none !important; }
   kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); }
   a { color: var(--blue); }
+  /* the whole song in one line: where the view is, where the bars that sound alike are */
+  #mapwrap { flex: none; height: 34px; position: relative; background: #fff; border-bottom: 1px solid var(--line); }
+  #map { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+  /* the repeats of a bar, one under the other, under the timeline */
+  #dock { flex: none; display: flex; flex-direction: column; background: #fff; border-top: 2px solid #8c959f; }
+  #dock.offer { border-top-color: #bf8700; }
+  #dockHead { min-height: 40px; background: #f6f8fa; }
+  #dock.offer #dockHead { background: #fff8c5; }
+  #dockScroll { position: relative; overflow-y: auto; overflow-x: hidden; }
+  #strips { position: sticky; top: 0; left: 0; display: block; width: 100%; }
+  #dockInner { position: relative; }
+  .strip { position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; background: rgba(246,248,250,.97); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+  .strip button { padding: 1px 9px; font-size: 13px; }
+  .strip b { min-width: 52px; }
+  .strip .sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+  button.take { border-color: #1a7f37; color: #116329; font-weight: 600; }
+  button.take:hover { background: #dafbe1; }
+  button.quiet { border-color: transparent; background: transparent; color: var(--soft); text-decoration: underline; padding-left: 4px; padding-right: 4px; }
+  button.quiet:hover { background: #eef1f4; }
+  button.sure { border-color: #cf222e; color: #cf222e; background: #fff; text-decoration: none; }
+  .changed { color: #0969da; font-weight: 600; }
   /* the legend and the keys: behind the Help button */
   #help { position: fixed; top: 46px; right: 10px; bottom: 10px; width: 460px; max-width: calc(100vw - 20px); overflow: auto; z-index: 5; padding: 14px 18px 18px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(31,35,40,.3); font-size: 13px; line-height: 1.55; }
   #help h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--soft); }
@@ -84,7 +105,12 @@
   </span>
   <span id="status"></span>
 </div>
+<div id="mapwrap" title="The whole song. Click or drag to go there"><canvas id="map"></canvas></div>
 <div id="rollwrap"><canvas id="roll"></canvas><div class="bar hidden" id="offer"></div></div>
+<div id="dock" class="hidden">
+  <div class="bar" id="dockHead"></div>
+  <div id="dockScroll"><canvas id="strips"></canvas><div id="dockInner"></div></div>
+</div>
 <div class="bar" id="panel"></div>
 <aside id="help" class="hidden">
   <button class="x" id="helpClose" title="Close (Esc)">✕</button>
@@ -100,7 +126,10 @@
     <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
     <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
     <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
-    <tr><td>A letter</td><td>over the timeline names the bars that sound alike: click it to step through its repeats. An orange mark under it, or a dashed note, shows what a repeat has there: click to take it or leave it.</td></tr>
+    <tr><td>A letter</td><td>over the timeline names the bars that sound alike. Click it and the other bars that sound like that one line up under the timeline, each with its own piece of the picture and its notes, orange where it is written unlike the bar you clicked. Hear each one as it is written and with the change, then change it there or leave it: nothing changes in a bar until you say so for that bar, and "Undo this one" takes it back.</td></tr>
+    <tr><td>After a fix</td><td>the bars that sound the same there and are written as this one was line up the same way.</td></tr>
+    <tr><td>An orange mark</td><td>under a letter, or a dashed note, shows what a repeat has there: click to take it or leave it.</td></tr>
+    <tr><td>The song map</td><td>the line over the timeline is the whole song: the patterns, the part you are looking at (the frame), the playhead, what you have worked through, and a dark line under every bar that sounds like the current one. Click or drag in it to go there.</td></tr>
   </table>
   <h3>The colours</h3>
   <div class="legend"><i style="border-color:#1a7f37;background:#d4f0db"></i>a note as the tool heard it</div>
@@ -233,6 +262,16 @@ const Logic = (() => {
     const t = t0 + x / pps, to = Math.max(lo, Math.min(hi, pps * f));
     return {t0: Math.max(-0.2, t - x / to), pps: to};
   }
+  // --- the repeats of a bar, one under the other
+  // the pitches to show for these notes: a margin around them, at least so many rows, never outside [low, high]
+  function pitchRange(pitches, low, high, margin = 2, least = 10) {
+    let lo = pitches.length ? Math.max(low, Math.min(...pitches) - margin) : low;
+    let hi = pitches.length ? Math.min(high, Math.max(...pitches) + margin) : low;
+    while (hi - lo + 1 < least && (lo > low || hi < high)) { if (hi < high) hi++; if (hi - lo + 1 < least && lo > low) lo--; }
+    return [lo, hi];
+  }
+  // where a repeat's bar is drawn: right under the bar it is compared with (at x), as long as that leaves it in sight
+  const alignX = (x, width, left, right) => (width >= right - left ? left : Math.max(left, Math.min(x, right - width)));
   // --- the picture's colours: 256 colours from silence to the loudest, through `stops`; `gamma` bends the way
   // there: above 1 the faint tones fade, below 1 they show
   const gammaOf = faint => 2 * Math.pow(4, (50 - faint) / 50);  // the slider, 0..100: 8 .. 2 (as it was) .. 0.5
@@ -244,7 +283,7 @@ const Logic = (() => {
     }
     return out;
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette};
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
@@ -275,6 +314,10 @@ const look = Object.assign({scheme: "blue", faint: 50, solid: 70}, stored("copil
 if (!SCHEMES[look.scheme]) look.scheme = "blue";
 const ink = () => SCHEMES[look.scheme].dark ? INK.dark : INK.light;
 const cssOf = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+const STRIP_HEAD = 28, STRIP_GAP = 6;  // a repeat's line of buttons, and the space under its rows
+// dock: the repeats of a bar lined up under the timeline. kind "bar": a bar that was chosen; "offer": after a fix.
+// strips: one per bar, from the server; done: bar -> {state: "taken" (with the fix's name) or "left"}
+let dock = null, dockAsk = 0, mapDrag = false;
 let hover = null, scrub = null;  // the note (and which part of it) under the pointer; the playhead being dragged in the ruler
 let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;
 let selBar = null, selDiff = null;  // a bar chosen in the pattern strip; a difference from a repeat that was clicked
@@ -283,7 +326,7 @@ const hueOf = pattern => ([...pattern].reduce((v, c) => v * 26 + c.charCodeAt(0)
 let playhead = 0, drag = null, pan = null, dirty = true;  // drag: a note being moved or resized; pan: the timeline being dragged
 // A.record and A.bass are what plays: the song as it is, or slowed down (A.speed below 1); a moment of the song is
 // at that moment divided by A.speed in them
-const A = {speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
+const A = {alt: null, speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
 const hear = Object.assign({record: true, bass: false, notes: true, split: false}, JSON.parse(localStorage.getItem("copilot.hear") || "{}"));
 
 async function api(path, body) {
@@ -311,7 +354,7 @@ async function load(id) {
   S = await api("/api/song?id=" + encodeURIComponent(id));
   location.hash = id;
   document.title = S.title + " · copilot";
-  sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); tiles = []; picData = null; f0 = null; hover = null; A.rms.clear();
+  sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); closeDock(); tiles = []; picData = null; f0 = null; hover = null; A.rms.clear();
   A.record = A.bass = A.full = null; A.slow = {}; A.speed = 1; $("speed").value = "100";
   byPitch = Logic.indexNotes(S.notes);
   playhead = S.at !== null && S.at < S.length - 1 ? S.at : Logic.resumeAt(Logic.sorted(S.notes), S.checked);
@@ -557,13 +600,59 @@ function draw() {
   g.textBaseline = "middle"; g.textAlign = "right";
   for (let p = S.low; p <= S.high; p++) {
     const natural = [0, 2, 4, 5, 7, 9, 11].includes(p % 12), open = [28, 33, 38, 43].includes(p);
-    if ((!natural && row < 13) || (row < 9 && !open && p % 12)) continue;  // short rows: the naturals; shorter still: the open strings and the Cs
+    if ((!natural && row < 13) || (row < 11 && [5, 11].includes(p % 12)) || (row < 8 && !open && p % 12)) continue;  // short rows: the naturals, then without F and B (no room beside E and C); shorter still: the open strings and the Cs
     g.font = (open ? "600 " : "") + font;
     g.fillStyle = open ? "#1f2328" : natural ? "#59636e" : "#afb8c1";
     g.fillText(name(p), GUTTER - 6, yOf(p) + row / 2 + .5);
   }
   g.restore();
   g.textAlign = "left";
+  drawMap();
+  if (dock) drawStrips();
+}
+// The whole song in one line: the patterns, the frame the timeline shows, the playhead, what is worked through, and
+// the bars that sound like the current one.
+const mapX = t => 4 + t / S.length * ($("map").clientWidth - 8);
+function currentBar() {  // the bar the map and the strips are about: the one chosen, or the selected note's, or the playhead's
+  if (dock) return dock.bar;
+  if (selBar !== null) return selBar;
+  const n = note(sel), t = n ? n.start : playhead;
+  const i = S.repeats.bars.findIndex((b, i) => t >= barSpan(i)[0] && t < barSpan(i)[1]);
+  return i >= 0 ? i : null;
+}
+function drawMap() {
+  const c = $("map"), dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  if (!S) return;
+  const R = S.repeats, cur = currentBar(), kin = cur !== null && R.bars[cur] ? R.bars[cur].of : [];
+  g.font = "600 9px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle"; g.textAlign = "left";
+  R.bars.forEach((b, i) => {
+    const [a, z] = barSpan(i), x0 = mapX(a), x1 = mapX(z), akin = kin.includes(i), here = i === cur;
+    g.fillStyle = !b.pattern ? "#eef1f4" : `hsl(${hueOf(b.pattern)}, ${here || akin ? 80 : 50}%, ${here ? 52 : akin ? 66 : 89}%)`;
+    g.fillRect(x0 + .5, 3, Math.max(1, x1 - x0 - 1), 13);
+    if (b.pattern && x1 - x0 >= 9) { g.fillStyle = here || akin ? "#1f2328" : "#59636e"; g.fillText(b.pattern, x0 + 2, 10); }
+    if (here || akin) { g.fillStyle = "#1f2328"; g.fillRect(x0 + .5, 17, Math.max(1, x1 - x0 - 1), here ? 4 : 2.5); }  // every bar that sounds like this one
+    const done = dock && dock.done[i];
+    if (done) { g.fillStyle = done.state === "taken" ? "#0969da" : "#8c959f"; g.fillRect(x0 + .5, 0, Math.max(1, x1 - x0 - 1), 2.5); }
+  });
+  for (const d of R.differences) { g.fillStyle = d.why === "most" ? "#d4a72c" : "#bc4c00"; g.fillRect(mapX(d.start), 21, Math.max(1.5, mapX(d.end) - mapX(d.start)), 2.5); }
+  for (const [spans, colour] of [[S.checked, "#aceebb"], [S.worked, "#1a7f37"]]) {  // heard; worked through
+    g.fillStyle = colour;
+    for (const [a, b] of spans) g.fillRect(mapX(a), 25, Math.max(1, mapX(b) - mapX(a)), 4);
+  }
+  const span = ($("roll").clientWidth - GUTTER) / view.pps, x0 = mapX(Math.max(0, view.t0)), x1 = mapX(Math.min(S.length, view.t0 + span));
+  g.fillStyle = "rgba(9,105,218,.10)"; g.fillRect(x0, 0, Math.max(3, x1 - x0), H);  // what the timeline shows
+  g.strokeStyle = "#1f2328"; g.lineWidth = 1.5; g.strokeRect(x0 + .75, .75, Math.max(3, x1 - x0) - 1.5, H - 1.5);
+  const px = mapX(playhead);
+  g.strokeStyle = "#cf222e"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke();
+}
+function mapGo(e) {  // the timeline goes where the map was clicked: that moment in the middle
+  const r = $("map").getBoundingClientRect(), t = (e.clientX - r.left - 4) / (r.width - 8) * S.length;
+  const span = ($("roll").clientWidth - GUTTER) / view.pps;
+  view.t0 = Math.max(-0.2, Math.min(S.length, t) - span / 2); view.free = true; dirty = true;
 }
 function frame() {
   if (A.playing) {
@@ -592,6 +681,10 @@ function refresh() {
   many = many.filter(id => note(id));
   const diff = S.repeats.differences.find(d => d.id === selDiff);
   if (!diff) selDiff = null;
+  // a bar that is chosen has its repeats lined up under the timeline; an offer's stay until it is settled
+  if (selBar !== null && S.repeats.bars[selBar] && S.repeats.bars[selBar].of.length) { if (!dock || dock.kind !== "bar" || dock.bar !== selBar) openDock("bar", selBar); }
+  else if (dock && dock.kind === "bar") closeDock();
+  if (dock) markHearing();
   if (diff || (selBar !== null && S.repeats.bars[selBar])) {
     panel.innerHTML = diff ? diffPanel(diff) : barPanel(selBar);
     panel.querySelectorAll("button[data-do]").forEach(b => b.onclick = () => doPanel(b.dataset.do));
@@ -671,9 +764,11 @@ async function askGuesses(n) {
 async function act(action) {
   try {
     const r = await api("/api/act", {song: S.id, action: Object.assign({playhead: +playhead.toFixed(2)}, action)});
-    S.notes = r.notes; S.checked = r.checked; S.worked = r.worked; S.undo = r.undo; S.fixes = r.fixes; S.repeats.differences = r.differences;
+    S.notes = r.notes; S.checked = r.checked; S.worked = r.worked; S.undo = r.undo; S.fixes = r.fixes; S.taken = r.taken || []; S.repeats.differences = r.differences;
     byPitch = Logic.indexNotes(S.notes); A.rms.clear();
+    if (action.kind === "undo" && offer) { offer = null; $("offer").classList.add("hidden"); }  // what it was about may be what was taken back
     if (r.result.offer) showOffer(r.result.offer);
+    if (dock && dock.loaded) syncDock();
     say("");
     return r.result;
   } catch (e) { say(e.message, true); return null; }
@@ -714,41 +809,267 @@ async function nudge(n, dStart, dEnd) {
   const r = await act({kind: "move", id: n.id, start: +(n.start + dStart).toFixed(3), end: +(n.end + dEnd).toFixed(3)});
   if (r) audition(note(n.id));
 }
+const bare = items => items.map(i => ({source: i.source, bar: i.bar, k0: i.k0, k1: i.k1}));
 function showOffer(o) {
-  offer = o; offerNext = 0;
-  const k = o.type === "repeat" ? o.bars : o.ids.length;
-  const what = o.type === "repeat"
-    ? `<b>${k} other ${k === 1 ? "bar sounds" : "bars sound"} the same here</b> and ${k === 1 ? "is" : "are"} written as this one was. Fix ${k === 1 ? "it" : "them"} too?`
-    : `<b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?`;
-  $("offer").innerHTML = `<span>${what}</span>
-    <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerYes">Fix ${k === 1 ? "it" : "all " + k} <kbd>Y</kbd></button><button id="offerNo">No <kbd>X</kbd></button></span>`;
+  offerNext = 0;
+  if (o.type === "repeat") {  // the bars it would change line up under the timeline: one decision a bar
+    offer = null; $("offer").classList.add("hidden");
+    selBar = null;
+    return openDock("offer", o.items[0].source, o.items);
+  }
+  offer = o;
+  if (dock && dock.kind === "offer") closeDock();
+  const k = o.ids.length;
+  $("offer").innerHTML = `<span><b>${k} other ${k === 1 ? "note" : "notes"}</b> written ${name(o.label)} ${k === 1 ? "sounds" : "sound"} like the one you just fixed. Make ${k === 1 ? "it" : "them"} ${name(o.pitch)} too?</span>
+    <span class="group"><button id="offerShow">Show me the next <kbd>O</kbd></button><button id="offerNo">No <kbd>X</kbd></button><button id="offerYes" class="quiet">Change ${k === 1 ? "it" : "all " + k} without hearing ${k === 1 ? "it" : "them"} <kbd>Y</kbd></button></span>`;
   $("offer").classList.remove("hidden");
   $("offerShow").onclick = offerShow; $("offerYes").onclick = offerYes; $("offerNo").onclick = offerNo;
 }
-function hideOffer() { offer = null; $("offer").classList.add("hidden"); }
+function hideOffer() { offer = null; $("offer").classList.add("hidden"); if (dock && dock.kind === "offer") closeDock(); }
+const offered = () => (dock && dock.kind === "offer" ? dock.strips.filter(s => stateOf(s) === "open") : []);  // an offer's bars still to decide
 function offerShow() {
-  if (!offer) return;
-  if (offer.type === "repeat") {  // go to the next bar it would change, and hear the spot
-    const item = offer.items[offerNext++ % offer.items.length], [a, b] = stretchOf(item);
-    stop(); sel = null; many = []; selDiff = null; selBar = item.bar;
-    view.t0 = Math.max(-0.2, a - 1.5); view.free = true;
-    refresh(); hearSpan(a, b);
-    return;
+  const open = offered();
+  if (open.length) {  // the next bar that is not settled: into sight, and heard with the change
+    const s = open[offerNext++ % open.length];
+    $("dockScroll").scrollTop = dock.strips.indexOf(s) * stripBlock();
+    return hearStrip(s, true);
   }
+  if (!offer) return;
   const n = note(offer.ids[offerNext++ % offer.ids.length]);
   if (n) { select(n.id); audition(n); }
 }
-async function offerYes() {
+async function offerYes() {  // all at once, unheard: only when asked for in so many words
+  if (offered().length) return takeAll();
   if (!offer) return;
-  const o = offer; hideOffer();
-  if (o.type === "repeat") await act({kind: "repeats", items: o.items, how: "offer"});
-  else await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
+  const o = offer;
+  hideOffer();
+  await act({kind: "pitches", ids: o.ids, pitch: o.pitch, how: "offer", seed: o.seed, label: o.label});
 }
 async function offerNo() {
+  const open = offered();
+  if (open.length) {  // every bar still to decide stays as it is written; what was changed stays changed
+    closeDock();
+    await act({kind: "refuse", items: bare(open.flatMap(s => s.items))});
+    return;
+  }
   if (!offer) return;
-  const o = offer; hideOffer();
-  if (o.type === "repeat") await act({kind: "refuse", items: o.items});
-  else await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+  const o = offer;
+  hideOffer();
+  await act({kind: "refuse", ids: o.ids, pitch: o.pitch, seed: o.seed, label: o.label});
+}
+
+// ------------------------------------------------------------------- the repeats of a bar, one under the other
+// Songs repeat with small differences that are meant. So nothing here changes a bar unless the person says so for
+// that bar, after seeing it and hearing it both ways; "all at once" is there, but last and in so many words.
+function openDock(kind, bar, items) {
+  if (dock && dock.hearing) stop();
+  dock = {kind, bar, items: items ? bare(items) : null, strips: [], done: {}, loaded: false, hearing: null, sure: 0};
+  $("dock").classList.remove("hidden"); $("dock").classList.toggle("offer", kind === "offer");
+  layDock(); askStrips();
+}
+function closeDock() {
+  if (!dock) return;
+  if (dock.hearing) stop();
+  dock = null;
+  $("dock").classList.add("hidden");
+  dirty = true;
+}
+async function askStrips() {  // the bars and what would change in each, as things stand now
+  const d = dock, ask = ++dockAsk;
+  try {
+    const r = await api("/api/strips", d.kind === "bar" ? {song: S.id, bar: d.bar} : {song: S.id, items: d.items});
+    if (dock !== d || ask !== dockAsk) return;
+    d.strips = r.strips; d.loaded = true;
+    if (d.kind === "offer" && !d.strips.some(s => stateOf(s) !== "same")) return closeDock();  // the fix behind it was taken back
+    layDock();
+  } catch (e) { say(e.message, true); }
+}
+function syncDock() {  // after any fix: what was taken back is open again, and the server is asked how things stand
+  for (const [bar, done] of Object.entries(dock.done)) if (done.state === "taken" && !S.taken.includes(done.fix)) delete dock.done[bar];
+  askStrips();
+}
+const stateOf = s => (dock.done[s.bar] ? dock.done[s.bar].state : s.items.length ? "open" : "same");
+const stripRow = () => { const rows = dock.hi - dock.lo + 1; return rows <= 16 ? 10 : rows <= 24 ? 8 : 7; };  // many pitches: shorter rows
+const stripBlock = () => STRIP_HEAD + (dock.hi - dock.lo + 1) * stripRow() + STRIP_GAP;
+function layDock() {  // the line over the strips, each strip's own line of buttons, and the room they take
+  const d = dock, ref = d.bar, R = S.repeats;
+  const inBar = i => { const [a, z] = barSpan(i); return S.notes.filter(n => n.end > a && n.start < z).flatMap(n => [n.pitch, ...(n.also || [])]); };
+  const pitches = [...inBar(ref), ...d.strips.flatMap(s => [...inBar(s.bar), ...s.items.flatMap(i => i.notes.map(q => q.pitch))])];
+  [d.lo, d.hi] = Logic.pitchRange(pitches, S.low, S.high);
+  const open = d.strips.filter(s => stateOf(s) === "open"), taken = d.strips.filter(s => stateOf(s) === "taken").length, left = d.strips.filter(s => stateOf(s) === "left").length;
+  const n = open.length, many = k => (k === 1 ? "1 bar" : k + " bars");
+  let head;
+  if (!d.loaded) head = `<span class="soft">looking at the bars that sound like bar ${ref + 1}…</span>`;
+  else if (d.kind === "offer") {
+    head = n
+      ? `<span><b>${many(n)} ${n === 1 ? "sounds" : "sound"} the same here</b> and ${n === 1 ? "is" : "are"} written as bar ${ref + 1} was. Hear each one both ways and change it only where it belongs.</span>
+         <span class="group"><button data-d="next">Show me the next <kbd>O</kbd></button><button data-d="none">Leave ${n === 1 ? "it" : "them all"} <kbd>X</kbd></button></span>`
+      : `<span><b>All looked at:</b> ${many(taken)} changed, ${many(left)} left as written.</span>`;
+  } else {
+    const b = R.bars[ref];
+    head = `<span><b>Bar ${ref + 1}</b> <span class="soft">pattern ${b.pattern || "–"}</span> · ${many(d.strips.length)} ${d.strips.length === 1 ? "sounds" : "sound"} like it${n ? `, ${n} written differently where ${n === 1 ? "it sounds" : "they sound"} the same (orange). Hear each one both ways and change it only where it belongs.` : ", all written the same where they sound the same."}</span>`;
+  }
+  head += `<span class="spacer" style="flex:1"></span>`;
+  if (d.loaded && n > 1) head += `<button data-d="all" class="quiet${d.sure ? " sure" : ""}" title="Every bar below that is still open, in one go. Take it back with Undo">${d.sure ? `Sure? Change ${n} bars you have not decided on` : `Change all ${n} without hearing them`}${d.kind === "offer" ? " <kbd>Y</kbd>" : ""}</button>`;
+  head += `<button data-d="show" title="Bring bar ${ref + 1} into the timeline">Show bar ${ref + 1}</button><button data-d="close" title="Close">✕</button>`;
+  $("dockHead").innerHTML = head;
+  $("dockInner").innerHTML = d.strips.map((s, k) => {
+    const st = stateOf(s), done = d.done[s.bar], [a] = barSpan(s.bar), group = done && done.with > 1;
+    const where = `<b>Bar ${s.bar + 1}</b><span class="soft">${Logic.clock(a)}${s.yours && st !== "taken" ? " · you have been through this bar" : ""}</span>`;
+    const what = st === "open" || st === "left" ? `<span class="sep"></span><span class="soft">${s.items.map(i => changeInWords(i, ref)).join("; ")}</span>` : "";
+    const body = st === "open"
+      ? `<button data-s="hear" data-k="${k}" title="This bar as it is written now, with the record">▶ As written</button><button data-s="hearWith" data-k="${k}" title="This bar as it would be with the change, with the record">▶ With the change</button><span class="sep"></span>
+         <button data-s="take" data-k="${k}" class="take" title="Change this bar, and only this bar">✓ Change it here</button><button data-s="leave" data-k="${k}" title="This bar stays as it is written">Leave it</button>${what}`
+      : st === "taken"
+      ? `<span class="changed">✓ Changed</span><button data-s="undo" data-k="${k}" title="Put this bar back as it was">↶ Undo ${group ? `(the ${done.with} changed together)` : "this one"}</button><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`
+      : st === "left"
+      ? `<span class="soft">Left as written</span><button data-s="again" data-k="${k}" class="quiet">Look again</button><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>${what}`
+      : `<span class="soft">written the same as bar ${ref + 1}</span><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`;
+    return `<div class="strip" style="top:${k * stripBlock()}px">${where}${body}</div>`;
+  }).join("");
+  const total = d.strips.length * stripBlock(), h = Math.min(total, Math.max(stripBlock(), Math.round(window.innerHeight * 0.42)));
+  $("dockScroll").style.height = h + "px";
+  $("strips").style.height = h + "px";
+  $("dockInner").style.height = total + "px"; $("dockInner").style.marginTop = -h + "px";
+  markHearing();
+  dirty = true;
+}
+function changeInWords(item, ref) {  // what is written in a stretch, and what the bar it is compared with has there
+  const here = S.notes.filter(n => Math.min(n.end, item.end) - Math.max(n.start, item.start) > 0.02).map(n => name(n.pitch));
+  const there = item.notes.map(q => name(q.pitch));
+  const same = here.join(" ") === there.join(" ");
+  return `written ${here.length ? here.join(" ") : "nothing"}, bar ${ref + 1} has ${there.length ? there.join(" ") : "nothing"}${same ? " (in another rhythm)" : ""}`;
+}
+function markHearing() {  // the button of what is playing
+  const h = dock.hearing;
+  document.querySelectorAll("#dockInner button[data-s^=hear]").forEach(b => {
+    const s = dock.strips[+b.dataset.k];
+    b.classList.toggle("on", !!(h && s && h.bar === s.bar && h.with === (b.dataset.s === "hearWith")));
+  });
+}
+function hearStrip(s, withChange) {  // a repeat against the record: as it is written, or as it would be with the change
+  const h = dock.hearing;
+  if (A.playing && h && h.bar === s.bar && h.with === withChange) return stop();  // the same button again: stop
+  stop();
+  if (!hear.notes) say('tick "My notes" to hear what is written');
+  const [a, z] = barSpan(s.bar);
+  dock.hearing = {bar: s.bar, with: withChange, back: playhead};  // the timeline stays where it is, and so does the playhead afterwards
+  play(Math.max(0, a - 0.6), Math.min(S.length, z + 0.4), withChange ? s.after : null, true);
+  markHearing();
+}
+async function takeStrip(s) {  // the change, in this bar only
+  stop();
+  const r = await act({kind: "repeats", items: bare(s.items), how: "strip", why: dock.kind});
+  if (r && dock) { dock.done[s.bar] = {state: "taken", fix: r.fix, with: 1}; layDock(); }
+}
+async function takeAll() {  // every bar that is still open, as one fix
+  if (!dock) return;
+  const open = dock.strips.filter(s => stateOf(s) === "open");
+  if (!open.length) return;
+  stop();
+  const r = await act({kind: "repeats", items: bare(open.flatMap(s => s.items)), how: "all", why: dock.kind});
+  if (r && dock) { for (const s of open) dock.done[s.bar] = {state: "taken", fix: r.fix, with: open.length}; dock.sure = 0; layDock(); }
+}
+async function leaveStrip(s) {
+  dock.done[s.bar] = {state: "left"};
+  layDock();
+  if (dock.kind === "offer") await act({kind: "refuse", items: bare(s.items)});
+}
+async function undoStrip(s) {  // put this bar back; what was changed together goes back together
+  stop();
+  const done = dock.done[s.bar];
+  if (done && done.fix) await act({kind: "undo", fix: done.fix});
+}
+function dockClick(e) {
+  const b = e.target.closest && e.target.closest("button");
+  if (!b || !dock) return;
+  const s = b.dataset.k !== undefined ? dock.strips[+b.dataset.k] : null, what = b.dataset.s || b.dataset.d;
+  if (what !== "all" && dock.sure) { dock.sure = 0; }
+  if (s && what === "hear") hearStrip(s, false);
+  else if (s && what === "hearWith") hearStrip(s, true);
+  else if (s && what === "take") takeStrip(s);
+  else if (s && what === "leave") leaveStrip(s);
+  else if (s && what === "undo") undoStrip(s);
+  else if (s && what === "again") { delete dock.done[s.bar]; layDock(); }
+  else if (what === "next") offerShow();
+  else if (what === "none") offerNo();
+  else if (what === "all") { if (dock.sure && Date.now() - dock.sure < 6000) takeAll(); else { dock.sure = Date.now(); layDock(); } }  // asked twice
+  else if (what === "show") { const [a] = barSpan(dock.bar); view.t0 = Math.max(-0.2, a - 1); view.free = true; dirty = true; }
+  else if (what === "close") { if (dock.kind === "offer") closeDock(); else { selBar = null; refresh(); } }
+}
+function drawStrips() {  // every strip in sight: its piece of the picture, its notes, and in orange what would change
+  const c = $("strips"), wrap = $("dockScroll"), dpr = window.devicePixelRatio || 1, W = wrap.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  if (!dock || !S) return;
+  const d = dock, T = ink(), P = S.picture, rows = d.hi - d.lo + 1, STRIP_ROW = stripRow(), hgt = rows * STRIP_ROW, block = stripBlock(), top = wrap.scrollTop;
+  const [ra, rz] = barSpan(d.bar), bg = cssOf(SCHEMES[look.scheme].stops[0]), solid = look.solid / 100;
+  const yOfS = (y0, p) => y0 + (d.hi - p) * STRIP_ROW;
+  g.font = "9px -apple-system, Helvetica, Arial, sans-serif"; g.textBaseline = "middle";
+  d.strips.forEach((s, k) => {
+    const y0 = k * block - top + STRIP_HEAD;
+    if (y0 + hgt < 0 || y0 - STRIP_HEAD > H) return;
+    const [a, z] = barSpan(s.bar), st = stateOf(s);
+    // the bar lies under the bar it is compared with, at the timeline's own scale
+    const x0 = Logic.alignX(xOf(ra), (rz - ra) * view.pps, GUTTER + 8, W - 8), sx = t => x0 + (t - a) * view.pps;
+    const t0 = a - (x0 - GUTTER) / view.pps, t1 = a + (W - x0) / view.pps;
+    g.save(); g.beginPath(); g.rect(GUTTER, y0, W - GUTTER, hgt); g.clip();
+    g.fillStyle = bg; g.fillRect(GUTTER, y0, W - GUTTER, hgt);
+    const sy = P.rows - P.per_semitone * (d.hi - P.low + 1), sh = P.per_semitone * rows;
+    tiles.forEach((cv, i) => {
+      const ta = i * TILE * P.step, tb = ta + cv.width * P.step;
+      if (tb >= t0 && ta <= t1) g.drawImage(cv, 0, sy, cv.width, sh, sx(ta), y0, cv.width * P.step * view.pps, hgt);
+    });
+    for (let p = d.lo; p <= d.hi; p++) {
+      g.strokeStyle = [28, 33, 38, 43].includes(p) ? T.open : T.grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(GUTTER, yOfS(y0, p) + STRIP_ROW - .5); g.lineTo(W, yOfS(y0, p) + STRIP_ROW - .5); g.stroke();
+    }
+    for (const n of S.notes) {  // what is written
+      if (n.end < t0 || n.start > t1) continue;
+      const kind = n.state !== "machine" ? "mine" : n.doubt ? "doubt" : "machine", x = sx(n.start), w = Math.max(3, (n.end - n.start) * view.pps - 1);
+      for (const q of [n.pitch, ...(n.also || [])]) {
+        if (q < d.lo || q > d.hi) continue;
+        const y = yOfS(y0, q);
+        g.fillStyle = `rgba(${T.fill[kind]},${solid})`; g.fillRect(x, y + 1, w, STRIP_ROW - 2);
+        g.strokeStyle = T.edge[kind]; g.lineWidth = 1.2; g.strokeRect(x + .5, y + 1.5, w, STRIP_ROW - 3);
+      }
+    }
+    if (st === "open" || st === "left") for (const it of s.items) {  // what the bar it is compared with has there
+      g.setLineDash([5, 3]); g.strokeStyle = T.strong; g.lineWidth = 1.6; g.globalAlpha = st === "left" ? .45 : 1;
+      for (const q of it.notes) {
+        if (q.pitch < d.lo || q.pitch > d.hi) continue;
+        const x = sx(q.start), w = Math.max(3, (q.end - q.start) * view.pps - 1), y = yOfS(y0, q.pitch);
+        g.fillStyle = "rgba(255,166,87,.30)"; g.fillRect(x, y + 1, w, STRIP_ROW - 2); g.strokeRect(x + .5, y + 1.5, w, STRIP_ROW - 3);
+      }
+      if (!it.notes.length) for (const n of S.notes) {  // nothing there: what is written is struck through
+        if (n.end <= it.start || n.start >= it.end || n.pitch < d.lo || n.pitch > d.hi) continue;
+        const y = yOfS(y0, n.pitch) + STRIP_ROW / 2;
+        g.beginPath(); g.moveTo(sx(Math.max(n.start, it.start)), y); g.lineTo(sx(Math.min(n.end, it.end)), y); g.stroke();
+      }
+      g.setLineDash([]);
+      g.fillStyle = T.strong; g.fillRect(sx(it.start), y0, Math.max(3, (it.end - it.start) * view.pps), 3);  // where in the bar
+      g.globalAlpha = 1;
+    }
+    // outside the bar: dimmed
+    g.fillStyle = bg; g.globalAlpha = .6;
+    g.fillRect(GUTTER, y0, Math.max(0, sx(a) - GUTTER), hgt); g.fillRect(sx(z), y0, Math.max(0, W - sx(z)), hgt);
+    g.globalAlpha = 1;
+    g.strokeStyle = T.chosen; g.lineWidth = 1; g.globalAlpha = .5;
+    for (const t of [a, z]) { const x = Math.round(sx(t)) + .5; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + hgt); g.stroke(); }
+    g.globalAlpha = 1;
+    if (d.hearing && d.hearing.bar === s.bar && A.playing) { const x = sx(playhead); g.strokeStyle = T.head; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + hgt); g.stroke(); }
+    g.restore();
+    if (st === "taken") { g.fillStyle = "#0969da"; g.fillRect(GUTTER - 4, y0, 4, hgt); }
+    g.textAlign = "right";
+    for (let p = d.lo; p <= d.hi; p++) {  // the names of the pitches
+      const natural = [0, 2, 4, 5, 7, 9, 11].includes(p % 12), open = [28, 33, 38, 43].includes(p);
+      if (!natural || [5, 11].includes(p % 12)) continue;
+      g.fillStyle = open ? "#1f2328" : "#59636e"; g.fillText(name(p), GUTTER - 7, yOfS(y0, p) + STRIP_ROW / 2 + .5);
+    }
+    g.textAlign = "left";
+  });
 }
 async function makeSheet() {
   $("sheet").disabled = true; say("writing the sheet…");
@@ -807,7 +1128,7 @@ function voice(n, pitch, when, parts) {  // one pitch of a note, in the sound of
 function schedule() {
   if (!A.playing) return;
   const pos = position(), to = pos + 0.4;
-  for (const n of S.notes) {
+  for (const n of A.alt || S.notes) {
     if (n.start < A.until || n.start >= to) continue;
     const when = A.at + (n.start - A.from) / A.speed, tones = [n.pitch, ...(n.also || [])];
     tones.forEach(q => voice(n, q, Math.max(when, A.ctx.currentTime), tones.length));
@@ -815,14 +1136,15 @@ function schedule() {
   A.until = to;
   if (A.counts && pos - A.seg > 5) reportPlayed(pos);
 }
-function play(from, stopAt) {
+function play(from, stopAt, notes, stay) {  // notes: voiced in place of what is written; stay: the timeline does not follow
   if (!A.record || !A.bass) return say("the sound is still loading");
   stop();
   const ctx = A.ctx;
   if (ctx.state === "suspended") ctx.resume();
   from = Math.max(0, Math.min(from, S.length - 0.05));
   A.from = from; A.at = ctx.currentTime + 0.06; A.until = from - 0.02; A.stopAt = stopAt === undefined ? null : stopAt;
-  A.counts = stopAt === undefined; A.seg = from; A.playing = true; view.free = false;
+  A.counts = stopAt === undefined; A.seg = from; A.playing = true; A.alt = notes || null;
+  view.free = !!stay;
   for (const k of ["record", "bass"]) {
     const src = ctx.createBufferSource();
     src.buffer = A[k]; src.connect(A.bus[k]); src.start(A.at, from / A.speed);
@@ -842,9 +1164,10 @@ function stop() {
   if (!A.playing) return;
   playhead = Math.min(position(), S.length);
   if (A.counts) reportPlayed(playhead);
-  A.playing = false; clearInterval(A.timer);
+  A.playing = false; clearInterval(A.timer); A.alt = null;
   for (const s of A.live) { try { s.stop(); } catch (e) { /* not started yet */ } }
   A.live = [];
+  if (dock && dock.hearing) { playhead = dock.hearing.back; dock.hearing = null; }  // a repeat was heard: the playhead is where it was
   refresh();
 }
 async function setSpeed(pct) {  // the song slower, at the same pitch
@@ -1088,6 +1411,12 @@ function wire() {
     else zoom(Math.exp(-bound(dy, 240) * 0.0022), x);
   }, {passive: false});
   new ResizeObserver(() => resize()).observe($("rollwrap"));
+  $("map").addEventListener("mousedown", e => { if (S && !e.button) { mapDrag = true; mapGo(e); e.preventDefault(); } });
+  window.addEventListener("mousemove", e => { if (mapDrag && S) mapGo(e); });
+  window.addEventListener("mouseup", () => { mapDrag = false; });
+  $("dock").addEventListener("click", dockClick);
+  $("dockScroll").addEventListener("scroll", () => { dirty = true; });
+  window.addEventListener("resize", () => { if (dock) layDock(); dirty = true; });
   $("play").onclick = () => A.playing ? stop() : play(playhead);
   $("undo").onclick = () => act({kind: "undo"});
   $("upto").onclick = () => act({kind: "upto", time: +playhead.toFixed(2)});
@@ -1146,9 +1475,10 @@ function keys(e) {
   if (k === "+" || k === "=") { zoom(1.3); return done(); }
   if (k === "-" || k === "_") { zoom(1 / 1.3); return done(); }
   if (k === "a" || k === "A") { stop(); addHere(playhead); return done(); }
-  if (offer && (k === "o" || k === "O")) { offerShow(); return done(); }
-  if (offer && (k === "y" || k === "Y")) { offerYes(); return done(); }
-  if (offer && (k === "x" || k === "X")) { offerNo(); return done(); }
+  const asked = offer || offered().length;
+  if (asked && (k === "o" || k === "O")) { offerShow(); return done(); }
+  if (asked && (k === "y" || k === "Y")) { offerYes(); return done(); }
+  if (asked && (k === "x" || k === "X")) { offerNo(); return done(); }
   if (k === "Escape") { stop(); select(null); return done(); }
   if (selDiff && (k === "u" || k === "U")) { doPanel("use"); return done(); }
   if (selDiff && (k === "k" || k === "K")) { doPanel("keep"); return done(); }

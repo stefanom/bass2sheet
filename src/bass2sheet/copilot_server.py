@@ -162,6 +162,8 @@ class Handler(BaseHTTPRequestHandler):
                     desk.mark_checked(float(data["start"]), float(data["end"]))
                     played = dict(checked=desk.state["checked"], worked=desk.worked())
                     return self.send_json(dict(played, differences=desk.differences()))
+                elif path == "/api/strips":  # a bar's repeats, or an offer's bars, to look at side by side
+                    return self.send_json(dict(strips=desk.strips(items=data.get("items"), bar=data.get("bar"))))
                 elif path == "/api/sheet":
                     files = copilot.sheet(self.workdir, desk.song_id)
                     folder = copilot.song_dir(self.workdir, desk.song_id)
@@ -170,7 +172,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     return self.send_json(dict(error="not found"), 404)
                 state = desk.public()
-            fields = {k: state[k] for k in ("notes", "checked", "worked", "undo", "fixes")}
+            fields = {k: state[k] for k in ("notes", "checked", "worked", "undo", "fixes", "taken")}
             self.send_json(dict(result=result, differences=state["repeats"]["differences"], **fields))
         except (ValueError, KeyError, TypeError, StopIteration, Bass2SheetError) as e:
             self.send_json(dict(error=str(e) or type(e).__name__), 400)

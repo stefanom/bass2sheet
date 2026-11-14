@@ -448,6 +448,46 @@ def test_a_fix_is_offered_to_the_bars_that_sound_the_same_and_are_written_as_thi
     assert json.loads(open(os.path.join(workdir, "mix", "log.jsonl")).read().splitlines()[-1])["kind"] == "refuse"
 
 
+def test_the_repeats_of_a_bar_are_shown_side_by_side_and_changed_one_at_a_time(workdir):
+    bars, ids = _bars_of_a_pattern(_desk(workdir))
+    _write_wrong(workdir, ids)
+    d = _desk(workdir)
+    assert [(s["bar"], s["items"]) for s in d.strips(bar=bars[0])] == [(b, []) for b in bars[1:]]  # all alike
+    right = d.note(ids[0])["pitch"] - 7
+    offer = d.act(dict(kind="pitch", id=ids[0], pitch=right, how="drag"))["offer"]
+    as_it_is = json.dumps(d.state)
+    strips = d.strips(items=offer["items"])  # the bars the offer would change, one entry a bar
+    assert [s["bar"] for s in strips] == bars[1:] and not any(s["yours"] for s in strips)
+    item = strips[0]["items"][0]
+    assert (item["source"], item["bar"], item["k0"], item["k1"]) == (bars[0], bars[1], 8, 11)
+    assert [n["pitch"] for n in item["notes"]] == [right] and item["start"] < item["end"]
+    # how the bar would be with the change, to hear it first: the note at the right pitch, and nothing changed
+    assert next(n for n in strips[0]["after"] if n["id"] == ids[1])["pitch"] == right
+    assert all(n["id"] != ids[2] or n["pitch"] == right + 7 for n in strips[0]["after"])  # this bar only
+    assert json.dumps(d.state) == as_it_is and d.note(ids[1])["pitch"] == right + 7
+    # asked from the bar that was fixed: every bar that sounds like it, and where it is written unlike it
+    assert [(s["bar"], [(i["k0"], i["k1"]) for i in s["items"]]) for s in d.strips(bar=bars[0])] == [
+        (b, [(8, 11)]) for b in bars[1:]
+    ]
+    # one bar at a time: each change has a name, and is taken back on its own whatever came after it
+    take = lambda s: d.act(dict(kind="repeats", items=offer["items"][s : s + 1], how="strip"))["fix"]
+    first, second = take(0), take(1)
+    assert d.taken() == [first, second] == d.public()["taken"]
+    assert [d.note(i)["pitch"] for i in ids[:3]] == [right, right, right]
+    assert d.strips(bar=bars[0])[0]["items"] == [] and d.strips(bar=bars[0])[0]["yours"]
+    assert d.act(dict(kind="undo", fix=first))["undone"] == "repeats"
+    assert [d.note(i)["pitch"] for i in ids[:3]] == [right, right + 7, right] and d.taken() == [second]
+    with pytest.raises(Bass2SheetError, match="no longer"):
+        d.act(dict(kind="undo", fix=first))
+    d.act(dict(kind="pitch", id=ids[2], pitch=right + 1, offer=False))
+    with pytest.raises(Bass2SheetError, match="changed again"):  # the later change stands on this one
+        d.act(dict(kind="undo", fix=second))
+    assert [d.act(dict(kind="undo"))["undone"], d.act(dict(kind="undo"))["undone"]] == ["pitch", "repeats"]
+    assert [d.note(i)["pitch"] for i in ids[:3]] == [right, right + 7, right + 7] and d.taken() == []
+    with pytest.raises(Bass2SheetError, match="no such bar"):
+        d.strips(bar=999)
+
+
 def test_a_difference_is_taken_from_the_repeat_or_left_as_written(workdir):
     bars, ids = _bars_of_a_pattern(_desk(workdir))
     _write_wrong(workdir, ids[:2])  # two bars wrong, the third right
@@ -663,6 +703,9 @@ def test_the_server_gives_the_song_takes_fixes_and_serves_its_files(server):
         checked=[[0.0, 5.5]], worked=[[0.0, n["start"]]], differences=r["differences"]
     )  # played to 5.5 s, worked through as far as the fix
     assert r["worked"] == [] and song["worked"] == []
+    strips = _post(url + "/api/strips", dict(song="mix", bar=r["differences"][0]["source"]))["strips"]
+    assert [s["bar"] for s in strips] == [d["bar"] for d in r["differences"]] and r["taken"] == []
+    assert strips[0]["items"][0]["notes"][0]["pitch"] == n["pitch"] + 12 and strips[0]["after"]
     undone = _post(url + "/api/act", dict(song="mix", action=dict(kind="undo")))
     assert undone["fixes"] == 0 and undone["differences"] == []
     for bad, code in (
