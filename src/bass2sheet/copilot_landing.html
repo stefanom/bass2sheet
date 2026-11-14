@@ -45,9 +45,12 @@
 
   /* adding a song */
   #add { padding: 18px 20px; }
-  #drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 128px; padding: 18px; border: 2px dashed #b7c1cc; border-radius: 10px; background: var(--bg); text-align: center; transition: background .12s, border-color .12s; }
+  #ways { display: flex; flex-wrap: wrap; gap: 14px; }
+  #drop { flex: 3 1 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 128px; padding: 18px; border: 2px dashed #b7c1cc; border-radius: 10px; background: var(--bg); text-align: center; transition: background .12s, border-color .12s; }
   #drop.over { border-color: var(--blue); background: #ddf4ff; }
-  #drop .big { font-size: 17px; font-weight: 600; }
+  #drop .big, #link .big { font-size: 17px; font-weight: 600; }
+  #link { flex: 2 1 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; text-align: center; }
+  #link input { width: 100%; max-width: 420px; font: inherit; padding: 7px 10px; border: 1px solid #b7c1cc; border-radius: 6px; }
   #finders { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; margin-top: 14px; }
   #finders label { white-space: nowrap; }
   #finders label.off { color: #9aa4ae; }
@@ -101,12 +104,20 @@
 
   <h2>Add a song</h2>
   <div id="add" class="card">
-    <div id="drop">
-      <span class="big">Drop an audio file here</span>
-      <span class="soft">or</span>
-      <button id="choose" class="main">Choose a file…</button>
-      <span id="kinds" class="soft"></span>
-      <input id="file" type="file" class="hidden" multiple>
+    <div id="ways">
+      <div id="drop">
+        <span class="big">Drop an audio file here</span>
+        <span class="soft">or</span>
+        <button id="choose" class="main">Choose a file…</button>
+        <span id="kinds" class="soft"></span>
+        <input id="file" type="file" class="hidden" multiple>
+      </div>
+      <form id="link" class="hidden">
+        <span class="big">Or paste a YouTube link</span>
+        <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+        <button id="fetch" class="main">Fetch its audio</button>
+        <span class="soft">Only where you have the right to download the audio.</span>
+      </form>
     </div>
     <div id="finders"></div>
     <p id="rights" class="soft">Add only recordings you have the rights to use. The file is copied into this copilot's working directory on this computer and goes nowhere else.</p>
@@ -236,25 +247,25 @@ function makeJob(job) {
   return el;
 }
 function showJobs() {
-  const live = new Set(way.jobs.map(j => j.id));
+  const live = new Set(way.jobs.map(j => j.key));
   for (const [id, el] of jobEls) if (!live.has(id)) { el.remove(); jobEls.delete(id); }
   $("jobsTitle").classList.toggle("hidden", !way.jobs.length);
   const since = (Date.now() - polled) / 1000;
   for (const job of way.jobs) {
-    let el = jobEls.get(job.id);
+    let el = jobEls.get(job.key);
     if (el && el.dataset.steps !== job.steps.map(s => s.id).join(" ")) { el.remove(); el = null; }
-    if (!el) { el = makeJob(job); jobEls.set(job.id, el); }
+    if (!el) { el = makeJob(job); jobEls.set(job.key, el); }
     el.className = "job card " + job.state;
     el.querySelector(".head b").textContent = job.title;
-    el.querySelector(".about").textContent = [job.artist, L.whose(job.finder)].filter(Boolean).join(" · ");
-    el.querySelector(".about").title = job.name;
+    el.querySelector(".about").textContent = [job.artist, job.id ? "" : job.url, L.whose(job.finder)].filter(Boolean).join(" · ");
+    el.querySelector(".about").title = job.name || job.url || "";
     el.querySelector(".state").textContent = STATE[job.state];
     const buttons = job.state === "done" ? `<a class="main" href="/song#${encodeURIComponent(job.id)}" style="padding:6px 14px;border-radius:6px;text-decoration:none">Open it ›</a> <button data-do="remove">Hide</button>`
       : job.state === "failed" ? `<button data-do="again">Try again</button> <button data-do="remove">Remove</button>` : `<button data-do="remove">Cancel</button>`;
     const box = el.querySelector(".buttons");
     if (box.dataset.for !== job.state) {
       box.dataset.for = job.state; box.innerHTML = buttons;
-      box.querySelectorAll("button").forEach(b => b.onclick = () => jobDo(job.id, b.dataset.do));
+      box.querySelectorAll("button").forEach(b => b.onclick = () => jobDo(job.key, b.dataset.do));
     }
     for (const s of job.steps) {
       const li = el.querySelector(`li[data-step="${s.id}"]`);
@@ -264,7 +275,7 @@ function showJobs() {
     }
     const pictured = job.steps.some(s => s.id === "picture" && s.state === "done" && s.found.columns);
     el.querySelector(".look").classList.toggle("hidden", !pictured);
-    if (pictured) drawStrip(el.querySelector("canvas"), job.id);
+    if (pictured && job.id) drawStrip(el.querySelector("canvas"), job.id);
     el.querySelector(".error").textContent = job.error || "";
     el.querySelector(".error").classList.toggle("hidden", !(job.state === "failed" && job.error));
   }
@@ -272,6 +283,7 @@ function showJobs() {
 function showWay() {
   $("kinds").textContent = way.kinds.join("  ") + (way.limit ? ` · up to ${Math.round(way.limit / 1048576)} MB · from a video, the sound is taken` : "");
   $("file").accept = way.kinds.join(",");
+  $("link").classList.toggle("hidden", !way.links);  // only where a downloader is installed
   const chosen = localStorage.getItem("copilot.finder") || "own";
   const pick = way.finders.some(f => f.id === chosen && f.ready) ? chosen : "own";
   const made = way.finders.map(f => f.id + f.ready).join(" ");
@@ -285,10 +297,10 @@ function showWay() {
 async function look() {
   clearTimeout(timer);
   try {
-    const before = new Map(way.jobs.map(j => [j.id, j.state]));
+    const before = new Map(way.jobs.map(j => [j.key, j.state]));
     way = await api("/api/adding"); polled = Date.now();
     showWay(); showJobs();
-    const ready = way.jobs.filter(j => j.state === "done" && before.has(j.id) && before.get(j.id) !== "done");
+    const ready = way.jobs.filter(j => j.state === "done" && before.has(j.key) && before.get(j.key) !== "done");
     if (ready.length || way.jobs.some(j => j.state === "done" && !songs.some(s => s.id === j.id))) { ready.forEach(j => fresh.add(j.id)); await loadSongs(); }
   } catch (e) { /* the server is away: the next look says */ }
   timer = setTimeout(look, way.jobs.some(j => j.state === "waiting" || j.state === "running") ? 1000 : 5000);
@@ -327,7 +339,19 @@ async function addFiles(files) {
   say(refused.join("\n"), refused.length > 0);
   if (!refused.length) $("jobsTitle").scrollIntoView({behavior: "smooth", block: "start"});
 }
+async function addLink(e) {
+  e.preventDefault();
+  const url = $("url").value.trim();
+  if (!url) return;
+  try {
+    await api("/api/link", {url, notes: finder()});
+    $("url").value = ""; say("");
+    await look();
+    $("jobsTitle").scrollIntoView({behavior: "smooth", block: "start"});
+  } catch (err) { say(err.message, true); }
+}
 function wire() {
+  $("link").onsubmit = addLink;
   $("choose").onclick = () => $("file").click();
   $("file").onchange = () => { addFiles([...$("file").files]); $("file").value = ""; };
   let depth = 0;  // a file dragged anywhere over the page lights the box up; dropped anywhere, it is taken

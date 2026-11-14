@@ -2,9 +2,10 @@
 
 A file comes in from the browser, is kept under the working directory (`uploads/`) and is prepared with the code
 `bass2sheet-copilot add` runs: one song at a time, each in a process of its own, so the memory the models take
-goes back to the system when a song is done and a crash there does not take the page down. What the preparation
-reports as it goes (`common.step`) is kept per song for the page: which step is running, which are done, how
-long each took and what it found.
+goes back to the system when a song is done and a crash there does not take the page down. Where a downloader
+(yt-dlp) is installed, a link to a video is taken as well: its audio is fetched to the same place first. What
+the preparation reports as it goes (`common.step`) is kept per song for the page: which step is running, which
+are done, how long each took and what it found.
 
 Nothing here listens on the network; `copilot_server` does, on this machine only.
 """
@@ -18,6 +19,7 @@ import sys
 import threading
 import time
 import traceback
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -31,6 +33,9 @@ AUDIO = (".wav", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".aif
 MAX_BYTES = 500 * 1024 * 1024  # 20 minutes, the longest song the tool takes, is 212 MB as a CD-quality WAV
 MARK = "@@copilot "  # what a line of the preparing process starts with when it is meant for the page
 FINDERS = dict(own="bass2sheet's own note finder", muscriptor="MuScriptor")
+LINK_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
+FETCHING = ("fetching", "Fetching the audio")  # the step before all others, for a song that comes as a link
+FETCH_TIMEOUT = 600  # s
 # The steps of preparing a song, in the order they run: (what the code calls it, what the page calls it, which
 # note finders it is part of).
 STEPS = (
@@ -95,6 +100,30 @@ def probe(path, name):
     return seconds
 
 
+def downloader():
+    """The program that fetches the audio a link points to (yt-dlp), or None where there is none; the page then
+    has no box for links. BASS2SHEET_DOWNLOADER names the program where it is not on the PATH; set to `none`,
+    links are not taken even where it is installed."""
+    named = os.environ.get("BASS2SHEET_DOWNLOADER")
+    if named is not None:
+        return named if os.path.isfile(named) and os.access(named, os.X_OK) else None
+    for path in (shutil.which("yt-dlp"), "/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"):
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def why_not(said):
+    """Why the downloader fetched nothing, from what it printed."""
+    lines = [line.strip() for line in said.splitlines() if line.strip()]
+    if any("does not pass filter" in line for line in lines):
+        return f"it is a live stream, or lasts more than {MAX_SECONDS / 60:.0f} minutes"
+    if any("larger than max-filesize" in line for line in lines):
+        return f"its audio is larger than {megabytes(MAX_BYTES)}"
+    errors = [line[len("ERROR:") :].strip() for line in lines if line.startswith("ERROR:")]
+    return errors[-1] if errors else lines[-1] if lines else "the downloader did not say why"
+
+
 def finders():
     """The note finders a new song can start from, for the page: MuScriptor only where it is set up."""
     from . import muscriptor
@@ -134,7 +163,7 @@ class Adding:
     def __init__(self, workdir, stems_dir=None):
         self.workdir, self.uploads = workdir, os.path.join(workdir, "uploads")
         self.stems_dir = stems_dir  # for tests: every new song's stems, already separated
-        self.jobs, self.arriving, self.lock = {}, set(), threading.RLock()
+        self.jobs, self.arriving, self.links, self.lock = {}, set(), 0, threading.RLock()  # jobs: by their `key`
         self.tasks, self.child, self.worker, self.closed = queue.Queue(), None, None, False
         self._interrupted()
 
@@ -152,7 +181,8 @@ class Adding:
                     )
                     for s in job["steps"]
                 ]
-                shown = {k: job[k] for k in ("id", "title", "artist", "name", "finder", "state", "error", "said")}
+                shown = ("key", "id", "title", "artist", "name", "url", "finder", "state", "error", "said")
+                shown = {k: job[k] for k in shown}
                 out.append(dict(shown, steps=steps))
             return out
 
@@ -163,11 +193,7 @@ class Adding:
         kept = safe_name(name)
         if os.path.splitext(kept)[1] not in AUDIO:
             raise Refused(415, f"{kept or 'that'} is not an audio file: the copilot takes {' '.join(AUDIO)}")
-        ready = {f["id"]: f for f in finders()}
-        if finder not in ready:
-            raise Refused(400, f"unknown note finder {finder!r}")
-        if not ready[finder]["ready"]:
-            raise Refused(400, f"{ready[finder]['label']} is {ready[finder]['why']}")
+        self._finder(finder)
         if length is None:
             raise Refused(411, "the file came without its size")
         if length <= 0:
@@ -200,62 +226,97 @@ class Adding:
                 self.arriving.discard(entry["id"])
         return self._queue(entry, kept, finder)
 
-    def _free(self, entry):
-        """Refuse a song that is already here, or on its way."""
-        job = self.jobs.get(entry["id"])
+    def link(self, url, finder="own"):
+        """Take a link to a video: its audio is fetched when the song's turn comes, then prepared like a file
+        that was sent. Refused where no downloader is installed, and for what is not a link to YouTube."""
+        url = (url or "").strip()
+        if downloader() is None:
+            raise Refused(400, "links are not taken here: no downloader (yt-dlp) is installed on this computer")
+        parts = urlparse(url)
+        if parts.scheme not in ("http", "https") or (parts.hostname or "").lower() not in LINK_HOSTS:
+            raise Refused(400, "that is not a link to YouTube")
+        self._finder(finder)
+        with self.lock:
+            if any(j["url"] == url and j["state"] in ("waiting", "running") for j in self.jobs.values()):
+                raise Refused(409, "that link is already being fetched")
+            self.links += 1
+            job = self._job(
+                f"link-{self.links}", dict(id=None, title="A song from YouTube", artist=""), "", finder, url
+            )
+            self.jobs[job["key"]] = job
+        self._task("prepare", job)
+        return job
+
+    def _finder(self, finder):
+        ready = {f["id"]: f for f in finders()}
+        if finder not in ready:
+            raise Refused(400, f"unknown note finder {finder!r}")
+        if not ready[finder]["ready"]:
+            raise Refused(400, f"{ready[finder]['label']} is {ready[finder]['why']}")
+
+    def _free(self, entry, but=None):
+        """Refuse a song that is already here, or on its way (`but`: the job that is this song)."""
         if os.path.exists(os.path.join(copilot.song_dir(self.workdir, entry["id"]), "machine.json")):
             raise Refused(409, f"{entry['title']} is already among your songs")
-        if entry["id"] in self.arriving or (job and job["state"] in ("waiting", "running")):
+        busy = (j for j in self.jobs.values() if j is not but and j["id"] == entry["id"])
+        if entry["id"] in self.arriving or any(j["state"] in ("waiting", "running") for j in busy):
             raise Refused(409, f"{entry['title']} is already being prepared")
 
-    def _queue(self, entry, name, finder, first=(), **more):
-        job = dict(
+    def _job(self, key, entry, name, finder, url=None):
+        return dict(
+            key=key,
             id=entry["id"],
             title=entry["title"],
             artist=entry["artist"],
             name=name,
-            path=entry["path"],
+            path=entry.get("path"),
+            url=url,
             finder=finder,
             state="waiting",
             error=None,
             said="",
             removed=False,
-            steps=new_steps(finder, first),
-            **more,
+            steps=new_steps(finder, (FETCHING,) if url else ()),
         )
+
+    def _queue(self, entry, name, finder):
+        job = self._job(entry["id"], entry, name, finder)
         with self.lock:
-            self.jobs.pop(job["id"], None)  # one that failed before: it goes to the end of the row
-            self.jobs[job["id"]] = job
+            for key in [k for k, j in self.jobs.items() if j["id"] == job["id"]]:
+                del self.jobs[key]  # one that failed before: the song goes to the end of the row
+            self.jobs[job["key"]] = job
         self._task("prepare", job)
         return job
 
-    def again(self, song_id):
-        """Prepare once more a song whose preparation failed, from the file that is kept."""
+    def again(self, key):
+        """Prepare once more a song whose preparation failed, from the file that is kept; one that came as a
+        link and was not fetched is fetched again."""
         with self.lock:
-            job = self.jobs.get(song_id)
+            job = self.jobs.get(key)
             if job is None or job["state"] != "failed":
                 raise Bass2SheetError("there is nothing to try again")
-            if not os.path.isfile(job["path"]):
+            if not job["url"] and not os.path.isfile(job["path"]):
                 raise Bass2SheetError(f"{job['name']} is not kept any more: add it again")
-            job.update(state="waiting", error=None, said="", steps=new_steps(job["finder"]))
+            first = (FETCHING,) if job["url"] else ()
+            job.update(state="waiting", error=None, said="", steps=new_steps(job["finder"], first))
         self._task("prepare", job)
 
-    def remove(self, song_id):
+    def remove(self, key):
         """Take a song out of the row. One that is ready stays among the songs; one that is waiting, running or
         failed is given up: its file and whatever was made of it are deleted."""
         with self.lock:
-            job = self.jobs.get(song_id)
+            job = self.jobs.get(key)
             if job is None:
                 raise Bass2SheetError("there is no such song being added")
             if job["state"] == "done":
-                del self.jobs[song_id]
+                del self.jobs[key]
                 return
             job["removed"] = True
             running = job["state"] == "running"
             if running and self.child is not None:
                 self.child.terminate()  # the worker clears up when the process has gone
             elif not running:
-                del self.jobs[song_id]
+                del self.jobs[key]
         if not running:
             self._task("clear", job)
 
@@ -296,12 +357,69 @@ class Adding:
         cmd = [sys.executable, "-m", "bass2sheet.copilot_adding", self.workdir, job["path"], job["finder"]]
         return cmd + ([self.stems_dir] if self.stems_dir else [])
 
+    def _fetch(self, job):
+        """Fetch the audio a job's link points to into `uploads/`, as the step before all others. Returns whether
+        there is now a file to prepare; if not, the job says why."""
+        step, began = job["steps"][0], time.time()
+        if job["path"] and os.path.isfile(job["path"]):  # fetched at an earlier try
+            step.update(state="done", seconds=0)
+            return True
+        tmp = os.path.join(self.uploads, "." + job["key"])
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+        cmd = [downloader() or "yt-dlp", "--no-config", "--no-playlist", "--no-progress", "--no-warnings"]
+        cmd += ["--socket-timeout", "30", "-f", "bestaudio/best", "--max-filesize", f"{MAX_BYTES // (1 << 20)}M"]
+        cmd += ["--match-filters", f"!is_live & duration<=?{MAX_SECONDS:.0f}"]
+        cmd += ["-P", tmp, "-o", "%(title).150B [%(id)s].%(ext)s", "--", job["url"]]
+        try:
+            with self.lock:
+                job["state"] = "running"
+                step.update(state="running", started=began)
+                self.child = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            try:
+                said, _ = self.child.communicate(timeout=FETCH_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                self.child.kill()
+                said = f"ERROR: it took more than {FETCH_TIMEOUT // 60} minutes\n" + self.child.communicate()[0]
+            got = sorted(f for f in os.listdir(tmp) if not f.endswith((".part", ".ytdl")))
+            if job["removed"] or self.closed:
+                return False
+            if self.child.returncode != 0 or not got:
+                raise Refused(400, f"The audio could not be fetched: {why_not(said)}")
+            name = safe_name(got[0])
+            if os.path.splitext(name)[1] not in AUDIO:
+                raise Refused(415, f"The audio came as {name}, a kind of file the copilot does not take")
+            probe(os.path.join(tmp, got[0]), name)
+            entry = judge.song_entry(os.path.join(self.uploads, name))
+            with self.lock:
+                self._free(entry, but=job)
+                size = os.path.getsize(os.path.join(tmp, got[0]))
+                os.replace(os.path.join(tmp, got[0]), entry["path"])
+                job.update(id=entry["id"], title=entry["title"], artist=entry["artist"], name=name, path=entry["path"])
+                found = dict(megabytes=round(size / (1 << 20), 1))
+                step.update(state="done", seconds=round(time.time() - began, 1), started=None, found=found)
+            return True
+        except (Refused, OSError) as e:
+            with self.lock:
+                step.update(state="failed", seconds=round(time.time() - began, 1), started=None)
+                job.update(state="failed", error=str(e))
+            return False
+        finally:
+            with self.lock:
+                self.child = None
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def _prepare(self, job):
+        os.makedirs(self.uploads, exist_ok=True)
+        if job["url"] and not self._fetch(job):
+            with self.lock:
+                if job["removed"] or self.closed:
+                    self.jobs.pop(job["key"], None)
+            return
         env = dict(os.environ, TQDM_DISABLE="1", PYTHONUNBUFFERED="1")
         package = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the code the page itself runs
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package, env.get("PYTHONPATH")) if p)
-        log = os.path.join(self.uploads, job["id"] + ".log")
-        os.makedirs(self.uploads, exist_ok=True)
+        log = os.path.join(self.uploads, job["key"] + ".log")
         with self.lock:
             job["state"] = "running"
         with open(log, "w") as errors:
@@ -319,7 +437,7 @@ class Adding:
         with self.lock:
             self.child = None
             if job["removed"] or self.closed:
-                self.jobs.pop(job["id"], None)
+                self.jobs.pop(job["key"], None)
             elif code == 0:
                 for s in job["steps"]:  # a step that had nothing to do (kept from an earlier time) is done too
                     s.update(state="done", started=None)
@@ -359,8 +477,12 @@ class Adding:
     def _clear(self, job):
         """Delete what a song that was given up left behind: its file here, its folder and its line in the list
         of songs, unless it got as far as being prepared."""
+        if os.path.exists(os.path.join(self.uploads, job["key"] + ".log")):
+            os.remove(os.path.join(self.uploads, job["key"] + ".log"))
+        if not job["path"]:  # a link that was never fetched: nothing was made
+            return
         if os.path.dirname(os.path.abspath(job["path"])) == os.path.abspath(self.uploads):
-            for path in (job["path"], job["path"] + ".part", os.path.join(self.uploads, job["id"] + ".log")):
+            for path in (job["path"], job["path"] + ".part"):
                 if os.path.exists(path):
                     os.remove(path)
         folder = copilot.song_dir(self.workdir, job["id"])
@@ -379,19 +501,9 @@ class Adding:
             if not mine or os.path.exists(os.path.join(copilot.song_dir(self.workdir, song_id), "machine.json")):
                 continue
             finder = (song.get("settings") or {}).get("notes", "own")
-            self.jobs[song_id] = dict(
-                id=song_id,
-                title=song.get("title", song_id),
-                artist=song.get("artist", ""),
-                name=os.path.basename(song["path"]),
-                path=song["path"],
-                finder=finder if finder in NOTE_FINDERS else "own",
-                state="failed",
-                error="It was being prepared when the copilot was stopped.",
-                said="",
-                removed=False,
-                steps=new_steps(finder if finder in NOTE_FINDERS else "own"),
-            )
+            entry = dict(id=song_id, title=song.get("title", song_id), artist=song.get("artist", ""), path=song["path"])
+            job = self._job(song_id, entry, os.path.basename(song["path"]), finder if finder in NOTE_FINDERS else "own")
+            self.jobs[song_id] = dict(job, state="failed", error="It was being prepared when the copilot was stopped.")
 
 
 def main(argv=None):

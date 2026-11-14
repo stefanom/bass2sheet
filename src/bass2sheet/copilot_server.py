@@ -207,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         return dict(
             jobs=self.adding.listing(),
             finders=copilot_adding.finders(),
+            links=copilot_adding.downloader() is not None,
             kinds=copilot_adding.AUDIO,
             limit=copilot_adding.MAX_BYTES,
         )
@@ -253,6 +254,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/upload":
                 return self.upload({k: v[0] for k, v in parse_qs(url.query).items()})
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            if path == "/api/link":  # a new song that comes as a link: fetched when its turn comes
+                job = self.adding.link(data.get("url"), data.get("notes") or "own")
+                return self.send_json(dict(key=job["key"]))
             if path == "/api/adding":  # a song being added: try it again, or take it out of the row
                 getattr(self.adding, dict(again="again", remove="remove")[data.get("do")])(data.get("id", ""))
                 return self.send_json(self.adding_now())
@@ -274,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
                 state = desk.public()
             fields = {k: state[k] for k in ("notes", "checked", "worked", "undo", "fixes")}
             self.send_json(dict(result=result, differences=state["repeats"]["differences"], **fields))
+        except copilot_adding.Refused as e:
+            self.send_json(dict(error=str(e)), e.status)
         except (ValueError, KeyError, TypeError, StopIteration, Bass2SheetError) as e:
             self.send_json(dict(error=str(e) or type(e).__name__), 400)
 

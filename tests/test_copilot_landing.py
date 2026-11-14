@@ -6,7 +6,9 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -83,7 +85,7 @@ def _settled(url, song_id, timeout=180):
     """Watch a song being added until it is ready or has failed. Returns (its job, the steps seen running)."""
     seen, until = [], time.time() + timeout
     while time.time() < until:
-        job = next((j for j in _json(url + "/api/adding")["jobs"] if j["id"] == song_id), None)
+        job = next((j for j in _json(url + "/api/adding")["jobs"] if song_id in (j["id"], j["key"])), None)
         assert job is not None, "the song is not in the row"
         seen += [s["id"] for s in job["steps"] if s["state"] == "running" and s["id"] not in seen]
         if job["state"] in ("done", "failed"):
@@ -292,6 +294,110 @@ def test_muscriptors_notes_and_the_second_opinion_are_steps_when_it_is_chosen(se
     found = {s["id"]: s["found"] for s in job["steps"]}
     assert found["muscriptor"] == dict(notes=len(rows) + 1) and found["second"]["alone"] >= 1
     assert {s["id"]: s["finder"] for s in _json(url + "/api/songs")} == {"mix": "own", "other-notes": "muscriptor"}
+
+
+def _downloader(tmp_path, monkeypatch, audio):
+    """A program that takes yt-dlp's place: it writes `audio` under the name a video would give it into the
+    folder it is told, or fails as yt-dlp does for a video that is gone, too long, or not audio at all. Returns
+    the log of what it was asked."""
+    program, log = str(tmp_path / "yt-dlp"), str(tmp_path / "asked.txt")
+    with open(program, "w") as f:
+        f.write(
+            f"#!{sys.executable}\nimport os, shutil, sys\n"
+            "args = sys.argv[1:]\n"
+            f"open({log!r}, 'a').write(' '.join(args) + '\\n')\n"
+            "url, folder = args[-1], args[args.index('-P') + 1]\n"
+            "assert args[-2] == '--' and '--no-playlist' in args and '--no-config' in args, args\n"
+            "if 'gone' in url:\n"
+            "    print('[youtube] Extracting URL: ' + url)\n"
+            "    sys.exit('ERROR: [youtube] gone: Video unavailable')\n"
+            "if 'long' in url:\n"
+            "    print('[download] An Opera does not pass filter (!is_live & duration<=?1200), skipping ..')\n"
+            "    sys.exit(0)\n"
+            "if 'words' in url:\n"
+            "    open(os.path.join(folder, 'Words [abc].webm'), 'w').write('this is not music' * 500)\n"
+            "    sys.exit(0)\n"
+            f"name = 'Stand In - Linked Song (Official Video) [dQw4w9WgXcQ].wav'\n"
+            f"shutil.copy({audio!r}, os.path.join(folder, name))\n"
+        )
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("BASS2SHEET_DOWNLOADER", program)
+    return log
+
+
+def test_links_are_taken_only_where_a_downloader_is_installed(served, monkeypatch):
+    url, workdir, _ = served
+    monkeypatch.setenv("BASS2SHEET_DOWNLOADER", "none")
+    assert _json(url + "/api/adding")["links"] is False
+    status, answer = _post(url + "/api/link", dict(url="https://youtu.be/dQw4w9WgXcQ"))
+    assert status == 400 and "no downloader (yt-dlp) is installed" in answer["error"]
+    monkeypatch.setenv("BASS2SHEET_DOWNLOADER", "/nonexistent/yt-dlp")
+    assert copilot_adding.downloader() is None
+    monkeypatch.delenv("BASS2SHEET_DOWNLOADER")
+    monkeypatch.setattr(copilot_adding.shutil, "which", lambda name: None)
+    assert copilot_adding.downloader() in (None, "/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp")
+
+
+def test_a_link_is_fetched_as_the_first_step_and_then_prepared_like_a_file(served, tmp_path, monkeypatch):
+    url, workdir, mix = served
+    log = _downloader(tmp_path, monkeypatch, mix)
+    assert _json(url + "/api/adding")["links"] is True
+    for bad in ("", "youtu.be/x", "ftp://www.youtube.com/watch?v=x", "https://example.com/watch?v=x", "/etc/passwd"):
+        status, answer = _post(url + "/api/link", dict(url=bad))
+        assert status == 400 and "not a link to YouTube" in answer["error"], bad
+    assert _post(url + "/api/link", dict(url="https://youtu.be/x", notes="someone"))[0] == 400
+    link = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert _post(url + "/api/link", dict(url=f"  {link} ")) == (200, dict(key="link-1"))
+    job, _ = _settled(url, "link-1")
+    assert job["state"] == "done" and job["error"] is None, job
+    assert (job["id"], job["title"], job["artist"], job["url"]) == (
+        "stand-in-linked-song",
+        "Linked Song",
+        "Stand In",
+        link,
+    )
+    order = ["fetching", "reading", "isolating", "pitch", "notes", "beats", "checks", "picture", "ready"]
+    assert [s["id"] for s in job["steps"]] == order and all(s["state"] == "done" for s in job["steps"])
+    assert job["steps"][0]["found"]["megabytes"] > 1 and job["steps"][0]["seconds"] is not None
+    kept = "Stand In - Linked Song (Official Video) [dQw4w9WgXcQ].wav"
+    assert os.listdir(os.path.join(workdir, "uploads")) == [kept]  # the file, and nothing of the fetching
+    assert open(os.path.join(workdir, "uploads", kept), "rb").read() == open(mix, "rb").read()
+    songs = {s["id"]: s for s in _json(url + "/api/songs")}
+    assert songs["stand-in-linked-song"]["title"] == "Linked Song" and len(songs) == 2
+    asked = open(log).read().split("\n")[0]
+    assert asked.endswith("-- " + link) and "--max-filesize 500M" in asked and "-f bestaudio/best" in asked
+    assert "--match-filters !is_live & duration<=?1200" in asked
+    # the same link again: fetched, and found to be a song that is already there
+    assert _post(url + "/api/link", dict(url=link))[0] == 200
+    job, _ = _settled(url, "link-2")
+    assert job["state"] == "failed" and job["error"] == "Linked Song is already among your songs"
+    assert _post(url + "/api/adding", dict(id="link-2", do="remove"))[0] == 200
+    assert os.listdir(os.path.join(workdir, "uploads")) == [kept] and len(_json(url + "/api/songs")) == 2
+
+
+def test_a_link_that_cannot_be_fetched_says_why(served, tmp_path, monkeypatch):
+    url, workdir, mix = served
+    _downloader(tmp_path, monkeypatch, mix)
+    for k, (link, words) in enumerate(
+        (
+            ("https://youtu.be/gone", "The audio could not be fetched: [youtube] gone: Video unavailable"),
+            (
+                "https://youtu.be/long",
+                "The audio could not be fetched: it is a live stream, or lasts more than 20 minutes",
+            ),
+            ("https://youtu.be/words", "Words [abc].webm is not an audio file this tool can read"),
+        )
+    ):
+        assert _post(url + "/api/link", dict(url=link))[0] == 200
+        job, _ = _settled(url, f"link-{k + 1}")
+        assert job["state"] == "failed" and job["error"] == words, job
+        assert [s["state"] for s in job["steps"]][:2] == ["failed", "waiting"] and job["id"] is None
+    assert _post(url + "/api/adding", dict(id="link-1", do="again"))[0] == 200
+    assert _settled(url, "link-1")[0]["state"] == "failed"
+    for k in (1, 2, 3):
+        assert _post(url + "/api/adding", dict(id=f"link-{k}", do="remove"))[0] == 200
+    assert _json(url + "/api/adding")["jobs"] == [] and os.listdir(os.path.join(workdir, "uploads")) == []
+    assert list(copilot.load_songs(workdir)) == ["mix"]
 
 
 def test_a_song_left_half_prepared_by_a_server_that_stopped_is_shown_to_try_again(prepared, tmp_path):

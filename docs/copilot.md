@@ -21,12 +21,13 @@ A song's own page is at `/song#SONG_ID`. Links from before the songs had a page 
 
 ## Adding a song on the page
 
-Drop an audio file on the page, or choose one. The file is copied to the copilot on this computer, kept in `uploads/` under the working directory, and prepared in the background with the code `bass2sheet-copilot add` runs. You can keep working on another song meanwhile. Several files wait their turn: one song is prepared at a time.
+Drop an audio file on the page, or choose one (or paste a link: see below). The file is copied to the copilot on this computer, kept in `uploads/` under the working directory, and prepared in the background with the code `bass2sheet-copilot add` runs. You can keep working on another song meanwhile. Several files wait their turn: one song is prepared at a time.
 
 - **Whose notes.** Under the drop box you choose the note finder the song starts from: bass2sheet's own, or MuScriptor's where it is set up (`MUSCRIPTOR_NOTES` and `MUSCRIPTOR_GGUF` in the environment `serve` is started from: see [muscriptor.md](muscriptor.md)). Where it is not, the choice is greyed out and says so.
 - **The steps.** While a song is prepared, the page shows the steps in the order they run, each waiting, running or done, with the time it took and what it found: reading the file (how long the music is), isolating the bass (by which model), following the pitch (in how much of the song a pitch was found), finding the notes (how many, from which to which), MuScriptor's notes and the second opinion when MuScriptor is chosen (how many notes only MuScriptor hears), beats and bars (tempo, bars, key), the own-sound check (how many notes the tool doubts), the picture (shown under the steps once it exists), ready. The steps are reported by the preparation itself as it goes, not guessed from the clock. Isolating the bass is the long one the first time: a minute or two on a recent Mac.
 - **If it fails**, the step that failed is marked and the reason stays on the page until you try again or remove the song. Removing a song that never got ready deletes its file and everything made of it. "Cancel" does the same for one that is waiting or running.
 - **What is taken.** Audio files (`.wav .flac .mp3 .m4a .aac .ogg .oga .opus .aif .aiff`) and the video files a song often comes in (`.mp4 .webm .mkv`), for the sound in them; up to 500 MB, from ten seconds to twenty minutes. A file with another ending, one with no sound in it that can be read, or a song that is already there is refused, and nothing of it is kept.
+- **From a link.** Where [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed (`brew install yt-dlp`, or `pip install yt-dlp`), a box beside the drop box takes a YouTube link: the audio is fetched into `uploads/` and then prepared exactly like a file, with "Fetching the audio" as the first step. This is optional. Nothing is installed for you, and where yt-dlp is not found the box is not shown. `BASS2SHEET_DOWNLOADER=/path/to/yt-dlp` names the program where it is not on the PATH; `BASS2SHEET_DOWNLOADER=none` turns links off. It is for audio you have the right to download: your own recordings, music under a licence that allows it, or what the law where you live lets you copy for your own practice. A live stream, a video over twenty minutes or over 500 MB is not fetched, and a playlist link fetches only the one video.
 - **Your recordings.** Add only recordings you have the rights to use. The copilot listens on this computer only (127.0.0.1) and takes changes only from its own pages; the file goes nowhere else.
 
 Each song is prepared in a process of its own, so the memory the models take is given back when it is done.
@@ -99,7 +100,7 @@ Drawing the pages needs [MuseScore 4](https://musescore.org) on the computer. Wi
 ```
 scores/
   songs.json            the songs and the settings each was heard with
-  uploads/              the files added on the page, as they came
+  uploads/              the files added on the page, as they came, and the audio fetched from links
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
