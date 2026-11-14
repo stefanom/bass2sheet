@@ -217,6 +217,20 @@ def test_notes_are_deleted_added_moved_split_and_joined(workdir):
     k = next(i for i, x in enumerate(after_c) if x["id"] == c["id"])
     assert d.note(c["id"])["start"] == pytest.approx(c["start"] - 0.05, abs=1e-3)
     assert d.note(new)["end"] == d.note(c["id"])["start"] and d.note(c["id"])["end"] == after_c[k + 1]["start"]
+    # a note dragged on the page moves in time and in pitch at once: one fix, undone in one go
+    g = dict(d.notes[40])
+    fixes = d.fixes()
+    d.act(dict(kind="move", id=g["id"], start=g["start"] + 0.01, end=g["end"] + 0.01, pitch=g["pitch"] + 2, how="drag"))
+    moved = d.note(g["id"])
+    assert moved["pitch"] == g["pitch"] + 2 and moved["start"] == pytest.approx(g["start"] + 0.01, abs=1e-3)
+    assert moved["state"] == "fixed" and moved["was"]["pitch"] == g["pitch"] and moved["was"]["start"] == g["start"]
+    assert d.fixes() == fixes + 1
+    with pytest.raises(Bass2SheetError, match="not a pitch"):
+        d.act(dict(kind="move", id=g["id"], start=g["start"], end=g["end"], pitch=200))
+    d.act(dict(kind="undo"))
+    assert {k: d.note(g["id"])[k] for k in ("start", "end", "pitch", "state")} == {
+        k: g[k] for k in ("start", "end", "pitch", "state")
+    }
     # split and join
     e = dict(d.notes[30])
     second = d.act(dict(kind="split", id=e["id"], at=(e["start"] + e["end"]) / 2))["id"]

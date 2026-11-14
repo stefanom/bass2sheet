@@ -643,7 +643,8 @@ class Desk:
                 before.append(json.loads(json.dumps(n)))
 
         notes, rep = self.notes, self.repeats
-        carries = rep is not None and kind in CARRIED and action.get("offer", True)
+        repitched = kind == "pitch" or (kind == "move" and "pitch" in action)  # a note dragged to another pitch
+        carries = rep is not None and (kind in CARRIED or repitched) and action.get("offer", True)
         written = rep.tokens(notes) if carries else None
         kept, upto = len(self.state.get("kept", [])), self.state.get("upto")
         try:
@@ -667,7 +668,7 @@ class Desk:
             items = rep.same_mistake(written, rep.tokens(self.notes), self.trust(), settled)
             if items:
                 result["offer"] = dict(type="repeat", items=items, bars=len({i["bar"] for i in items}))
-        if kind == "pitch" and action.get("offer", True) and "offer" not in result:
+        if repitched and action.get("offer", True) and "offer" not in result:
             label, ids = self.alike(action["id"])
             if ids:
                 pitch = self.note(action["id"])["pitch"]
@@ -759,6 +760,8 @@ class Desk:
             prev, nxt = (order[k - 1] if k else None), (order[k + 1] if k + 1 < len(order) else None)
             start = max(0.0, float(action.get("start", n["start"])))
             end = float(action.get("end", n["end"]))
+            # dragged on the page, a note moves in time and in pitch in one go: one fix
+            pitch = self._check_pitch(action["pitch"]) if "pitch" in action else n["pitch"]
             if prev is not None:
                 start = max(start, prev["start"] + SHORTEST)
             if nxt is not None:
@@ -774,6 +777,9 @@ class Desk:
                 prev["end"] = round(start, 4)
                 self._settle(prev)
             n["start"], n["end"] = round(start, 4), round(end, 4)
+            if pitch != n["pitch"]:
+                n["pitch"] = pitch
+                n["also"] = [q for q in n.get("also", []) if q != pitch]
             self._settle(n)
         elif kind == "split":
             n = self.note(action["id"])

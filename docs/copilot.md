@@ -13,11 +13,13 @@ bass2sheet-copilot sheet SONG_ID --dir scores
 
 ## The page
 
-One song at a time, on a timeline that scrolls with the record.
+One song at a time, on a timeline that scrolls with the record and fills the browser window. Everything can be done with the mouse; the keys are shortcuts. The Help button (or `?`) shows what the colours mean, what the mouse does and the keys.
 
 - **The picture** is the isolated bass: pitch upwards, time to the right. Each dark bar is a steady tone. A note is a stack of bars: the note itself at the bottom and its overtones above it, which on a bass are often stronger than the note. A bar that bends is a slide. The gap between two bars is where one note gives way to the next, and a note played several times usually shows as several bars. (A plain spectrogram cannot show this for a bass: telling the low E from the F beside it takes most of a second of sound, which smears every note over its neighbours. Here each partial is located exactly from a tenth of a second.) The thin red line is the pitch the tracker followed. Faint vertical lines are the bars as the tool counts them; they are not settled at this stage and are only there to find your way.
 - **The notes** are boxes on the picture, on the row of their pitch. Green is as the tool heard it, amber is a note the tool itself doubts (it does not sound like the song's other notes of that pitch), blue is one you have changed or added. A dashed outline shows where the tool had a note you moved to another pitch.
-- **Moving about.** Drag the timeline with the mouse (the pointer is a hand wherever it is not on a note) or scroll; a click without dragging puts the playhead there. While the song plays the timeline follows the playhead until you move it yourself; then it stays where you put it, and follows again the next time you press play.
+- **Moving about.** The mouse wheel, or a pinch on the trackpad, zooms in time around the pointer (`+` and `-` do it around the playhead). A sideways swipe, or Shift with the wheel, moves through the song, and so does dragging the timeline (the pointer is a hand wherever it is not on a note); a click without dragging puts the playhead there. Drag in the ruler at the top and the playhead follows the pointer, playing the spot under it as it goes: the way to find the moment a note begins. While the song plays the timeline follows the playhead until you move it yourself; then it stays where you put it, and follows again the next time you press play.
+- **Rows.** "Rows" makes the pitch rows taller or shorter; "Fit" puts all the pitches in the window. With rows taller than the window, drag the timeline up and down, or hold Alt and turn the wheel.
+- **The picture's look.** "Picture" chooses its colours (blue on white, dark, black on white, white on black), how strongly the faint tones show (the slider bends the curve from loudness to colour: to the right the faint tones come up, to the left only the strongest are left), and how solid the note boxes are (to the left they are outlines and the picture shows through). The page remembers these, the zoom and the rows.
 - **Slower.** "Speed" plays the song at 90, 80, 70, 60 or 50% at the same pitch (`[` and `]` step through them). The record, the isolated bass and the notes slow down together and stay in step. The first time a speed is used for a song it takes up to a minute to prepare; after that it is kept. With [Rubber Band](https://breakfastquay.com/rubberband/) installed (`brew install rubberband`) the slowed sound keeps the attacks and the low notes clean; without it the ffmpeg that comes with the tool is used, which is rougher.
 - **What you hear** is your choice of three: the record, the isolated bass, and the notes. The notes are played in the bass's own sound: each by a piece of the bass track cut from another note of the same pitch. A right note doubles the record; a wrong one stands out. With headphones, "bass left, notes right" puts the isolated bass in one ear and the notes in the other.
 
@@ -27,14 +29,15 @@ Press Space and listen. When something is wrong, press Space again, then `←` t
 
 | To | Do |
 |---|---|
-| change its pitch | `1` to `6` takes one of the tool's guesses; `↑` `↓` moves a semitone, with Shift an octave; or drag the note |
-| hear it again in its place | Enter |
-| remove a note that is not there | Delete |
+| change its pitch | `1` to `6` takes one of the tool's guesses (or click one); `↑` `↓` moves a semitone, with Shift an octave ("▲ Octave", "▼ Octave"); or drag the note |
+| put it where it sounds | drag the note: up and down changes its pitch, left and right moves it in time, in one go. While you hold it, it is see-through, a line marks its start and its end right up the picture, and dotted boxes show where its overtones lie. Moved earlier, the note before gives way; moved later against the next note, its end stays where that note starts |
+| hear it again in its place | Enter, or "Hear it" |
+| remove a note that is not there | Delete, or the "Delete" button |
 | add a note that is missing | `A` at the playhead, or double-click where it belongs; a note sounding there ends where the new one starts |
-| make one note two | `S` splits it at the playhead, or in the middle |
-| make two notes one | `M` joins it with the next; Shift+`M` with every repeat of it that follows (a held note the tool chopped up) |
-| work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave) |
-| move where it starts or ends | drag an end, or Alt with `←` `→` (Shift for the end), 10 ms a press |
+| make one note two | `S`, or "Split", splits it at the playhead, or in the middle |
+| make two notes one | `M`, or "Join with next"; Shift+`M` joins it with every repeat of it that follows (a held note the tool chopped up) |
+| work on several notes at once | Shift-click another note, or Shift with `←` `→`, selects all the notes in between; then Delete removes them, `M` joins them into one, `↑` `↓` moves them together (Shift for an octave); the same as buttons under the timeline |
+| move where it starts or ends | drag an end: it can be grabbed from a little outside the note too, and the pointer turns into a double arrow; or Alt with `←` `→` (Shift for the end), 10 ms a press |
 | take what a repeat has, or keep what is written | click a dashed note or a mark under the letters, then "Use it" (`U`) or "Keep what is written" (`K`) |
 | take it back | `Z` |
 
