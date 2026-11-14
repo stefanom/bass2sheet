@@ -19,7 +19,9 @@ from .common import (
     clean_name,
     clock,
     log,
+    note_name,
     sha1_file,
+    step,
 )
 from .notes import SegParams, segment_notes
 from .pitch import features
@@ -96,24 +98,38 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
     """Everything the sheet is written from: the notes heard in the bass stem, placed on the beat grid, with the
     key and the chords. Returns them with the pitch features (`feat`) and the 4/4 fit of the beats (`meter_fit`)."""
     bass_mono = stems["bass"].mean(0)
-    feat = features(bass_mono, cache_dir, device, crepe_model)
+    with step("pitch") as found:
+        feat = features(bass_mono, cache_dir, device, crepe_model)
+        found["pitched"] = round(float(np.mean((feat["per_c"] >= 0.3) & (feat["f0_c"] > 0))), 3)
     others = [v.mean(0) for k, v in stems.items() if k != "bass"]
     rest = sum(v[: len(bass_mono)] for v in others) if others else None  # the record without the bass track
-    notes, _, _ = segment_notes(feat, bass_mono, params, rest)
+    with step("notes") as found:
+        notes, _, _ = segment_notes(feat, bass_mono, params, rest)
+        found["notes"] = len(notes)
+        if notes:
+            found["low"], found["high"] = (note_name(f(n["pitch"] for n in notes)) for f in (min, max))
     if params.finder == "muscriptor":  # its notes are written; the ones just found say which of them to doubt
         from . import muscriptor
 
-        notes = muscriptor.as_notes(muscriptor.heard(bass_mono, feat["stem_id"], cache_dir), notes, bass_mono, params)
+        with step("muscriptor") as found:
+            raw = muscriptor.heard(bass_mono, feat["stem_id"], cache_dir)
+            found["notes"] = len(raw)
+        with step("second") as found:
+            notes = muscriptor.as_notes(raw, notes, bass_mono, params)
+            found["notes"], found["alone"] = len(notes), sum(n.get("flag") == muscriptor.ALONE for n in notes)
     if len(notes) < 8:
         raise Bass2SheetError(f"only {len(notes)} bass notes found; the stem has no clearly pitched bass")
     if mix is None:
         mix = sum(stems.values()).mean(0)
-    tempo, pulses, per_quarter, phase, meter_fit, tracker = track_grid(
-        stems, mix, audio_id, cache_dir, device, beat_tracker
-    )
-    grid, origin = beat_grid(pulses, per_quarter, phase, len(bass_mono) / SR)
-    notes = quantize(notes, grid, origin)
-    chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
+    with step("beats") as found:
+        tempo, pulses, per_quarter, phase, meter_fit, tracker = track_grid(
+            stems, mix, audio_id, cache_dir, device, beat_tracker
+        )
+        grid, origin = beat_grid(pulses, per_quarter, phase, len(bass_mono) / SR)
+        notes = quantize(notes, grid, origin)
+        chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
+        key = estimate_key(chroma)
+        found.update(tempo=round(float(tempo), 1), bars=max(0, (len(grid) - int(origin) + 15) // 16), key=key[0])
     return dict(
         notes=notes,
         tempo=tempo,
@@ -122,7 +138,7 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
         grid=grid,
         origin=origin,
         chords=chords,
-        key=estimate_key(chroma),
+        key=key,
         feat=feat,
         meter_fit=meter_fit,
     )

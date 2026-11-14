@@ -4,16 +4,46 @@
 
 ```
 bass2sheet-copilot add SONG... --dir scores [--judging DIR]
-bass2sheet-copilot serve --dir scores        # then open http://localhost:8770
+bass2sheet-copilot serve --dir scores        # then open http://localhost:8770: your songs, and the way in for a new one
 bass2sheet-copilot report --dir scores       # what the tool got wrong so far
 bass2sheet-copilot sheet SONG_ID --dir scores
 ```
 
 `add` hears each song as the tool would for a sheet (a few minutes the first time, under a minute with the stems and pitch tracks in the cache). With `--judging DIR`, a song that is also in a [judging](judging.md) directory is heard with the settings your picks settled on there.
 
-## The page
+`serve` works on a directory with no song in it yet: the first one can be added on the page.
 
-One song at a time, on a timeline that scrolls with the record and fills the browser window. Everything can be done with the mouse; the keys are shortcuts. The Help button (or `?`) shows what the colours mean, what the mouse does and the keys.
+## From a recording to its score
+
+`http://localhost:8770` shows the whole way in four stages, at the top of the page and in that order below it. The stage you are at is lit.
+
+1. **Add a song**: drop a recording, or paste a link.
+2. **Watch it being prepared**: the bass is isolated and its notes are found, then double-checked. The two double checks are marked in the row of steps: the own-sound check holds each note against the song's other notes of its pitch, and, when MuScriptor writes the notes, the second opinion holds them against bass2sheet's own. What they doubt is amber on the song's page. Under the row, a sentence says what the running step does.
+3. **Fix the notes**: "Fix the notes" on a song's card opens its page, where you play the record and fix what is wrong.
+4. **Make the score**: "Make the sheet" on the song's page, or "Make the score" on its card, writes the score and shows it. Once it is made the card says when, and "See the score" opens it.
+
+## Your songs
+
+The page lists the songs of the working directory. Each card shows the whole song as a strip of its pitch picture, and under it how far you are: dark green is what you have worked through, pale green what you have only heard. The lines below say it in numbers (how much is worked through, how many fixes) and whose notes the song started from: bass2sheet's own or MuScriptor's. "Fix the notes" (or a click on the card) opens the song where you stopped; the button beside it makes or shows its score.
+
+A song's own page is at `/song#SONG_ID`. Links from before the songs had a page of their own (`/#SONG_ID`) still open the song.
+
+## Adding a song on the page
+
+Drop an audio file on the page, or choose one (or paste a link: see below). The file is copied to the copilot on this computer, kept in `uploads/` under the working directory, and prepared in the background with the code `bass2sheet-copilot add` runs. You can keep working on another song meanwhile. Several files wait their turn: one song is prepared at a time.
+
+- **Whose notes.** Under the drop box you choose the note finder the song starts from: bass2sheet's own, or MuScriptor's where it is set up (`MUSCRIPTOR_NOTES` and `MUSCRIPTOR_GGUF` in the environment `serve` is started from: see [muscriptor.md](muscriptor.md)). Where it is not, the choice is greyed out and says so.
+- **The steps.** While a song is prepared, the page shows the steps in the order they run, each waiting, running or done, with the time it took and what it found: reading the file (how long the music is), isolating the bass (by which model), following the pitch (in how much of the song a pitch was found), finding the notes (how many, from which to which), MuScriptor's notes and the second opinion when MuScriptor is chosen (how many notes only MuScriptor hears), beats and bars (tempo, bars, key), the own-sound check (how many notes the tool doubts), the picture (shown under the steps once it exists), ready. The steps are reported by the preparation itself as it goes, not guessed from the clock. Isolating the bass is the long one the first time: a minute or two on a recent Mac.
+- **If it fails**, the step that failed is marked and the reason stays on the page until you try again or remove the song. Removing a song that never got ready deletes its file and everything made of it. "Cancel" does the same for one that is waiting or running.
+- **What is taken.** Audio files (`.wav .flac .mp3 .m4a .aac .ogg .oga .opus .aif .aiff`) and the video files a song often comes in (`.mp4 .webm .mkv`), for the sound in them; up to 500 MB, from ten seconds to twenty minutes. A file with another ending, one with no sound in it that can be read, or a song that is already there is refused, and nothing of it is kept.
+- **From a link.** Where [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed (`brew install yt-dlp`, or `pip install yt-dlp`), a box beside the drop box takes a YouTube link: the audio is fetched into `uploads/` and then prepared exactly like a file, with "Fetching the audio" as the first step. This is optional. Nothing is installed for you, and where yt-dlp is not found the box is not shown. `BASS2SHEET_DOWNLOADER=/path/to/yt-dlp` names the program where it is not on the PATH; `BASS2SHEET_DOWNLOADER=none` turns links off. It is for audio you have the right to download: your own recordings, music under a licence that allows it, or what the law where you live lets you copy for your own practice. A live stream, a video over twenty minutes or over 500 MB is not fetched, and a playlist link fetches only the one video.
+- **Your recordings.** Add only recordings you have the rights to use. The copilot listens on this computer only (127.0.0.1), unless it is started with `--lan` for the play-along page, and even then it takes changes only from its own pages on this computer; the file goes nowhere else.
+
+Each song is prepared in a process of its own, so the memory the models take is given back when it is done.
+
+## The page of a song
+
+One song at a time, on a timeline that scrolls with the record and fills the browser window. "‹ Songs" at the top left goes back to the songs. Everything can be done with the mouse; the keys are shortcuts. The Help button (or `?`) shows what the colours mean, what the mouse does and the keys.
 
 - **The picture** is the isolated bass: pitch upwards, time to the right. Each dark bar is a steady tone. A note is a stack of bars: the note itself at the bottom and its overtones above it, which on a bass are often stronger than the note. A bar that bends is a slide. The gap between two bars is where one note gives way to the next, and a note played several times usually shows as several bars. (A plain spectrogram cannot show this for a bass: telling the low E from the F beside it takes most of a second of sound, which smears every note over its neighbours. Here each partial is located exactly from a tenth of a second.) The thin red line is the pitch the tracker followed. Faint vertical lines are the bars as the tool counts them; they are not settled at this stage and are only there to find your way.
 - **The notes** are boxes on the picture, on the row of their pitch. Green is as the tool heard it, amber is a note the tool itself doubts (it does not sound like the song's other notes of that pitch), blue is one you have changed or added. A dashed outline shows where the tool had a note you moved to another pitch.
@@ -76,6 +106,12 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 "Make the sheet" writes the PDF, the MusicXML and a MIDI file from your notes, with the bars, the rhythm and the tab as the tool writes them (those pieces get their own steps later). The line under the title says how much of the song you have worked through.
 
+The score then opens in a panel over the song's page: its pages one under the other, as MuseScore draws them, with buttons to download the PDF, the MusicXML and the MIDI file, and "Make it again" after more fixes. "Close", Esc or a click beside the panel goes back to the notes, which are as you left them. The same view has an address of its own, `/score#SONG_ID`.
+
+**Versions.** Every time the score is made it is kept, not written over: the panel has a list of the versions, each with when it was made, how many fixes it has and how much of the song was checked by ear. Choose one to see it as it was and to download its files; "Make it again" adds a new one on top. A score made again with no note changed since is the version it was. The files of the latest are also where they always were (`sheet/bass.pdf` and so on).
+
+Drawing the pages needs [MuseScore 4](https://musescore.org) on the computer. Without it the MusicXML and the MIDI file are still written, and the panel says so and offers them.
+
 ## What the tool learns
 
 `report` compares the tool's version with yours: wrong pitch, wrong octave, extra note, missed note, two notes written as one, one note written as two, a start or an end moved. Notes you left alone in what you have worked through count as right. That is ground truth on your own songs, which no dataset has.
@@ -114,13 +150,15 @@ The score is the one "Make the sheet" writes, from your notes as they stand when
 ```
 scores/
   songs.json            the songs and the settings each was heard with
+  uploads/              the files added on the page, as they came, and the audio fetched from links
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/repeats.npz    which bars sound alike, measured once from the bass track
-  <song>/sheet/         the score made from your notes
+  <song>/sheet/         the score made from your notes: PDF, MusicXML, MIDI and a picture of each page
+  <song>/sheet/v1, v2…  every version of the score as it was made, each with its own files
   <song>/play/          the same score as pictures, a line each, for the play-along page
 ```
 
