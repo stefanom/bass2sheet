@@ -174,6 +174,7 @@ def test_a_song_is_slowed_down_at_the_same_pitch(workdir, monkeypatch, program):
     assert sorted(os.listdir(folder)) == [
         "bass-80.flac",
         "bass.flac",
+        "nobass.flac",
         "record-50.flac",
         "record.flac",
     ]  # nothing left over
