@@ -167,6 +167,26 @@ These scores are 0.01 lower than before slides stopped being written as notes (s
 - **Which of its notes to doubt.** A note is flagged when bass2sheet's finder hears another pitch there, or nothing, or holds that pitch with no pluck to be heard. On RWC that is 11% of the notes, 56% of them wrong (17% of all its notes are), holding 36% of the wrong notes; on BabySlakh 8%, 21% wrong. Where bass2sheet holds a pitch and MuScriptor writes a new pluck that can be heard (11% of the notes on RWC), MuScriptor is right 89% of the time: those are not flagged.
 - **The verdicts are stricter with MuScriptor's notes, and should not be.** The gates' thresholds were set on bass2sheet's own notes. The flag above trips the "notes flagged uncertain" gate on 15 of the 24 RWC songs (6 with bass2sheet's notes), and five warnings make a FAIL: 11 songs fail with a mean F of 0.72, where bass2sheet's own notes fail 6 with a mean of 0.56. The verdict still ranks the songs (PASS 0.96, WARN 0.81, FAIL 0.72), but a FAIL here is as accurate as a WARN there. Not recalibrated yet.
 
+### Re-plucks: the isolated bass against the original recording
+
+`python dev/repluck_eval.py --muscriptor KEEP_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
+
+Separation blurs the attack of a string plucked again on the same pitch, and the original recording still has it. Does listening to the original, at the note's own partials, tell a re-pluck from a held note better? On RWC Popular there are 4,639 notes that repeat the pitch before with no gap, and 9,223 moments inside notes of half a second or more.
+
+| How a re-pluck is told from a held note | Re-plucks found | False ones in held notes |
+|---|---|---|
+| Rise in level of the isolated bass | 14% | 3% |
+| Rise in level of the original, at the note's partials | 19% | 3% |
+| Both must rise | 36% | 3% |
+| bass2sheet's note finder as a whole | 59% | 2.5% |
+| MuScriptor on the isolated bass | 86% | 2.9% |
+| MuScriptor on the original | 83% | 13.6% |
+
+- **The attack is clearer in the original**: a re-pluck raises the level by 8.7 dB there and by 4.8 dB in the isolated bass. But other instruments rise at the same frequencies: a held note shows 3.3 dB in the original and 0.6 dB in the isolated bass. Alone the original is hardly better; asking for a rise in both finds two and a half times as many as the isolated bass alone.
+- **What the blur defeats is a rule on the level, not a trained model.** MuScriptor, reading the isolated bass, writes 86% of the re-plucks. The information is still in the track.
+- On the synthesized BabySlakh there is no blur: the isolated bass's level alone finds 99% at 3% false alarms.
+- Nothing in the tool uses the original this way.
+
 ### Notes played together
 
 `python dev/together_eval.py IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
