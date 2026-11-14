@@ -55,5 +55,6 @@ The copilot keeps a song's notes from when it was added: to see MuScriptor's ver
 ## Limits
 
 - The numbers above are for the medium model on the isolated bass. From the full mix, or told to write only the bass of a full mix, MuScriptor is not usable for this (see [evaluation.md](evaluation.md)).
+- The PASS, WARN and FAIL verdicts are stricter with MuScriptor's notes than with bass2sheet's own: their thresholds were set on the latter. On RWC Popular 11 of 24 songs fail with MuScriptor's notes (mean score 0.72) against 6 with bass2sheet's (0.56), though the notes are better. Read the verdict as a ranking until it is recalibrated.
 - BabySlakh is rendered from a MIDI collection that is part of MuScriptor's training data; RWC Popular was held out by its authors.
 - The reference code (`pip install muscriptor`, with the original weights behind a sign-in on Hugging Face) is supported for measuring only: `dev/muscriptor_runner.py`.

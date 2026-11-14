@@ -154,6 +154,19 @@ These scores are 0.01 lower than before slides stopped being written as notes (s
 - **Speed**, medium model on the M4 Max's GPU: an isolated bass track of four minutes in 10 to 25 s; a full mix in one to four minutes.
 - **What the comparison cannot say.** BabySlakh is rendered from the Lakh MIDI collection, which is part of MuScriptor's synthetic training data; its authors hold RWC out.
 
+**Through the whole pipeline.** `bass2sheet-eval DIR --notes muscriptor` writes MuScriptor's notes in place of bass2sheet's own (`muscriptor.py`, [muscriptor.md](muscriptor.md)): made into one line, starts moved to the plucks, ends taken from bass2sheet's note where both hear it, and bass2sheet's notes kept as the second opinion. From the mix, on the same songs as the tables above:
+
+| | F | F 100 ms | F with note ends | F on note names | Better / worse by 0.02 | PASS / WARN / FAIL |
+|---|---|---|---|---|---|---|
+| BabySlakh, bass2sheet's notes | 0.92 | 0.92 | 0.73 | 0.94 | | 5 / 9 / 2 |
+| BabySlakh, MuScriptor's notes | 0.94 | 0.95 | 0.71 | 0.95 | 5 / 1 | 3 / 11 / 2 |
+| RWC Popular, bass2sheet's notes | 0.71 | 0.77 | 0.45 | 0.74 | | 3 / 15 / 6 |
+| RWC Popular, MuScriptor's notes | 0.79 | 0.84 | 0.54 | 0.83 | 18 / 3 | 4 / 9 / 11 |
+
+- **Note ends.** MuScriptor holds the synthesized notes of BabySlakh too long: with its own ends the score that also asks for the end is 0.45, with bass2sheet's it is 0.71. On RWC the borrowed ends beat both finders' own (0.54 against 0.48 and 0.44), and on the bass played alone too (0.71 against 0.63 and 0.57).
+- **Which of its notes to doubt.** A note is flagged when bass2sheet's finder hears another pitch there, or nothing, or holds that pitch with no pluck to be heard. On RWC that is 11% of the notes, 56% of them wrong (17% of all its notes are), holding 36% of the wrong notes; on BabySlakh 8%, 21% wrong. Where bass2sheet holds a pitch and MuScriptor writes a new pluck that can be heard (11% of the notes on RWC), MuScriptor is right 89% of the time: those are not flagged.
+- **The verdicts are stricter with MuScriptor's notes, and should not be.** The gates' thresholds were set on bass2sheet's own notes. The flag above trips the "notes flagged uncertain" gate on 15 of the 24 RWC songs (6 with bass2sheet's notes), and five warnings make a FAIL: 11 songs fail with a mean F of 0.72, where bass2sheet's own notes fail 6 with a mean of 0.56. The verdict still ranks the songs (PASS 0.96, WARN 0.81, FAIL 0.72), but a FAIL here is as accurate as a WARN there. Not recalibrated yet.
+
 ### Notes played together
 
 `python dev/together_eval.py IDMT_DIR --dataset BABYSLAKH_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS`
