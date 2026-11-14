@@ -30,6 +30,9 @@ SAME = 0.05  # s: one pitch twice within this is one note (it now and then write
 TOGETHER = 0.04  # s: notes that start within this of each other are played together
 HEARD_TOO = 0.1  # s: bass2sheet has the note too if it starts one of that pitch within this
 ALONE = "alone"  # the flag of a note bass2sheet's own finder does not hear
+LOW = (
+    8  # the level around a note's start is read from the audio at an eighth of the rate: its partials are below 1.4 kHz
+)
 
 
 def program():
@@ -143,3 +146,54 @@ def as_notes(raw, own, bass_mono, p):
     for nt in notes:
         nt["flag"] = ALONE if nt["agree"] == 0.0 or (nt["agree"] == 0.5 and not nt["plucked"]) else None
     return notes
+
+
+def rises(notes, bass_mono, mix, within=0.03):
+    """The third witness, measured and not used: how far the level rises around each note's start at the note's
+    own partials, in dB, in the isolated bass and in the original recording. One (bass, original) per note.
+
+    The rise is from the quietest moment of the 100 ms before to the loudest of the 60 ms after, the largest
+    within `within` seconds of the start. A string plucked again raises both; a held note raises neither, and
+    another instrument that comes in on the same pitch raises the original alone, so the smaller of the two is
+    the evidence: it finds 36% of the re-plucks of RWC Popular at 3% false alarms in held notes, against 14% for
+    the isolated bass alone (dev/repluck_eval.py).
+
+    It does not decide which of MuScriptor's notes are flagged. Where MuScriptor has written a note the rise says
+    little more about whether the note is right: taking the flag off the notes the original supports, or putting
+    it on the ones it does not, made the flag worse on RWC Popular at every threshold (dev/witness_eval.py,
+    docs/evaluation.md)."""
+    import librosa
+    from scipy.signal import resample_poly
+
+    n_fft, hop = 256, 32  # at SR / LOW: a 46 ms window every 5.8 ms, 21.5 Hz to the bin
+    step, out = hop * LOW / SR, []
+    specs = [
+        np.abs(
+            librosa.stft(
+                resample_poly(np.asarray(y, dtype=np.float64), 1, LOW).astype(np.float32),
+                n_fft=n_fft,
+                hop_length=hop,
+                window="hann",
+            )
+        )
+        ** 2
+        for y in (bass_mono, mix)
+    ]
+    before, gap, after = int(0.10 / step), int(0.01 / step), int(0.06 / step)
+    for nt in notes:
+        f0, pair = 440 * 2 ** ((nt["pitch"] - 69) / 12), []
+        for spec in specs:
+            level = np.zeros(spec.shape[1])
+            for partial in (1, 2, 3, 4):
+                k = int(round(partial * f0 * n_fft * LOW / SR))
+                if k + 1 < spec.shape[0]:
+                    level += spec[max(1, k - 1) : k + 2].sum(0)
+            best = 0.0
+            for d in np.arange(-within, within + 1e-9, 0.01):
+                i = int(round((nt["start"] + d) / step))
+                was, now = level[max(0, i - before) : max(1, i - gap)], level[max(0, i) : max(0, i) + after + 1]
+                if len(was) and len(now):
+                    best = max(best, 10 * np.log10((now.max() + 1e-12) / (was.min() + 1e-12)))
+            pair.append(float(best))
+        out.append(tuple(pair))
+    return out

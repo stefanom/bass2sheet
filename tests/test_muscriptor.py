@@ -217,3 +217,73 @@ def test_the_copilot_starts_from_its_notes_and_doubts_the_ones_it_alone_hears(so
     own = str(tmp_path / "own")
     copilot.add([mix], own, opts, stems_dirs={mix: stems})
     assert copilot.Desk(own, "mix").public()["finder"] == "own" and "Of the tool's" in copilot.report(own)
+
+
+def _record(bass, seed=0):
+    """The original recording of a bass line: the bass with a held chord above it and a little noise."""
+    t = np.arange(len(bass)) / SR
+    chord = sum(np.sin(2 * np.pi * f * t) for f in (523.3, 659.3, 784.0))
+    noise = np.random.default_rng(seed).standard_normal(len(bass))
+    return (bass + 0.05 * chord + 0.003 * noise).astype(np.float32)
+
+
+def test_a_string_plucked_again_raises_the_level_in_the_bass_and_in_the_original_and_a_held_note_in_neither():
+    # E plucked, plucked again while it rings, then a G that is held
+    bass = _line([(0.5, 2.5, 40), (1.5, 1.5, 40), (3.5, 2.5, 43)], 7.0)
+    claimed = [
+        dict(start=0.5, pitch=40),
+        dict(start=1.5, pitch=40),
+        dict(start=3.5, pitch=43),
+        dict(start=4.5, pitch=43),
+    ]
+    rises = muscriptor.rises(claimed, bass, _record(bass))
+    assert len(rises) == 4 and all(len(r) == 2 for r in rises)
+    for in_bass, in_original in rises[:3]:  # the three plucks
+        assert in_bass > 6 and in_original > 6, rises
+    assert max(rises[3]) < 2, rises  # the note written inside the held G: nothing rises
+    # MuScriptor's starts are up to 20 ms late, and the measure looks that far around them
+    late = muscriptor.rises([dict(n, start=n["start"] + 0.02) for n in claimed], bass, _record(bass))
+    assert all(min(r) > 6 for r in late[:3]) and max(late[3]) < 2, late
+
+
+def test_what_rises_in_one_of_the_two_alone_is_seen_as_such():
+    bass = _line([(0.5, 4.0, 40)], 5.0)  # one held E
+    t = np.arange(len(bass)) / SR
+    held = [dict(start=2.0, pitch=40)]
+    # another instrument comes in on the E an octave up, the note's second partial: only the original rises
+    organ = 0.3 * np.sin(2 * np.pi * 164.8 * t) * (t >= 2.0)
+    in_bass, in_original = muscriptor.rises(held, bass, _record(bass) + organ.astype(np.float32))[0]
+    assert in_bass < 2 and in_original > 6, (in_bass, in_original)
+    # the separation loses the note for a tenth of a second: only the isolated bass rises
+    torn = bass * np.where((t >= 1.9) & (t < 2.0), 0.1, 1.0).astype(np.float32)
+    in_bass, in_original = muscriptor.rises(held, torn, _record(bass))[0]
+    assert in_bass > 6 and in_original < 2, (in_bass, in_original)
+
+
+def test_the_rise_is_measured_at_the_edges_of_the_recording_and_in_silence():
+    bass = _line([(0.0, 1.0, 40), (1.85, 0.1, 45)], 2.0)
+    notes = [
+        dict(start=0.0, pitch=40),
+        dict(start=1.85, pitch=45),
+        dict(start=1.99, pitch=45),
+        dict(start=2.5, pitch=45),
+    ]
+    for mix in (
+        _record(bass),
+        _record(bass)[:SR],
+        np.zeros(3 * SR, np.float32),
+    ):  # the original shorter, longer, silent
+        rises = muscriptor.rises(notes, bass, mix)
+        assert len(rises) == 4 and all(np.isfinite(v) and v >= 0 for r in rises for v in r), rises
+    assert muscriptor.rises(notes, np.zeros(2 * SR, np.float32), np.zeros(2 * SR, np.float32)) == [(0.0, 0.0)] * 4
+    assert muscriptor.rises([], bass, _record(bass)) == []
+
+
+def test_the_flag_is_decided_by_the_two_finders_and_the_original_has_no_say():
+    # Measured (dev/witness_eval.py): the rise in the original does not say which of MuScriptor's notes are wrong
+    # on real records. A note bass2sheet's finder does not hear stays flagged however clearly it is plucked.
+    sound = _line([(0.5, 0.5, 40), (1.0, 0.5, 43), (1.5, 1.0, 45)], 3.0)
+    own = [dict(start=0.5, end=1.0, pitch=40), dict(start=1.0, end=1.5, pitch=42), dict(start=1.5, end=2.5, pitch=45)]
+    notes = muscriptor.as_notes([(0.52, 1.0, 40), (1.02, 1.5, 43), (1.52, 2.5, 45)], own, sound, SegParams())
+    assert [n["flag"] for n in notes] == [None, "alone", None]
+    assert min(muscriptor.rises(notes, sound, _record(sound))[1]) > 6  # plucked, in the bass and in the original

@@ -185,7 +185,29 @@ Separation blurs the attack of a string plucked again on the same pitch, and the
 - **The attack is clearer in the original**: a re-pluck raises the level by 8.7 dB there and by 4.8 dB in the isolated bass. But other instruments rise at the same frequencies: a held note shows 3.3 dB in the original and 0.6 dB in the isolated bass. Alone the original is hardly better; asking for a rise in both finds two and a half times as many as the isolated bass alone.
 - **What the blur defeats is a rule on the level, not a trained model.** MuScriptor, reading the isolated bass, writes 86% of the re-plucks. The information is still in the track.
 - On the synthesized BabySlakh there is no blur: the isolated bass's level alone finds 99% at 3% false alarms.
-- Nothing in the tool uses the original this way.
+- Nothing in the tool uses the original this way. As a third witness for MuScriptor's notes it was tried and not kept: see below.
+
+### Three witnesses: the original recording and the doubt flag
+
+`python dev/witness_eval.py --muscriptor KEEP_DIR --dataset RWC_DIR --annotations RWC_ANNOTATIONS --dataset BABYSLAKH_DIR`
+
+With `--notes muscriptor` a note is flagged on the word of two witnesses, both reading the isolated bass: MuScriptor wrote it and bass2sheet's finder does not hear it. The original recording would be the third: the level must rise at the note's own partials around its start, in the original and in the isolated bass (the "both must rise" of the table above; `muscriptor.rises`). Would it say better which notes to doubt? Every rule was tried on every note MuScriptor writes, 15,858 on RWC Popular and 6,224 on BabySlakh. The notes are the same under all of them, and so are the note scores.
+
+| The flag | RWC Popular: notes flagged | Of them wrong | Wrong notes it holds | BabySlakh: notes flagged | Of them wrong | Wrong notes it holds |
+|---|---|---|---|---|---|---|
+| As it is: the two finders | 10.6% | 55.8% | 35.6% | 7.8% | 20.8% | 22.1% |
+| Taken off where both rise by 6 dB or more | 5.2% | 56.0% | 17.7% | 1.8% | 57.9% | 14.4% |
+| Taken off where both rise by 12 dB or more | 7.8% | 57.8% | 27.3% | 5.8% | 25.9% | 20.4% |
+| Taken off where both rise by 16 dB or more | 9.1% | 57.8% | 31.7% | 7.0% | 22.1% | 21.2% |
+| Also put on where they rise by less than 1 dB | 13.0% | 49.9% | 39.3% | 8.3% | 20.9% | 23.6% |
+| Also put on where they rise by less than 2 dB | 20.0% | 37.6% | 45.5% | 9.3% | 20.0% | 25.4% |
+| Where bass2sheet holds the pitch: a rise under 2 dB in place of "no pluck heard" | 13.0% | 48.0% | 37.8% | 7.8% | 21.1% | 22.5% |
+| Every note bass2sheet lacks, unless both rise by 12 dB | 17.8% | 31.6% | 34.1% | 7.1% | 37.2% | 36.1% |
+
+- **No rule is kept: on the real recordings each one makes the flag worse.** The flagged notes the original supports are wrong as often as the rest: 847 of them rise by 6 dB or more in both, and 55% of those are wrong; of the 234 that rise by 16 dB or more, 43% are. Taking the flag off them gives up wrong notes and gains nothing. And a note that rises in neither is still right three times in four: 393 unflagged notes rise by less than 1 dB, 25% of them wrong, against 56% of the flagged notes.
+- **Why: the rise tells one kind of mistake, and it is not the common one.** A note written where the reference holds a note has no attack: the rise tells it from a right note 78% of the time (median 2.6 dB against 7.5 dB). Those are a quarter of the wrong notes on RWC (a re-pluck that was not played 16%, a note written while another pitch is held 10%). The rest start where something is plucked, and what is wrong is which note: another pitch starts there (39%), the note is an octave away (20%), its start is off by more than a tenth of a second (8%). For those the rise says nothing (51 to 56%). And 1,416 of the 13,234 right notes rise by less than 2 dB, played legato or softly.
+- **MuScriptor has already heard the attack.** The rise finds re-plucks among held notes; MuScriptor writes a note at 3% of the held moments and at 86% of the re-plucks. Once it has written a note, the level adds little: within each group of notes (bass2sheet has it, holds the pitch, hears another, hears nothing) the rise tells right from wrong 56 to 63% of the time on RWC.
+- **On the synthesized BabySlakh the original would sharpen the flag**: taken off where both rise by 6 dB, it falls on 1.8% of the notes and 58% of them are wrong; the 371 notes that lose it are right 91% of the time. There the flag's trouble is another one (bass2sheet's finder and MuScriptor differ by an octave on notes MuScriptor has right), and the isolated bass has clean attacks. A rule had to hold on both sets, and RWC is the one made of recordings.
 
 ### Notes played together
 

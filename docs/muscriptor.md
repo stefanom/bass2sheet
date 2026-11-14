@@ -52,6 +52,8 @@ The copilot keeps a song's notes from when it was added: to see MuScriptor's ver
 
 **Which notes are doubted.** A note of MuScriptor's is flagged when bass2sheet's own finder hears another pitch there, or nothing, or holds that pitch from the note before with no pluck to be heard. A note both finders write is not, and neither is a pitch bass2sheet holds where MuScriptor writes a new pluck and a pluck is heard: on real recordings MuScriptor is right about those nearly nine times in ten. On RWC Popular the flag falls on 11% of the notes; 56% of them are wrong, against 17% of all notes, and they hold 36% of the wrong notes. On the synthesized BabySlakh it is weaker: 8% of the notes, 21% of them wrong. Flagged notes are in parentheses on the sheet and amber in the copilot.
 
+The original recording has no say in the flag. It was tried as a third witness: the level must rise at the note's own partials around its start, in the original and in the isolated bass. Taking the flag off the notes it supports, or putting it on the notes it does not, made the flag worse on RWC Popular at every threshold: the flagged notes it supports are wrong as often as the others (55%), and a note that rises in neither is still right three times in four. The rise tells a re-pluck that was not played, and most wrong notes are another kind: something is plucked there, and the note written is not the one. The table is in [evaluation.md](evaluation.md).
+
 ## Limits
 
 - The numbers above are for the medium model on the isolated bass. From the full mix, or told to write only the bass of a full mix, MuScriptor is not usable for this (see [evaluation.md](evaluation.md)).
