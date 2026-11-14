@@ -192,6 +192,9 @@ def prepare(workdir, song, opts=None, say=None):
     peak = max(float(np.abs(audio.mix).max()), float(np.abs(audio.bass).max()), 1e-9)
     sf.write(os.path.join(folder, "audio", "record.flac"), (0.97 * audio.mix / peak).T, SR, subtype="PCM_16")
     sf.write(os.path.join(folder, "audio", "bass.flac"), 0.97 * mono / peak, SR, subtype="PCM_16")
+    from .playalong import write_backing  # the song without its bass, to play along with
+
+    write_backing(os.path.join(folder, "audio"), audio.rest, 0.97 / peak, mix=audio.mix, bass=audio.bass)
     grid = [round(float(t), 4) for t in heard["grid"]]
     machine = dict(
         code=judge.code_id(),
@@ -257,7 +260,7 @@ def slowed(workdir, song_id, name, percent):
     """The path of a song's record or isolated bass (`name`) at `percent` of its speed and the same pitch. Made
     on first use and kept; it lasts exactly 100 / percent times as long, so a moment of the song is found in it
     by dividing."""
-    if name not in ("record", "bass") or percent not in SPEEDS:
+    if name not in ("record", "bass", "nobass") or percent not in SPEEDS:  # nobass: playalong.py makes it
         raise Bass2SheetError(f"no {name} at {percent}%: the speeds are {', '.join(map(str, SPEEDS))}")
     folder = os.path.join(song_dir(workdir, song_id), "audio")
     src, out = os.path.join(folder, f"{name}.flac"), os.path.join(folder, f"{name}-{percent}.flac")
@@ -1060,6 +1063,12 @@ def main(argv=None):
     a.add_argument("--device", help="mps, cuda or cpu (default: the best available)")
     s = sub.add_parser("serve", help="open the page on this machine")
     s.add_argument("--port", type=int, default=8770)
+    s.add_argument(
+        "--lan",
+        action="store_true",
+        help="listen on the home network too, so a phone can open the play-along page; it prints the address. "
+        "Other machines can listen and read along, never change a score",
+    )
     h = sub.add_parser("sheet", help="write the score of one song from your notes")
     h.add_argument("song", help="the song's id, as `report` lists it")
     h.add_argument("--mscore", help="path to the MuseScore 4 binary")
@@ -1079,7 +1088,7 @@ def main(argv=None):
         elif args.command == "serve":
             from .copilot_server import serve
 
-            serve(args.dir, args.port)
+            serve(args.dir, args.port, args.lan)
         elif args.command == "sheet":
             for name, path in sheet(args.dir, args.song, args.mscore).items():
                 print(f"{name}: {path}")

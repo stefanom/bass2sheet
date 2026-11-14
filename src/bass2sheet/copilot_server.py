@@ -8,7 +8,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import copilot
+from . import copilot, playalong
 from .common import Bass2SheetError
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
@@ -118,7 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
-            if url.path == "/":
+            if url.path == "/play" or url.path.startswith(("/play/", "/api/play/")):  # the play-along page
+                playalong.get(self, url.path, q)
+            elif url.path == "/":
                 with open(PAGE_PATH, "rb") as f:
                     self.send_body(f.read(), "text/html; charset=utf-8")
             elif url.path == "/api/songs":
@@ -152,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if not playalong.from_this_machine(self.client_address[0]):  # with --lan: others may look, not touch
+            return self.send_json(dict(error="a score is changed only from the machine it is on"), 403)
         try:
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
             with self.desks.lock:
@@ -176,20 +180,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(error=str(e) or type(e).__name__), 400)
 
 
-def make_server(workdir, port=8770):
+def make_server(workdir, port=8770, lan=False):
+    """The server, listening on this machine only or, with `lan`, on its network too."""
     workdir = os.path.abspath(workdir)
     if not songs(workdir):
         raise Bass2SheetError(f"no prepared songs in {workdir}: run `bass2sheet-copilot add SONG... --dir {workdir}`")
     handler = type("CopilotHandler", (Handler,), dict(workdir=workdir, desks=Desks(workdir)))
     try:
-        return ThreadingHTTPServer(("127.0.0.1", port), handler)
+        return ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), handler)
     except OSError as e:
         raise Bass2SheetError(f"cannot listen on port {port} ({e}); pick another with --port") from e
 
 
-def serve(workdir, port=8770):
-    server = make_server(workdir, port)
+def serve(workdir, port=8770, lan=False):
+    server = make_server(workdir, port, lan)
     print(f"{len(songs(workdir))} songs. Open http://localhost:{port}", flush=True)
+    print(f"To play along: http://localhost:{port}/play", flush=True)
+    for line in playalong.announce(port) if lan else []:
+        print(line, flush=True)
     print("Stop with Ctrl-C; your fixes are saved as you make them.", flush=True)
     try:
         server.serve_forever()

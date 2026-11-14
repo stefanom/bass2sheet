@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Play along · bass2sheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Play along">
+<meta name="theme-color" content="#1f2328">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="/play/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/play/icon-180.png">
+<link rel="icon" type="image/png" href="/play/icon-180.png">
+<style>
+  :root { --ink: #1f2328; --soft: #9aa4ae; --dark: #1f2328; --key: #30363d; --on: #ffc400; --paper: #fff; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--dark); }
+  body { font: 15px/1.3 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #fff; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+  #root { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  /* the score: white paper, edge to edge; the notch and the home bar stay clear of it */
+  #stage { position: relative; flex: 1; min-height: 0; background: var(--paper); overflow: hidden;
+    margin: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  .line { position: absolute; left: 0; top: 0; transform-origin: 0 0; transition: transform .32s ease, opacity .32s ease; will-change: transform, opacity; }
+  .still .line { transition: none; }
+  .line img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .line .tint { position: absolute; top: 3%; bottom: 3%; background: #0969da; opacity: .13; border-radius: 6px; }
+  .line .hl { position: absolute; top: 4%; bottom: 4%; border-radius: 7px; background: var(--on); mix-blend-mode: multiply; opacity: .8; display: none; }
+  .line .hl.t { opacity: .45; }
+  .line .hl.r { background: #c8d1da; opacity: .5; }
+  .line .ph { position: absolute; top: 2%; bottom: 2%; width: 2px; margin-left: -1px; background: #cf222e; opacity: .75; display: none; }
+  .line.cur .hl, .line.cur .ph { display: block; }
+  .line.next { opacity: .72; }
+  .line.before, .line.after { opacity: 0; pointer-events: none; }
+  #end { position: absolute; left: 0; right: 0; bottom: 8%; text-align: center; color: var(--soft); font-size: 14px; display: none; }
+  #msg { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: 90%; padding: 8px 16px; border-radius: 20px; background: rgba(31,35,40,.92); color: #fff; font-size: 15px; text-align: center; z-index: 5; }
+  #msg.bad { background: #a40e26; }
+  #turn { display: none; position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: #fff8c5; color: #4d2d00; text-align: center; font-size: 14px; z-index: 4; }
+  @media (orientation: portrait) and (max-width: 600px) { #turn { display: block; } }
+  /* where the song is: a strip to tap or drag */
+  #strip { position: relative; height: 18px; background: var(--dark); cursor: pointer; touch-action: none;
+    margin: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  #strip i { position: absolute; top: 7px; height: 4px; border-radius: 2px; }
+  #stripAll { left: 0; right: 0; background: #454c54; }
+  #stripLoop { background: #4493f8; display: none; }
+  #stripDone { left: 0; background: var(--on); }
+  /* the controls: big enough for a thumb that has just left the strings */
+  #bar { display: flex; align-items: center; gap: 8px; padding: 0 max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); background: var(--dark); overflow-x: auto; scrollbar-width: none; }
+  #bar::-webkit-scrollbar { display: none; }
+  button { font: inherit; color: #fff; background: var(--key); border: 0; border-radius: 10px; min-width: 46px; height: 46px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; cursor: pointer; flex: none; }
+  button:active { background: #454c54; }
+  button.on { background: var(--on); color: #1f2328; font-weight: 600; }
+  button svg { width: 22px; height: 22px; fill: currentColor; flex: none; }
+  #play { min-width: 64px; background: var(--on); color: #1f2328; }
+  #play svg { width: 26px; height: 26px; }
+  .set { display: inline-flex; flex: none; border-radius: 10px; overflow: hidden; background: var(--key); }
+  .set button { border-radius: 0; background: none; }
+  .set button.on { background: var(--on); }
+  .set button.step { min-width: 40px; padding: 0; font-size: 22px; }
+  .set span { display: inline-flex; align-items: center; justify-content: center; min-width: 54px; height: 46px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .gap { flex: 1; min-width: 0; }
+  #clock { flex: none; color: var(--soft); font-variant-numeric: tabular-nums; font-size: 14px; text-align: right; line-height: 1.25; }
+  #clock b { color: #fff; font-weight: 600; }
+  .hidden { display: none !important; }
+  /* a narrower phone: the controls give up what matters least, a step at a time (fitBar) */
+  #bar.t1 #clock, #bar.t2 #loop span, #bar.t3 #back, #bar.t3 #on { display: none; }
+  #bar.t2 { gap: 6px; }
+  #bar.t2 button { padding: 0 9px; }
+  #bar.t2 .set button.step { padding: 0; min-width: 36px; }
+  #bar.t2 .set span { min-width: 46px; }
+  /* songs and settings */
+  #menu { position: fixed; inset: 0; z-index: 10; background: var(--dark); overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  #menu header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  #menu header b { font-size: 18px; flex: 1; }
+  #menu .cols { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 600px) { #menu .cols { grid-template-columns: 1fr; } }
+  #songs button { display: flex; width: 100%; height: auto; min-height: 54px; padding: 8px 14px; margin-bottom: 8px; justify-content: space-between; text-align: left; white-space: normal; }
+  #songs button small { color: var(--soft); display: block; }
+  #songs button.on small { color: #4d3b00; }
+  #songs button span:last-child { color: var(--soft); font-variant-numeric: tabular-nums; margin-left: 10px; }
+  #songs button.on span:last-child { color: #4d3b00; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .row label { color: #d1d9e0; }
+  .row small { display: block; color: var(--soft); }
+  video { position: absolute; left: 0; bottom: 0; width: 2px; height: 2px; opacity: .01; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="stage">
+    <div id="lines"></div>
+    <div id="end">the end of the bass line</div>
+    <div id="msg" class="hidden"></div>
+    <div id="turn">Hold the phone sideways: the score needs the width.</div>
+  </div>
+  <div id="strip"><i id="stripAll"></i><i id="stripLoop"></i><i id="stripDone"></i></div>
+  <div id="bar">
+    <button id="open" aria-label="Songs and settings"><svg viewBox="0 0 24 24"><path d="M3 5h18v2.4H3zm0 5.8h18v2.4H3zm0 5.8h18V19H3z"/></svg></button>
+    <button id="back" aria-label="Back a line"><svg viewBox="0 0 24 24"><path d="M5 5h2.4v14H5zm15 0v14L9 12z"/></svg></button>
+    <button id="play" aria-label="Play"><svg viewBox="0 0 24 24"><path id="playIcon" d="M7 4v16l13-8z"/></svg></button>
+    <button id="on" aria-label="On a line"><svg viewBox="0 0 24 24"><path d="M16.6 5H19v14h-2.4zM4 5v14l11-7z"/></svg></button>
+    <button id="loop" aria-label="Loop"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></svg><span>Loop</span></button>
+    <span class="set hidden" id="loopSet"><button class="step" id="loopLess" aria-label="A bar less">−</button><span id="loopBars">4 bars</span><button class="step" id="loopMore" aria-label="A bar more">+</button></span>
+    <span class="gap"></span>
+    <span class="set" id="sounds"><button data-sound="nobass">No bass</button><button data-sound="record">Record</button><button data-sound="bass">Bass</button></span>
+    <span class="set"><button class="step" id="slower" aria-label="Slower">−</button><span id="speed">100%</span><button class="step" id="faster" aria-label="Faster">+</button></span>
+    <span id="clock"><b>0:00</b><br>bar 1</span>
+  </div>
+</div>
+<div id="menu" class="hidden">
+  <header><b>Play along</b><button id="full" class="hidden">Full screen</button><button id="close">Done</button></header>
+  <div class="cols">
+    <div id="songs"></div>
+    <div>
+      <div class="row"><label>Bars on a line, at most<small>fewer bars, wider notes; a busy song gets fewer by itself</small></label>
+        <span class="set" id="barsSet"><button data-bars="2">2</button><button data-bars="3">3</button><button data-bars="4">4</button></span></div>
+      <div class="row"><label>The sound arrives late by<small>a wireless speaker or headphones: raise it until the highlight is on the beat</small></label>
+        <span class="set"><button class="step" id="lateLess">−</button><span id="lateMs">0 ms</span><button class="step" id="lateMore">+</button></span></div>
+      <div class="row"><label>Keep the screen on while it plays</label>
+        <span class="set" id="awakeSet"><button data-awake="1">On</button><button data-awake="0">Off</button></span></div>
+    </div>
+  </div>
+</div>
+<audio id="au" preload="auto"></audio>
+<video id="film" playsinline webkit-playsinline title="Play along" preload="none"></video>
+
+<script id="logic">
+// What the page works out, with no browser needed (tests/playalong_page_logic.js runs it under Node).
+// A line: {start, end, bars: [[number, x0, x1, t]], marks: [[x, w, t, kind]]}, x as a fraction of the line's width.
+(function () {
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  // the lines as the server sends them, each given its start and its bars their place in the whole song
+  function prepare(lines) {
+    const bars = [];
+    lines.forEach((line, i) => {
+      line.index = i; line.start = line.bars[0][3]; line.first = bars.length;
+      for (const [number, x0, x1, t] of line.bars) bars.push({number, x0, x1, t, line: i});
+    });
+    bars.forEach((b, k) => { b.end = k + 1 < bars.length ? bars[k + 1].t : lines[b.line].end; });
+    return bars;
+  }
+
+  // the line being played at t: the last that has started (the first, before the song's first bar)
+  function lineAt(lines, t) {
+    let lo = 0, hi = lines.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lines[mid].start <= t) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+
+  // the bar being played at t, as its place in `bars`
+  function barAt(bars, t) {
+    let lo = 0, hi = bars.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (bars[mid].t <= t) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+
+  // the moments of a line whose place is known: every bar line and every note or rest, in order
+  function anchors(line) {
+    if (line.anchors) return line.anchors;
+    const pts = [];
+    for (const [, x0, , t] of line.bars) pts.push([t, x0]);
+    for (const [x, , t] of line.marks) pts.push([t, x]);
+    pts.push([line.end, line.bars[line.bars.length - 1][2]]);
+    pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const out = [];
+    for (const p of pts) {  // a bar line and the rest or note on it share a moment: the playhead takes the latter
+      if (out.length && p[0] - out[out.length - 1][0] < 1e-6) out[out.length - 1] = p;
+      else if (!out.length || p[1] >= out[out.length - 1][1]) out.push(p);
+    }
+    return (line.anchors = out);
+  }
+
+  // where the playhead is across a line at t: between two anchors it moves evenly
+  function xAt(line, t) {
+    const a = anchors(line);
+    if (t <= a[0][0]) return a[0][1];
+    for (let i = 1; i < a.length; i++) {
+      if (t < a[i][0]) return a[i - 1][1] + (a[i][1] - a[i - 1][1]) * (t - a[i - 1][0]) / (a[i][0] - a[i - 1][0]);
+    }
+    return a[a.length - 1][1];
+  }
+
+  // the note or rest being played at t in a line: its place in line.marks, or -1 before the first
+  function markAt(line, t) {
+    let k = -1;
+    for (let i = 0; i < line.marks.length && line.marks[i][2] <= t + 1e-6; i++) k = i;
+    return k;
+  }
+
+  // the box drawn on the note being played: from just before it to just before the next one (or the line's end)
+  function boxOf(line, k) {
+    const m = line.marks[k], pad = 0.006;
+    const next = k + 1 < line.marks.length ? line.marks[k + 1][0] : line.bars[line.bars.length - 1][2] + pad;
+    const left = Math.max(0, m[0] - pad);
+    return {left, width: Math.max(m[1] + 2 * pad, next - pad - left), kind: m[3]};
+  }
+
+  // the bar under a touch at fraction x of a line: its place in line.bars
+  function barUnder(line, x) {
+    let k = 0;
+    line.bars.forEach((b, i) => { if (x >= b[1]) k = i; });
+    return k;
+  }
+
+  // how large the two lines are drawn in a w x h space, the picture being pw x ph: the current one as large as
+  // fits with at least `share` of the height left for it, the next one in what remains, never larger
+  function fit(w, h, pw, ph, gap) {
+    const r = pw / ph, share = 0.58;
+    let ch = Math.min(w / r, h * share);
+    let nh = Math.min(ch, h - ch - gap);
+    if (nh < ch * 0.5) { nh = ch * 0.5; ch = Math.min(ch, h - nh - gap); nh = Math.min(nh, ch); }
+    ch = Math.max(ch, 1); nh = Math.max(nh, 1);
+    return {cw: ch * r, ch, nw: nh * r, nh, scale: nh / ch, left: Math.max(0, (w - ch * r) / 2), top: Math.max(0, (h - ch - nh - gap) / 2)};
+  }
+
+  // a loop of `count` bars from bar `from`: [when it starts, when it ends], kept inside the song
+  function loopSpan(bars, from, count) {
+    const a = clamp(from, 0, bars.length - 1), b = clamp(a + count - 1, a, bars.length - 1);
+    return [Math.max(0, bars[a].t), bars[b].end, a, b];
+  }
+
+  // while a loop is on: where to jump to at t, or null to play on
+  function loopJump(t, span) {
+    return t >= span[1] - 0.015 || t < span[0] - 0.4 ? span[0] : null;
+  }
+
+  // a moment of the song in a file slowed to pct percent, and back
+  const fileTime = (t, pct) => t * 100 / pct;
+  const songTime = (ft, pct) => ft * pct / 100;
+
+  // the playing position, kept smooth. It runs with the clock; when the player reports a new time it leans toward
+  // it (some players report every moment, some a few times a second), or jumps there if it is far; and when the
+  // player has reported nothing new for `stale` seconds, it is waiting for more sound: the position waits too
+  function follow(est, reported, dt, stale) {
+    if (stale > 0.4) return reported;
+    est += dt;
+    if (stale > 0) return est;
+    const off = reported - est;
+    return Math.abs(off) > 0.12 ? reported : est + off * 0.2;
+  }
+
+  const clock = t => { t = Math.max(0, t); return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0"); };
+
+  const api = {prepare, lineAt, barAt, anchors, xAt, markAt, boxOf, barUnder, fit, loopSpan, loopJump, fileTime, songTime, follow, clock, clamp};
+  if (typeof module !== "undefined" && module.exports !== undefined) module.exports = api; else window.L = api;
+})();
+</script>
+
+<script id="app">
+const $ = id => document.getElementById(id);
+const SPEEDS = [50, 60, 70, 80, 90, 100];
+const PLAY = "M7 4v16l13-8z", PAUSE = "M6 4h4.5v16H6zm7.5 0H18v16h-4.5z";
+const au = $("au");
+
+// what the person chose, kept on the phone
+const K = Object.assign({song: null, bars: 3, sound: "nobass", speed: 100, late: 0, awake: true, loopBars: 4, at: {}}, (() => {
+  try { return JSON.parse(localStorage.getItem("playalong") || "{}"); } catch (e) { return {}; }
+})());
+const keep = () => { try { localStorage.setItem("playalong", JSON.stringify(K)); } catch (e) { /* private mode */ } };
+
+let S = null;           // the song: what /api/play/song sent, with .all (its bars in order)
+let pos = 0;            // where the song is, in seconds of the song
+let est = 0, lastFrame = 0;   // the smoothed position in the file being played, and when it was last moved on
+let heard = -1, stale = 0;    // what the player last reported, and for how long it has reported nothing new
+let loaded = null;      // {name, pct, ready} of the sound the player holds; ready once its length is known
+let loading = 0;        // counts the loads, so a slow one that was overtaken does nothing
+let wanted = false;     // the person pressed play: start as soon as the sound is there
+let loop = null;        // {from, count}: the bars being looped
+let shown = {cur: -1, els: new Map(), geo: null};
+
+function say(text, bad) {
+  const m = $("msg");
+  m.textContent = text || ""; m.classList.toggle("hidden", !text); m.classList.toggle("bad", !!bad);
+}
+async function ask(url) {
+  const r = await fetch(url, {cache: "no-store"});
+  const data = await r.json().catch(() => ({error: "the server did not answer"}));
+  if (!r.ok || data.error) throw new Error(data.error || "the server did not answer");
+  return data;
+}
+const sleep = ms => new Promise(done => setTimeout(done, ms));
+const playing = () => !au.paused && !au.ended && !!loaded;
+
+// ---- the song
+
+async function openSong(id, bars) {
+  say("Engraving the score…");
+  try {
+    const d = await ask(`/api/play/song?id=${encodeURIComponent(id)}&bars=${bars}`);
+    au.pause(); wanted = false; loaded = null; loop = null;
+    S = d; S.all = L.prepare(S.lines);
+    K.song = id; K.bars = bars; keep();
+    pos = L.clamp(K.at[id] || 0, 0, Math.max(0, S.length - 1));
+    document.title = `${S.title} · play along`;
+    for (const el of shown.els.values()) el.remove();
+    shown = {cur: -1, els: new Map(), geo: null};
+    say(""); controls(); draw(true);
+    load(K.sound, K.speed);
+  } catch (e) { say(e.message, true); S = null; openMenu(); }
+}
+
+// ---- the sound
+
+async function load(name, pct) {
+  const mine = ++loading, was = playing() || wanted;
+  if (playing()) pos = now();
+  au.pause(); loaded = null; wanted = was;
+  K.sound = name; K.speed = pct; keep(); controls();
+  try {
+    let waited = 0, r;
+    for (;;) {
+      r = await ask(`/api/play/sound?id=${encodeURIComponent(S.id)}&name=${name}&speed=${pct}`);
+      if (mine !== loading) return;
+      if (r.ready) break;
+      say(pct === 100 ? "Taking the bass out of the record…" : `Slowing the song down to ${pct}%: up to a minute, the first time`);
+      await sleep(waited++ < 3 ? 700 : 1500);
+    }
+    say("");
+    // a phone fetches nothing of a sound before a touch has asked it to play: the player is given the sound and
+    // may be told to play at once; where the song stood is found again when the sound's length is known
+    loaded = {name, pct, ready: false};
+    au.onloadedmetadata = () => { if (mine !== loading) return; loaded.ready = true; au.currentTime = est = L.fileTime(pos, pct); draw(); };
+    au.oncanplay = () => {  // some players forget a place given that early
+      if (mine !== loading || !loaded.ready || playing()) return;
+      if (Math.abs(au.currentTime - L.fileTime(pos, pct)) > 0.3) au.currentTime = est = L.fileTime(pos, pct);
+    };
+    au.onerror = () => { if (mine !== loading) return; wanted = false; loaded = null; say("This sound cannot be played here.", true); controls(); };
+    au.src = r.url; au.load();
+    if (wanted) start();
+  } catch (e) { if (mine === loading) { wanted = false; say(e.message, true); controls(); } }
+}
+
+// where the song is now: the player's own time when it plays, smoothed, less what the sound takes to arrive
+function now() {
+  if (!loaded || !loaded.ready) return pos;
+  return L.songTime(playing() ? est : au.currentTime, loaded.pct);
+}
+const shownTime = () => now() - (playing() ? K.late / 1000 * (loaded ? loaded.pct / 100 : 1) : 0);
+
+function seek(t) {
+  pos = L.clamp(t, 0, S ? S.length : 0);
+  if (loaded && loaded.ready) { est = L.fileTime(pos, loaded.pct); au.currentTime = est; }
+  remember(); draw();
+}
+function start() {
+  wanted = true;
+  if (!loaded) return controls();
+  const p = au.play();
+  if (p && p.catch) p.catch(e => { wanted = false; controls(); if (e.name !== "AbortError") say("Tap play again: the phone wants a touch before it makes a sound."); });
+  stayAwake(true);
+}
+function stop() { wanted = false; au.pause(); pos = now(); remember(); stayAwake(false); controls(); }
+const remember = () => { if (S) { K.at[S.id] = Math.round(pos * 10) / 10; keep(); } };
+
+// a phone dims under a page that only plays sound: ask it to stay awake, or, where a page may not ask (plain
+// http), run a small silent film beside the song, which has the same effect
+let lock = null;
+async function stayAwake(on) {
+  on = on && K.awake;
+  if (navigator.wakeLock) {
+    try {
+      if (on && !lock) { lock = await navigator.wakeLock.request("screen"); lock.onrelease = () => { lock = null; }; }
+      if (!on && lock) { const l = lock; lock = null; await l.release(); }
+      return;
+    } catch (e) { /* fall through to the film */ }
+  }
+  const film = $("film");
+  if (on) { if (!film.getAttribute("src")) film.src = "/play/awake.mp4"; const p = film.play(); if (p && p.catch) p.catch(() => {}); }
+  else film.pause();
+}
+$("film").ontimeupdate = () => { const f = $("film"); if (f.currentTime > 20) f.currentTime = 0.5; };  // not `loop`: a looping film lets the phone sleep
+
+// ---- the lines
+
+function lineEl(i) {
+  let el = shown.els.get(i);
+  if (el) return el;
+  el = document.createElement("div"); el.className = "line"; el.dataset.line = i;
+  const img = new Image(); img.draggable = false; img.alt = ""; img.src = S.images + S.lines[i].file;
+  const tint = document.createElement("div"); tint.className = "tint";
+  const hl = document.createElement("div"); hl.className = "hl";
+  const ph = document.createElement("div"); ph.className = "ph";
+  el.append(img, tint, hl, ph);
+  $("lines").append(el); shown.els.set(i, el);
+  return el;
+}
+
+// put the lines in their places: the one being played at the top, the next under it, the one before gone
+// upward and the one after waiting below
+function place(cur, still) {
+  const stage = $("stage"), w = stage.clientWidth, h = stage.clientHeight;
+  const g = L.fit(w - 12, h - 8, S.width, S.height, 6);
+  shown.geo = g;
+  const want = [cur - 1, cur, cur + 1, cur + 2].filter(i => i >= 0 && i < S.lines.length);
+  for (const [i, el] of shown.els) if (!want.includes(i)) { el.remove(); shown.els.delete(i); }
+  if (still) $("lines").classList.add("still");
+  const x = 6 + g.left, y = 4 + g.top;
+  for (const i of want) {
+    const fresh = !shown.els.has(i), el = lineEl(i), role = i < cur ? "before" : i === cur ? "cur" : i === cur + 1 ? "next" : "after";
+    el.style.width = g.cw + "px"; el.style.height = g.ch + "px";
+    const to = role === "cur" ? `translate(${x}px, ${y}px)` : role === "next" ? `translate(${x}px, ${y + g.ch + 6}px) scale(${g.scale})`
+      : role === "before" ? `translate(${x}px, ${y - g.ch}px)` : `translate(${x}px, ${y + g.ch + 6 + g.nh}px) scale(${g.scale})`;
+    if (fresh && !still) {  // a line that comes into view starts from where it waits, not from the corner
+      el.style.transition = "none"; el.className = "line " + (role === "next" ? "after" : role);
+      el.style.transform = role === "next" ? `translate(${x}px, ${y + g.ch + 6 + g.nh}px) scale(${g.scale})` : to;
+      void el.offsetWidth; el.style.transition = "";
+    }
+    el.className = "line " + role; el.style.transform = to;
+  }
+  if (still) { void $("lines").offsetWidth; $("lines").classList.remove("still"); }
+  $("end").style.display = cur + 1 >= S.lines.length ? "block" : "none";
+  shown.cur = cur;
+  tints();
+}
+
+// the bars of the loop, tinted on the lines in view
+function tints() {
+  const span = loop && L.loopSpan(S.all, loop.from, loop.count);
+  for (const [i, el] of shown.els) {
+    const t = el.querySelector(".tint"), mine = span ? S.all.slice(span[2], span[3] + 1).filter(b => b.line === i) : [];
+    t.style.display = mine.length ? "block" : "none";
+    if (mine.length) { t.style.left = mine[0].x0 * 100 + "%"; t.style.width = (mine[mine.length - 1].x1 - mine[0].x0) * 100 + "%"; }
+  }
+  const s = $("stripLoop");
+  s.style.display = span ? "block" : "none";
+  if (span) { s.style.left = span[0] / S.length * 100 + "%"; s.style.width = (span[1] - span[0]) / S.length * 100 + "%"; }
+}
+
+function draw(still) {
+  if (!S) return;
+  const t = shownTime(), cur = L.lineAt(S.lines, t);
+  if (cur !== shown.cur || still) place(cur, still || Math.abs(cur - shown.cur) !== 1 || !playing());
+  const line = S.lines[cur], el = shown.els.get(cur), hl = el.querySelector(".hl"), ph = el.querySelector(".ph");
+  const k = L.markAt(line, t);
+  if (k < 0 || t > line.end) hl.style.visibility = "hidden";
+  else {
+    const box = L.boxOf(line, k);
+    hl.style.visibility = "visible"; hl.className = "hl " + box.kind;
+    hl.style.left = box.left * 100 + "%"; hl.style.width = box.width * 100 + "%";
+  }
+  ph.style.left = L.xAt(line, t) * 100 + "%";
+  $("stripDone").style.width = L.clamp(now() / S.length, 0, 1) * 100 + "%";
+  const bar = S.all[L.barAt(S.all, t)];
+  $("clock").innerHTML = `<b>${L.clock(now())}</b><br>bar ${bar.number}`;
+}
+
+function frame(stamp) {
+  const dt = Math.min(0.5, (stamp - lastFrame) / 1000); lastFrame = stamp;
+  if (S && playing()) {
+    const ct = au.currentTime;
+    stale = ct === heard ? stale + dt : 0; heard = ct;
+    est = L.follow(est, ct, dt, stale);
+    if (loop) {
+      const to = L.loopJump(now(), L.loopSpan(S.all, loop.from, loop.count));
+      if (to !== null) seek(to);
+    }
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---- the controls
+
+function controls() {
+  $("playIcon").setAttribute("d", playing() || wanted ? PAUSE : PLAY);
+  $("play").setAttribute("aria-label", playing() || wanted ? "Pause" : "Play");
+  for (const b of $("sounds").children) b.classList.toggle("on", b.dataset.sound === K.sound);
+  $("speed").textContent = K.speed + "%";
+  $("loop").classList.toggle("on", !!loop);
+  $("loopSet").classList.toggle("hidden", !loop);
+  $("loopBars").textContent = (loop ? loop.count : K.loopBars) + (((loop ? loop.count : K.loopBars) === 1) ? " bar" : " bars");
+  for (const b of $("barsSet").children) b.classList.toggle("on", +b.dataset.bars === K.bars);
+  for (const b of $("awakeSet").children) b.classList.toggle("on", (b.dataset.awake === "1") === K.awake);
+  $("lateMs").textContent = K.late + " ms";
+  fitBar();
+}
+function fitBar() {
+  const bar = $("bar");
+  bar.className = "";
+  for (const tighter of ["t1", "t1 t2", "t1 t2 t3"]) { if (bar.scrollWidth <= bar.clientWidth + 1) break; bar.className = tighter; }
+}
+
+$("play").onclick = () => { if (!S) return; if (playing() || wanted) stop(); else start(); controls(); };
+$("back").onclick = () => {  // to the start of this line; from there, to the line before
+  if (!S) return;
+  const t = now(), i = L.lineAt(S.lines, t), line = S.lines[i];
+  seek(t - line.start > 1.5 || i === 0 ? Math.max(0, line.start) : Math.max(0, S.lines[i - 1].start));
+};
+$("on").onclick = () => { if (!S) return; const i = L.lineAt(S.lines, now()); if (i + 1 < S.lines.length) seek(S.lines[i + 1].start); };
+$("loop").onclick = () => {
+  if (!S) return;
+  loop = loop ? null : {from: L.barAt(S.all, now()), count: K.loopBars};
+  controls(); tints();
+};
+const loopBy = by => { if (!loop) return; loop.count = L.clamp(loop.count + by, 1, 16); K.loopBars = loop.count; keep(); controls(); tints(); };
+$("loopLess").onclick = () => loopBy(-1);
+$("loopMore").onclick = () => loopBy(1);
+$("sounds").onclick = e => { const b = e.target.closest("button"); if (b && S && b.dataset.sound !== K.sound) load(b.dataset.sound, K.speed); };
+const speedBy = by => { const to = SPEEDS[SPEEDS.indexOf(K.speed) + by]; if (S && to) load(K.sound, to); };
+$("slower").onclick = () => speedBy(-1);
+$("faster").onclick = () => speedBy(1);
+
+// a touch on a bar goes there; with a loop on, the loop starts there
+$("lines").addEventListener("click", e => {
+  const el = e.target.closest(".line");
+  if (!S || !el || !(el.classList.contains("cur") || el.classList.contains("next"))) return;
+  const line = S.lines[+el.dataset.line], r = el.getBoundingClientRect();
+  const k = line.first + L.barUnder(line, (e.clientX - r.left) / r.width);
+  if (loop) { loop.from = k; tints(); }
+  seek(Math.max(0, S.all[k].t));
+});
+
+// the strip: touch or drag to go anywhere in the song
+(() => {
+  const strip = $("strip");
+  let held = false;
+  const go = e => { const r = strip.getBoundingClientRect(); if (S) seek(L.clamp((e.clientX - r.left) / r.width, 0, 1) * S.length); };
+  strip.addEventListener("pointerdown", e => { held = true; strip.setPointerCapture(e.pointerId); go(e); });
+  strip.addEventListener("pointermove", e => { if (held) go(e); });
+  strip.addEventListener("pointerup", () => { held = false; });
+  strip.addEventListener("pointercancel", () => { held = false; });
+})();
+
+au.onplay = au.onpause = controls;
+au.onplaying = () => { est = au.currentTime; stale = 0; controls(); };
+au.onended = () => { wanted = false; stayAwake(false); seek(0); controls(); };
+au.onseeked = () => { if (!playing()) draw(); };
+
+// ---- songs and settings
+
+async function openMenu() {
+  $("menu").classList.remove("hidden");
+  controls();
+  try {
+    const list = await ask("/api/play/songs"), box = $("songs");
+    box.textContent = "";
+    for (const s of list) {
+      const b = document.createElement("button"), name = document.createElement("span"), len = document.createElement("span");
+      name.textContent = s.title; const by = document.createElement("small"); by.textContent = s.artist; name.append(by);
+      len.textContent = L.clock(s.length);
+      b.append(name, len); b.classList.toggle("on", !!S && S.id === s.id);
+      b.onclick = () => { $("menu").classList.add("hidden"); if (!S || S.id !== s.id) openSong(s.id, K.bars); };
+      box.append(b);
+    }
+    if (!list.length) box.textContent = "No songs are prepared yet.";
+  } catch (e) { say(e.message, true); }
+}
+$("open").onclick = openMenu;
+$("close").onclick = () => { if (S) $("menu").classList.add("hidden"); };
+$("barsSet").onclick = e => { const b = e.target.closest("button"); if (!b) return; K.bars = +b.dataset.bars; keep(); controls(); if (S) { remember(); $("menu").classList.add("hidden"); openSong(S.id, K.bars); } };
+$("awakeSet").onclick = e => { const b = e.target.closest("button"); if (!b) return; K.awake = b.dataset.awake === "1"; keep(); controls(); stayAwake(playing()); };
+const lateBy = by => { K.late = L.clamp(K.late + by, -200, 600); keep(); controls(); };
+$("lateLess").onclick = () => lateBy(-20);
+$("lateMore").onclick = () => lateBy(20);
+if (document.documentElement.requestFullscreen && !navigator.standalone) {
+  $("full").classList.remove("hidden");
+  $("full").onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); };
+}
+
+// a keyboard, when there is one
+document.addEventListener("keydown", e => {
+  if (!S || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === " ") { e.preventDefault(); $("play").click(); }
+  else if (e.key === "ArrowLeft") $("back").click();
+  else if (e.key === "ArrowRight") $("on").click();
+  else if (e.key === "l" || e.key === "L") $("loop").click();
+  else if (e.key === "[") $("slower").click();
+  else if (e.key === "]") $("faster").click();
+});
+
+window.addEventListener("resize", () => { fitBar(); draw(true); });
+window.addEventListener("orientationchange", () => setTimeout(() => draw(true), 300));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && playing()) stayAwake(true); });
+window.addEventListener("pagehide", remember);
+
+(async () => {
+  controls();
+  requestAnimationFrame(frame);
+  try {
+    const list = await ask("/api/play/songs");
+    const id = new URLSearchParams(location.search).get("song") || K.song;
+    if (list.some(s => s.id === id)) openSong(id, K.bars);
+    else if (list.length === 1) openSong(list[0].id, K.bars);
+    else openMenu();
+  } catch (e) { say(e.message, true); }
+})();
+</script>
+</body>
+</html>

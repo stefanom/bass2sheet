@@ -70,6 +70,35 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 `report` compares the tool's version with yours: wrong pitch, wrong octave, extra note, missed note, two notes written as one, one note written as two, a start or an end moved. Notes you left alone in what you have worked through count as right. That is ground truth on your own songs, which no dataset has.
 
+## Playing along
+
+The sheet is for playing the song yourself, with the record. The play-along page is the sheet made for that: on a phone held sideways, on the music stand or the amp.
+
+```
+bass2sheet-copilot serve --dir scores --lan
+```
+
+prints the address to open on the phone, for example `http://192.168.1.20:8770/play`. The phone has to be on the same Wi-Fi as the computer. On the computer itself the page is at `http://localhost:8770/play`, with or without `--lan`. In Safari, Share > Add to Home Screen makes it an app of its own that opens full screen, without the browser's bars; Chrome on Android offers "Install app" or "Add to Home screen".
+
+- **What you hear** is the record without the bass: you are the bass player. "Record" plays all of it, "Bass" the isolated bass alone, to check a passage against what the record's player does. The speeds are the copilot's: 100 to 50%, at the same pitch. The first time a speed is used for a song it takes up to a minute to prepare, and the page says so while it waits.
+- **What you see** is the score written from your notes, staff and tab, one line at a time. The line being played is large at the top, the next one is under it, a little smaller. When the line ends the next one moves up and the one after it appears: there is never a page to turn, and you can always read ahead.
+- **The note to play is highlighted**, and a thin red line moves through the bar. Both follow the record itself: every bar and every beat is where the song's own beat grid has it, so a band that pushes a chorus or slows into an ending is followed, bar by bar. A rest is highlighted in grey.
+- **The controls** are big enough for a thumb. Play and pause. The arrows go back to the start of the line (again: the line before) and on to the next line. Touch a bar, in either line, to go there. The strip above the controls is the whole song: touch or drag it to go anywhere. "Loop" repeats four bars from the bar being played; `−` and `+` make it one to sixteen bars, and with the loop on, touching a bar starts the loop there. The looped bars are tinted blue. With a keyboard: Space, `←` `→`, `L`, `[` `]`.
+- **Songs and settings** are behind the button at the left: the songs of the working directory; how many bars a line holds at most (2, 3 or 4: fewer bars are wider apart, and a busy song gets fewer by itself where that many do not fit across the line); "the sound arrives late by", for a wireless speaker or headphones, which delay the sound by a tenth of a second or more: raise it until the highlight is on the beat; and whether the screen stays on while the song plays. The page remembers these, and where you stopped in each song, on the phone.
+
+The score is the one "Make the sheet" writes, from your notes as they stand when the page opens the song: fix a note in the copilot, open the song again on the phone, and the line is engraved again. Until every step has its own page, the bars, the rhythm and the tab are the tool's.
+
+**How it is made.** The record without the bass is the sum of the other separated stems, at the level they have in the record, written as `audio/nobass.flac` beside `record.flac` and `bass.flac` when a song is prepared. For a song prepared before this existed it is made the first time it is asked for, from the stems in the cache (a second or two); if they are no longer there, the isolated bass is taken out of the record instead, which leaves a little more of the bass in. The score is engraved by MuseScore with each line on a page of its own, as pictures, together with MuseScore's own account of where it put every measure and every note; the pictures are cut to the lines and kept in `<song>/play/` until your notes change. Each bar and note is then given the time of the sixteenth of the beat grid it is written on. A note the score writes a sixteenth early or late is highlighted where it is written, not where it was played.
+
+**On the home network.** Without `--lan` the server answers only the computer it runs on. With it, any device on the network can open both pages, listen and read along; it cannot change anything. Every fix, every "checked up to here" and "Make the sheet" is refused unless it comes from the computer itself. There is no password: use it on a network you trust, and remember that the page serves your recordings.
+
+**What is not there yet.**
+
+- It has been looked at in a desktop browser at a phone's size, not yet on a phone. Two things can only be found out there: whether the screen stays on (a page opened over plain http cannot ask the phone to stay awake, so the page plays a small silent film beside the song, which keeps most phones lit; if yours dims, set Auto-Lock to Never while you play), and how late the sound is on your speaker.
+- A loop jumps back with a short gap, a tenth of a second or two, while the phone finds its place in the sound.
+- No count-in before a loop or before the song, and no click.
+- The phone needs the computer: nothing is kept on the phone, and a company laptop's firewall may not let the phone in at all.
+
 ## The working directory
 
 ```
@@ -78,10 +107,11 @@ scores/
   <song>/machine.json   what the tool heard: never changed
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
-  <song>/audio/         the record and the isolated bass, for the page, and their slowed versions once used
+  <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need
   <song>/repeats.npz    which bars sound alike, measured once from the bass track
   <song>/sheet/         the score made from your notes
+  <song>/play/          the same score as pictures, a line each, for the play-along page
 ```
 
 The directory holds your recordings. Keep it out of any repository. Preparing a song again after the tool has changed replaces `machine.json` and leaves your notes alone.
