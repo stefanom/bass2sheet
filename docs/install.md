@@ -2,7 +2,7 @@
 
 On a Mac with [Homebrew](https://brew.sh), `./bootstrap` does all of it. This page says what it does, what each piece is for, how to check an install, and how to do it by hand on a Mac or on Linux.
 
-The numbers on this page were measured on 14 November 2026 on an Apple M4 Max MacBook, in a fresh clone with an empty home directory, so that every package and model was downloaded again. The line was fast (the 699 MB model came in 27 seconds); on yours the times follow the download sizes.
+The numbers on this page were measured on 14 November 2026 on an Apple M4 Max MacBook, in a fresh clone with an empty home directory, so that the Python packages and the models were downloaded again. The line was fast (the 699 MB model came in 27 seconds); on yours the times follow the download sizes.
 
 ## What bass2sheet needs
 
@@ -37,7 +37,7 @@ It is safe to run again: each step looks first and does only what is missing. A 
 What it does on a Mac:
 
 1. **Homebrew.** It looks for `brew` on the `PATH` and in the two places Homebrew installs itself. If there is none it prints the command from brew.sh and stops: it does not install Homebrew.
-2. **Homebrew's packages.** `brew bundle install --no-upgrade` on the [Brewfile](../Brewfile): Python 3.12, uv, MuseScore 4, ffmpeg, Rubber Band, yt-dlp and Node.js. What is installed already is left as it is, at the version it has. ffmpeg is skipped where Homebrew already has an `ffmpeg` on the `PATH`, because `ffmpeg-full` provides one too and the two cannot both be linked. On the test machine, which lacked Python 3.12 and uv, this step downloaded 33 MB and took 12 seconds. MuseScore is the large one, a 207 MB download.
+2. **Homebrew's packages.** `brew bundle install --no-upgrade` on the [Brewfile](../Brewfile): Python 3.12, uv, MuseScore 4, ffmpeg, Rubber Band, yt-dlp and Node.js. What is installed already is left as it is, at the version it has. ffmpeg is skipped where Homebrew's `bin` already holds an `ffmpeg`, because `ffmpeg-full` provides one too and the two cannot both be linked. On the test machine, which lacked Python 3.12 and uv, this step downloaded 33 MB and took 12 seconds. MuseScore is the large one, a 207 MB download.
 3. **The Python environment.** `uv sync --locked` creates `.venv` from `uv.lock` with Homebrew's Python 3.12, whatever other Python is on the `PATH`. An environment that is already there keeps the Python it has. 86 packages, 435 MB downloaded, 1.3 GB on disk, 16 seconds. One of them is compiled; the script names the SDK for the compiler (see [Trouble](#trouble)).
 4. **The model files**, 1.1 GB, so that the first song does not wait for them:
 
@@ -50,7 +50,7 @@ What it does on a Mac:
    The pitch model (CREPE, 89 MB) is inside a Python package and needs no download. A model that cannot be downloaded leaves the run "not complete": the script says which, finishes the rest and exits with an error. Run it again later.
 5. **The self-check**, and three commands to try.
 
-The whole first run took 65 seconds on the test machine. The beat model was not among what it downloaded: see [What is not proven](#what-is-not-proven).
+The whole first run took 65 seconds on the test machine, with Homebrew's packages in place. The beat model was not among what it downloaded: see [What is not proven](#what-is-not-proven).
 
 On Linux the script installs no system packages. It lists them, then does steps 3 to 5. It needs uv and a C compiler.
 
@@ -62,7 +62,7 @@ Behind a proxy, set `HTTPS_PROXY` before you run it. Homebrew, uv and the model 
 uv run bass2sheet-doctor
 ```
 
-One line for each thing the tool needs:
+One line for each thing the tool needs. This is the test machine after `./bootstrap --with-basic-pitch`, on the day the beat model could not be had:
 
 ```
 bass2sheet 0.2.0 on macOS 27.2.1 (arm64)
@@ -72,16 +72,17 @@ bass2sheet 0.2.0 on macOS 27.2.1 (arm64)
   ok       ffmpeg                   9.0.2 /opt/homebrew/bin/ffmpeg
   ok       Pitch model              CREPE, 89 MB inside the torchcrepe package
   ok       Separation model         BS-RoFormer SW, 699 MB in ~/.cache/bass2sheet/models
-  ok       Beat model               Beat This!, 81 MB in ~/.cache/torch/hub/checkpoints
+  later    Beat model               Beat This! is not downloaded yet (81 MB). Without it: the first song downloads it. If that fails, `bass2sheet` goes on with its built-in beat tracker; the copilot and the judging page have no other and cannot take a song. Fix: bass2sheet-doctor --fetch-models
   ok       Second separation model  Demucs htdemucs_ft, 336 MB in ~/.cache/huggingface/hub
   ok       MuseScore 4              4.7.6 /opt/homebrew/bin/mscore
   ok       Rubber Band              4.0.0 /opt/homebrew/bin/rubberband
   ok       yt-dlp                   2026.10.26 /opt/homebrew/bin/yt-dlp
-  missing  Basic Pitch              no Python environment of its own found (.venv-bp). Without it: the two quality gates that compare the notes with a second model are skipped. Fix: ./bootstrap --with-basic-pitch
+  ok       Basic Pitch              0.3.0 /private/tmp/rs/boot/clone/.venv-bp/bin/python
   missing  MuScriptor               not set up. Without it: `--notes muscriptor` is refused; bass2sheet's own note finder is not affected. Fix: see docs/muscriptor.md
   ok       Node.js                  26.13.0 /opt/homebrew/bin/node
-  ok       Disk space               140 GB free where the cache is (~/.cache/bass2sheet)
-Ready. 2 optional things are missing.
+  ok       Disk space               132 GB free where the cache is (~/.cache/bass2sheet)
+Not downloaded yet: beat model. To download now: bass2sheet-doctor --fetch-models
+Ready. 1 optional thing is missing.
 ```
 
 - `ok`: it is there, with its version and its place.
@@ -129,7 +130,7 @@ uv venv --python 3.12 .venv-bp
 uv pip install --python .venv-bp/bin/python basic-pitch onnxruntime 'setuptools<81'
 ```
 
-About 350 MB are downloaded, `.venv-bp` takes 1.5 GB, and it took 29 seconds. bass2sheet finds `.venv-bp` in the checkout, beside it, or in `~/.cache/bass2sheet`; `BASS2SHEET_BASIC_PITCH_PYTHON` names another interpreter. The first song after this takes about a minute longer, while Basic Pitch starts for the first time.
+About 350 MB are downloaded, `.venv-bp` takes 1.5 GB, and it took 29 seconds. bass2sheet finds `.venv-bp` in the checkout, beside it, or in `~/.cache/bass2sheet`; `BASS2SHEET_BASIC_PITCH_PYTHON` names another interpreter. Its first run on the test machine took 68 seconds for a 34-second song.
 
 ## MuScriptor
 
@@ -156,7 +157,6 @@ To remove bass2sheet: delete the checkout and `~/.cache/bass2sheet`, then the tw
 - **`unknown architecture` when a package is compiled** (`ld: tapi error: malformed file ... libSystem.B.tbd`). The Mac's Xcode is older than its command line tools, and the compiler takes an SDK its linker cannot read. `./bootstrap` avoids it by naming the SDK. By hand: `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`, then `uv sync` again.
 - **A model could not be downloaded.** Run `./bootstrap` or `uv run bass2sheet-doctor --fetch-models` again: what is there is kept. Without the beat model `bass2sheet` goes on with its built-in beat tracker, and the copilot and the judging page cannot take a song. Without the separation model nothing can be separated.
 - **`uv: command not found` in a new terminal.** Homebrew is not on your `PATH`. The script's last lines give the line to add to `~/.zprofile`.
-- **The second run rebuilt nothing but the self-check says a Python package is missing.** Run `uv sync --locked` and read what it says.
 
 ## What is not proven
 

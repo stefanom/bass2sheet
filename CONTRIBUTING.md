@@ -3,12 +3,13 @@
 ## Setup
 
 ```
-uv sync --python 3.12        # creates .venv with the runtime and dev dependencies
-uv run pytest                # unit tests + end-to-end on a synthesized song (under a minute)
+./bootstrap                  # on a Mac: Homebrew's packages, .venv, the models, a self-check (docs/install.md)
+uv sync --python 3.12        # or only this: .venv with the runtime and dev dependencies
+uv run pytest                # unit tests + end-to-end on a synthesized song (3 to 5 minutes)
 uv run ruff check . && uv run ruff format --check .
 ```
 
-Python 3.12 is required: several audio ML dependencies have no wheels for newer versions yet.
+Python 3.12 is required: several audio ML dependencies have no wheels for newer versions yet. So is a C compiler: one dependency is compiled when the environment is created.
 
 ## Tests
 

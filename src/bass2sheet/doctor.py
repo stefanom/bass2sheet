@@ -555,7 +555,7 @@ def report(found, say=print):
     later = [c for c in found if c.status == LATER]
     if later:
         names = ", ".join(c.name.lower() for c in later)
-        say(f"Not downloaded yet: {names}. `bass2sheet-doctor --fetch-models` gets them now.")
+        say(f"Not downloaded yet: {names}. To download now: bass2sheet-doctor --fetch-models")
     if required:
         say(f"Not ready. Required and missing: {', '.join(required)}.")
         return 1
