@@ -632,7 +632,7 @@ def test_a_song_prepared_before_has_its_harmony_heard_when_its_page_is_opened(wo
     now = copilot.read_json(path)
     # the same chords as on preparing the song anew (the notes are kept rounded, so a score may differ a hair)
     place = lambda found: [(c["at"], c["until"], c["root"], c["quality"], c["bass"]) for c in found["chords"]]  # noqa: E731
-    assert place(now["harmony"]) == place(fresh) and now["harmony"]["later"] and desk.machine == now
+    assert place(now["harmony"]) == place(fresh) and desk.machine == now
     assert [c["score"] for c in now["harmony"]["chords"]] == pytest.approx(
         [c["score"] for c in fresh["chords"]], abs=0.03
     )
@@ -640,22 +640,22 @@ def test_a_song_prepared_before_has_its_harmony_heard_when_its_page_is_opened(wo
     assert {k: v for k, v in now.items() if k != "harmony"} == machine
     with open(os.path.join(folder, "notes.json"), "rb") as f:
         assert f.read() == mine
-    # and nothing the person has seen changes by itself: the page still shows the reading the song had
-    assert seen["reading"] == "bars" and seen["readings"] == ["eighths", "bars"] and not seen["fine"]
-    assert [c["name"] for c in seen["chords"] if not c["implied"]] == ["C"] and seen["home"]["name"] == "C major"
-    assert not any(bar["unsure"] for bar in seen["bars"]) and seen["keys"] == []
-    assert copilot.sheet_chords(folder, now) == {
-        2: [(0, dict(root=C, quality="", bass=None, names=machine["chords"][0]["names"]))]
-    }
-
-    # the person asks for the other reading: the chords heard eighth by eighth, in the key read from them
-    copilot_harmony.set_reading(folder, "eighths")
-    finer = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    assert finer["reading"] == "eighths" and finer["fine"] and finer["home"]["name"] == "G major"
-    assert len(finer["chords"]) >= 8 and [k["name"] for k in finer["keys"]] == ["G major"]
+    # the page shows the chords heard eighth by eighth, in the key read from them: nobody agreed to the old ones
+    assert seen["reading"] == "eighths" and seen["readings"] == ["eighths", "bars"] and seen["fine"]
+    assert seen["home"]["name"] == "G major" and len(seen["chords"]) >= 8
+    assert [k["name"] for k in seen["keys"]] == ["G major"]
     assert sorted(copilot.sheet_chords(folder, now))[:3] == [2, 3, 4]  # the score's chords follow the page
+
+    # the chord a bar the song had is its other reading, there to be asked for
+    copilot_harmony.set_reading(folder, "bars")
+    coarse = copilot_harmony.view(copilot.Desk(workdir, "mix"))
+    assert coarse["reading"] == "bars" and not coarse["fine"] and coarse["home"]["name"] == "C major"
+    assert [c["name"] for c in coarse["chords"] if not c["implied"]] == ["C"]
+    assert not any(bar["unsure"] for bar in coarse["bars"]) and coarse["keys"] == []
+    names = machine["chords"][0]["names"]
+    assert copilot.sheet_chords(folder, now) == {2: [(0, dict(root=C, quality="", bass=None, names=names))]}
     copilot_harmony.set_reading(folder, None)
-    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "bars"
+    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "eighths"
     with pytest.raises(Bass2SheetError, match="eighths, bars"):
         copilot_harmony.set_reading(folder, "sixteenths")
 
@@ -681,7 +681,6 @@ def test_a_song_prepared_now_is_shown_with_its_chords_heard_eighth_by_eighth(wor
     desk = copilot.Desk(workdir, "mix")
     seen = copilot_harmony.view(desk)
     assert seen["reading"] == "eighths" and seen["readings"] == ["eighths", "bars"] and seen["fine"]
-    assert "later" not in desk.machine["harmony"]
     copilot_harmony.set_reading(desk.folder, "bars")  # its chord a bar is the coarser view of the same chords
     coarse = copilot_harmony.view(copilot.Desk(workdir, "mix"))
     assert coarse["reading"] == "bars" and {c["quality"] for c in coarse["chords"]} <= {"", "m"}

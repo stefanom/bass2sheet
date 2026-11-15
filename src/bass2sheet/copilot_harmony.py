@@ -416,13 +416,12 @@ def readings(machine):
 
 def reading(folder, machine):
     """Which reading of a song's chords its page shows: the one the person chose for it (harmony.json), else
-    `eighths`. A song that had its chord a bar first, and got the other reading later, stays with the one it
-    had until the person asks for the other: nothing they have seen changes by itself."""
+    the finer one the song has. On songs with a transcription to hold them against, the chords heard eighth by
+    eighth are right more often than the chord a bar, the author's own songs among them (docs/evaluation.md).
+    That a song was shown with its chord a bar before is no reason to keep it: nobody agreed to those chords."""
     have = readings(machine)
     chosen = (copilot.read_json(os.path.join(folder, "harmony.json")) or {}).get("reading")
-    if chosen in have:
-        return chosen
-    return "bars" if (machine.get("harmony") or {}).get("later") or "eighths" not in have else "eighths"
+    return chosen if chosen in have else have[0]
 
 
 def set_reading(folder, which):

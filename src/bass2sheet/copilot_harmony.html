@@ -874,7 +874,7 @@ function paintAll() {
   $("to-score").href = "/score#" + encodeURIComponent(H.id);
   $("reading-row").hidden = H.readings.length < 2;
   $("readings").querySelectorAll("button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.reading === H.reading); b.onclick = () => setReading(b.dataset.reading); });
-  $("reading-note").textContent = H.reading === "bars" ? "The tool also heard this song's chords eighth by eighth: try that reading." : "Two readings of the same song: keep the one that sounds right to you.";
+  $("reading-note").textContent = H.reading === "bars" ? "The coarser reading. Eighth by eighth is right more often on songs that could be checked." : "Two readings of the same song. This one is right more often on songs that could be checked; keep the one that sounds right to you.";
   const doubted = H.bars.filter(b => b.unsure).length, bare = H.bars.filter(b => b.implied).length;
   $("rough").hidden = false;
   $("rough").textContent = H.fine

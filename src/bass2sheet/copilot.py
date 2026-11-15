@@ -1088,8 +1088,8 @@ def report(workdir):
 def hear_harmony(workdir, song_id, cache_dir=None):
     """Give a song its harmony (harmony.find) when it was prepared before the tool heard chords that way: from
     its separated tracks, where they are still kept, and from the notes and the beat grid it already has. It is
-    added to what the song has (machine.json, `harmony`, marked `later`); the key and the chord a bar it had
-    stay as they are, nothing is heard again, and none of the person's work changes. Returns the harmony, or
+    added to what the song has (machine.json, `harmony`); the key and the chord a bar it had stay as they are,
+    as the song's other reading. Nothing is heard again, and none of the person's work changes. Returns the harmony, or
     None when the tracks are not kept any more (the song then has to be added again)."""
     from .common import cache_home, sha1_file
 
@@ -1102,7 +1102,7 @@ def hear_harmony(workdir, song_id, cache_dir=None):
     if not given and not os.path.exists(os.path.join(cache, f"stems-{sha1_file(song['path'])[:16]}-{separator}.npz")):
         return None  # asking for the tracks now would separate the song again: that is for `add` to do
     stems = judge.load_song(song["path"], cache, "cpu", given, separator)[1]
-    machine["harmony"] = dict(harmony.find(stems, machine["notes"], machine["grid"], machine["origin"]), later=True)
+    machine["harmony"] = harmony.find(stems, machine["notes"], machine["grid"], machine["origin"])
     judge._song.cache_clear()  # the separated tracks are large, and a page server lives long
     atomic_write_text(os.path.join(folder, "machine.json"), json.dumps(machine))
     return machine["harmony"]
