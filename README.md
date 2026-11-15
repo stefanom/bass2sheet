@@ -168,7 +168,7 @@ uv run pytest -m browser      # every page in a real browser (uv sync --group br
 BASS2SHEET_FULL_E2E=1 uv run pytest -m full    # the real models: about 1 GB to download the first time
 ```
 
-The default tests run the unit tests and the whole pipeline, the copilot and its pages' servers on a synthesized song, with no model download, no network and no browser: where a model or MuseScore would run, a stand-in does. They run on every push, on Linux and macOS, and the push fails if they reach less of the code than before. [CONTRIBUTING.md](CONTRIBUTING.md) covers the tiers, what each needs and how long it takes, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
+The default tests run the unit tests and the whole pipeline, the copilot and its pages' servers on a synthesized song, with no model download, no network and no browser: where a model or MuseScore would run, a stand-in does. CI runs them on every push to `main` and on every pull request, on Linux and macOS, and fails if they reach less than 95% of the code. [CONTRIBUTING.md](CONTRIBUTING.md) covers the tiers, what each needs and how long it takes, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
 
 ## Credits and licenses
 
