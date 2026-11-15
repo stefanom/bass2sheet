@@ -12,29 +12,43 @@ The transcription is done by machine and is not perfect. That is why every run m
 
 Feed it audio you have the rights to use. bass2sheet downloads nothing from video or streaming sites.
 
-## Install
+## Quick start on a Mac
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. macOS on Apple Silicon is the tested platform; Linux should work and is covered by CI for the tests that need no models.
+With [Homebrew](https://brew.sh) installed:
 
 ```
 git clone <this repository> && cd bass2sheet
-uv sync --python 3.12
-uv run bass2sheet --help
+./bootstrap
+uv run bass2sheet "Artist - Title.mp3"
+uv run bass2sheet-copilot serve --dir scores
 ```
 
-Two optional pieces:
+What you see after each:
+
+1. `./bootstrap` installs what the [Brewfile](Brewfile) lists and you do not have (Python 3.12, uv, MuseScore 4, ffmpeg, Rubber Band, yt-dlp, Node.js), creates the Python environment in `.venv` and downloads the models. That is 435 MB of Python packages and 1.1 GB of models, and Homebrew's packages on top (MuseScore is 207 MB). It ends with a self-check, one line for each thing the tool needs, then `Ready.` and the commands to try. On an M4 MacBook with a fast line the first run took 65 seconds and a second run 6. If a step fails it stops, says which step and what to do, and can be run again.
+2. `uv run bass2sheet SONG` logs its steps and ends with a verdict: PASS, WARN or FAIL. The sheet is `bass.pdf`, in a folder named after the song, beside it. A 34-second song took 39 seconds.
+3. `uv run bass2sheet-copilot serve --dir scores` prints `0 songs. Open http://localhost:8770`. The page there takes a song, shows each step of hearing it, and opens it for you to fix.
+
+`uv run bass2sheet-doctor` repeats the self-check at any time. `./bootstrap --check` says what is missing and changes nothing.
+
+## Install: the details
+
+macOS on Apple Silicon is the tested platform; Linux should work and is covered by CI for the tests that need no models. Python 3.12, [uv](https://docs.astral.sh/uv/) and a C compiler are required: one package is compiled when the environment is created. On Linux `./bootstrap` lists the system packages to install by hand and does the rest. Without the script:
+
+```
+uv sync --locked --python 3.12
+uv run bass2sheet-doctor --fetch-models     # the models now; otherwise the first song downloads them
+```
+
+Optional pieces:
 
 - **MuseScore 4**, for the PDF: `brew install --cask musescore` on macOS, or any install that puts `mscore` on the `PATH`. Without it you still get MusicXML, which opens in any notation program.
-- **Basic Pitch**, for the second-opinion gates. It needs its own environment, because its ONNX/TensorFlow stack does not share one with PyTorch well:
+- **Basic Pitch**, for the second-opinion gates: `./bootstrap --with-basic-pitch`. It gets an environment of its own (`.venv-bp`), because its ONNX/TensorFlow stack does not share one with PyTorch well.
+- **Rubber Band** and **yt-dlp**, for the copilot: a song slowed down with its bass line kept clean, and a song added by a link.
 
-  ```
-  uv venv --python 3.12 .venv-bp
-  uv pip install --python .venv-bp/bin/python basic-pitch onnxruntime 'setuptools<81'
-  ```
+The models take 1.1 GB. The separation model goes into `~/.cache/bass2sheet`, the two others where their libraries keep them. `~/.cache/bass2sheet` also holds each song's stems and pitch tracks, so re-running a song takes seconds.
 
-  bass2sheet finds `.venv-bp` in the checkout, or set `BASS2SHEET_BASIC_PITCH_PYTHON` to another interpreter.
-
-The first run downloads the separation models (about 1 GB) into `~/.cache/bass2sheet`. The same cache holds stems and pitch tracks, so re-running a song takes seconds.
+[docs/install.md](docs/install.md) has every step by hand, where each file goes and how to move it, what to do when a step fails, and what is not tested.
 
 ## Use
 
