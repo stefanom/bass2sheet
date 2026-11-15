@@ -207,6 +207,14 @@ def test_a_step_that_fails_stops_the_run_with_a_sentence(clone, what, sentence, 
         assert clone.called(never) == []
 
 
+def test_a_model_that_cannot_be_downloaded_does_not_hide_that_the_rest_is_ready(clone):
+    clone.set("doctor", 2)  # what is required is there; a download failed
+    code, out, err = clone.run()
+    assert code == 1
+    assert "Not complete" in out and "uv run bass2sheet-copilot serve" in out and "Done in" not in out
+    assert "bootstrap: not complete: a model file could not be downloaded" in err
+
+
 def test_without_a_c_compiler_it_says_how_to_get_one_before_anything_is_built(clone):
     clone.set("xcrun", 1)  # as on a Mac without the Xcode command line tools
     code, out, err = clone.run()

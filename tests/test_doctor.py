@@ -255,15 +255,18 @@ def test_fetch_models_downloads_what_is_not_there_and_only_that(machine, capsys)
     assert "Not downloaded yet" not in out and out.strip().splitlines()[-1] == "Ready."
 
 
-def test_a_download_that_fails_is_told_and_the_exit_code_is_1(machine, capsys):
+def test_a_download_that_fails_is_told_and_the_exit_code_is_2(machine, capsys, monkeypatch):
     machine.there.update(separation=False, second=False)
     machine.broken["separation"] = OSError("no route to host")
-    assert doctor.main(["--fetch-models", "--cache-dir", machine.cache]) == 1
+    assert doctor.main(["--fetch-models", "--cache-dir", machine.cache]) == 2
     out = capsys.readouterr().out
     assert "separation model (SEPARATION): NOT downloaded. OSError: no route to host" in out
     assert machine.fetched == ["second"]  # the others are still fetched
     last = out.strip().splitlines()[-1]
     assert last.startswith("Could not download: separation model (SEPARATION).") and "HTTPS_PROXY" in last
+    # with something required missing as well, the exit code says that
+    monkeypatch.setattr(doctor, "check_crepe", lambda: doctor.Check("Pitch model", doctor.MISSING, required=True))
+    assert doctor.main(["--fetch-models", "--cache-dir", machine.cache]) == 1
 
 
 def test_a_download_that_leaves_no_files_counts_as_failed(machine, monkeypatch):

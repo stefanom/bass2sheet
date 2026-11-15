@@ -1,7 +1,10 @@
 """bass2sheet-doctor: what the tool needs on this machine, each thing found or missing.
 
-    bass2sheet-doctor                  one line for each thing; exit code 0 when what is required is there
+    bass2sheet-doctor                  one line for each thing
     bass2sheet-doctor --fetch-models   first download the model files the default pipeline uses
+
+Exit code 0 when what is required is there, 1 when it is not, and 2 when it is there and a model file that was
+asked for could not be downloaded.
 
 A line gives the version and the place of what was found. For what is missing it says what stops working
 without it and the one command that fixes it. Three kinds of line:
@@ -581,10 +584,10 @@ def main(argv=None):
     code = report(checks(args.cache_dir))
     if failed:
         print(
-            f"Could not download: {', '.join(failed)}. Check the network (behind a proxy, set HTTPS_PROXY) "
-            "and run `bass2sheet-doctor --fetch-models` again."
+            f"Could not download: {', '.join(failed)}. The line marked NOT downloaded above says why. If it is "
+            "the network: behind a proxy, set HTTPS_PROXY. Then run `bass2sheet-doctor --fetch-models` again."
         )
-        return 1
+        return code or 2
     return code
 
 

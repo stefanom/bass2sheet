@@ -34,7 +34,7 @@ EOF
 }
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-check=0 models=1 basic_pitch=0 muscriptor=0
+check=0 models=1 basic_pitch=0 muscriptor=0 undone=0
 current="reading the options" told=0 problems=0 began=$SECONDS
 
 say() { printf '%s\n' "$*"; }
@@ -242,8 +242,14 @@ elif [ "$check" -eq 1 ] || [ "$models" -eq 0 ]; then
     took
 else
     step "Model files, then the self-check (bass2sheet-doctor --fetch-models)"
-    .venv/bin/python -m bass2sheet.doctor --fetch-models || fail "the self-check did not pass: its last lines above say what is missing or could not be downloaded. Run ./bootstrap again once that is fixed; what is downloaded is kept."
+    code=0
+    .venv/bin/python -m bass2sheet.doctor --fetch-models || code=$?
     took
+    if [ "$code" -eq 2 ]; then
+        undone=1 # what is required is there; a model file could not be downloaded
+    elif [ "$code" -ne 0 ]; then
+        fail "the self-check did not pass: its lines marked MISSING say what is required and not there, and how to fix each. Run ./bootstrap again once that is fixed; what is downloaded is kept."
+    fi
 fi
 
 # ---------------------------------------------------------------------------------------------- what now
@@ -261,9 +267,15 @@ if [ "$check" -eq 1 ]; then
     exit 0
 fi
 
-cat <<EOF
-
-Done in $((SECONDS - began)) s. Try it:
+if [ "$undone" -eq 1 ]; then
+    say ""
+    say "Not complete after $((SECONDS - began)) s: a model file could not be downloaded. Everything else is in place,"
+    say "and bass2sheet can be tried meanwhile:"
+else
+    say ""
+    say "Done in $((SECONDS - began)) s. Try it:"
+fi
+cat <<'EOF'
 
   uv run bass2sheet "Artist - Title.mp3"
       one song to a PDF, in a folder beside the song (a 4-minute song takes about 3 minutes)
@@ -285,5 +297,8 @@ Homebrew is not on your PATH, so a new terminal will not find uv. Put it there f
 
 and open a new terminal.
 EOF
+fi
+if [ "$undone" -eq 1 ]; then
+    fail "not complete: a model file could not be downloaded. The line marked NOT downloaded above says which and why, and its line marked later says what happens without it. Run ./bootstrap again to try once more; until then the first song that needs the file tries the download itself."
 fi
 told=1
