@@ -700,6 +700,24 @@ def test_changing_an_earlier_pick_retires_what_was_built_on_it(built):
     assert "- mix: a new note only at a clear re-pluck" in judge.report(workdir)
 
 
+def test_a_step_that_becomes_ready_as_the_page_asks_is_not_lost(built, monkeypatch):
+    """The page stops looking when it is told that nothing is being prepared. So a step that is finished while
+    the answer is put together must still be told as on its way: the next look finds it."""
+    workdir = built["workdir"]
+    worker = judge_server.Worker(workdir)
+    worker.running = True
+    real = judge.live_comparisons
+
+    def finishing(*args, **kw):
+        found = real(*args, **kw)
+        worker.running = False  # the step is ready just after the comparisons were read
+        return found
+
+    monkeypatch.setattr(judge, "live_comparisons", finishing)
+    assert judge_server.state(workdir, worker=worker)["preparing"] is True
+    assert judge_server.state(workdir, worker=worker)["preparing"] is False  # and the look after that sees it done
+
+
 def test_the_server_prepares_the_step_a_pick_opens(built):
     import time
 

@@ -98,6 +98,9 @@ def public(comp, judgment=None, steps=()):
 def state(workdir, want=None, after=None, step=None, worker=None):
     """Progress and the comparison to show: the one asked for; else the first one of `step` that is not judged;
     else the first not judged that follows `after` in the order, wrapping round to the ones skipped earlier."""
+    # Asked before the comparisons are read. A step that becomes ready while they are read is then still told as
+    # being prepared, and the page looks again; asked after, it would be told as neither there nor on its way.
+    preparing = bool(worker and worker.running)
     judged = judge.load_judgments(workdir)
     comps = judge.live_comparisons(workdir, judged=judged)
     ids = [c["id"] for c in comps]
@@ -114,7 +117,7 @@ def state(workdir, want=None, after=None, step=None, worker=None):
         total=len(comps),
         judged=sum(i in judged for i in ids),
         steps=judge.progress(workdir, comps, judged),
-        preparing=bool(worker and worker.running),
+        preparing=preparing,
         error=worker.error if worker else None,
         comparison=public(comp, judged.get(comp["id"]), steps) if comp else None,
         previous=ids[k - 1] if k > 0 else None,
