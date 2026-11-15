@@ -95,8 +95,10 @@ def browser():
     except ImportError:
         missing("Playwright is not installed: uv sync --group browser")
     channels = [None if named == "chromium" else named] if named else [None, "chrome", "msedge"]
-    # no GPU: what is drawn is the same on every machine; sound may start without a click having asked for it
-    args = ["--disable-gpu", "--autoplay-policy=no-user-gesture-required"]
+    # no GPU: what is drawn is the same on every machine. No sound device: what is played goes nowhere, at the pace
+    # it would be heard at, so nothing sounds in the room and a machine without a sound card plays just the same.
+    # And sound may start without a click having asked for it.
+    args = ["--disable-gpu", "--disable-audio-output", "--autoplay-policy=no-user-gesture-required"]
     with sync_api.sync_playwright() as playwright:
         found, why = None, []
         for channel in channels:
