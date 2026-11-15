@@ -36,13 +36,13 @@ assert.ok(/^M22\.0,0\.0Q48\.5,-16\.0 75\.0,0\.0$/.test(d), d);
 same(L.bow([0, 0], [40, 0], 22), null);
 assert.ok(L.wedge(-1.5, 1.5, 62, 206, 300, 215).startsWith("M256.2,171.2L154.3,69.3A206,206 0 0 1 445.7,69.3"), L.wedge(-1.5, 1.5, 62, 206, 300, 215));
 
-// the notes of E minor on the neck (E, A, D and G strings), up to the fifth fret
-same(L.neck([4, 7, 11], 4, [28, 33, 38, 43], 5), [
-  { string: 0, fret: 0, degree: "R" }, { string: 0, fret: 3, degree: "b3" },
-  { string: 1, fret: 2, degree: "5" },
-  { string: 2, fret: 2, degree: "R" }, { string: 2, fret: 5, degree: "b3" },
-  { string: 3, fret: 0, degree: "b3" }, { string: 3, fret: 4, degree: "5" },
+// the places a bar is played at, each once, in the order they are first played, with how often
+const played = (string, fret, degree, role) => ({ string, fret, degree, role });
+same(L.shape([played(0, 0, "R", "root"), played(0, 0, "R", "root"), played(1, 2, "5", "fifth"), played(2, 2, "8", "root"), played(1, 2, "5", "fifth"), played(1, 0, "4", "other")]), [
+  { string: 0, fret: 0, degree: "R", role: "root", times: 2 }, { string: 1, fret: 2, degree: "5", role: "fifth", times: 2 },
+  { string: 2, fret: 2, degree: "8", role: "root", times: 1 }, { string: 1, fret: 0, degree: "4", role: "other", times: 1 },
 ]);
+same(L.shape([]), []);
 same([L.fretName(0, 0), L.fretName(1, 2), L.fretName(2, 1), L.fretName(3, 3), L.fretName(3, 7), L.fretName(0, 11), L.fretName(1, 12)], [
   "the open E string", "the 2nd fret of the A string", "the 1st fret of the D string", "the 3rd fret of the G string",
   "the 7th fret of the G string", "the 11th fret of the E string", "the 12th fret of the A string",

@@ -490,7 +490,10 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     assert page.locator("#map .st.cur").count() == 1
     assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
     page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
-    assert page.locator("#neck .tone").count() >= 6 and "The bass plays" in page.inner_text("#lead")
+    # the neck shows what is played and nothing else: this bar's four places, joined, and the note that sounds
+    assert page.locator("#neck .tone").count() == 4 and page.locator("#neck .shape").count() == 1
+    assert sorted(page.locator("#neck .tone text").all_inner_texts()) == ["4", "5", "8", "R"]
+    assert "The bass plays" in page.inner_text("#lead") and "string" in page.inner_text("#lead")
     page.wait_for_function("H.chords[S.chord].name === 'G'", timeout=20000)  # the song moves on, and the page with it
     assert page.inner_text("#here-name") == "G" and float(page.get_attribute("#strip-cursor", "x1")) > 0
     page.click("#play")

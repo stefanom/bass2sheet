@@ -127,7 +127,10 @@ svg text{font-family:var(--sans);fill:var(--text)}
 .fret{stroke:#b9b4a9;stroke-width:1.4}
 .nut{stroke:#55514a;stroke-width:4}
 .inlay{fill:rgba(127,127,127,.22)}
+.ghost{fill:var(--paper);stroke:#b3aea3;stroke-width:1.2}
+.shape{fill:none;stroke:var(--text-2);stroke-width:1.4;opacity:.5;stroke-linejoin:round;stroke-linecap:round}
 .tone circle{stroke-width:1.4;fill:var(--paper)}
+.tone.none circle{stroke:var(--text-2);fill:#f1efeb}
 .tone.rest circle{stroke:var(--rest);fill:color-mix(in srgb,var(--rest) 22%,#fff)}
 .tone.drift circle{stroke:var(--drift);fill:color-mix(in srgb,var(--drift) 22%,#fff)}
 .tone.pull circle{stroke:var(--pull);fill:color-mix(in srgb,var(--pull) 22%,#fff)}
@@ -187,10 +190,10 @@ svg text{font-family:var(--sans);fill:var(--text)}
       <span class="muted small" id="clock">0:00</span>
     </div>
     <div class="kbd">
-      <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: the notes of the chord, and the note that sounds"></svg>
+      <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: where the notes of this bar are played, and the note that sounds"></svg>
       <div class="kside">
         <div class="v-tag" id="where">&nbsp;</div>
-        <p class="small" id="lead">The neck shows the notes of the chord that sounds, on all four strings, and the note the bass plays.</p>
+        <p class="small" id="lead">The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.</p>
       </div>
     </div>
   </div>
@@ -296,16 +299,15 @@ const Harmony = {
     const P = (i, r) => { const a = (i * 30 - 90) * Math.PI / 180; return (cx + r * Math.cos(a)).toFixed(1) + "," + (cy + r * Math.sin(a)).toFixed(1); };
     return `M${P(i0, r0)}L${P(i0, r1)}A${r1},${r1} 0 0 1 ${P(i1, r1)}L${P(i1, r0)}A${r0},${r0} 0 0 0 ${P(i0, r0)}Z`;
   },
-  // where a chord's notes are on the neck: every place up to the 12th fret, with what the note is to the chord
-  neck(tones, root, strings, last = 12) {
-    const out = [];
-    strings.forEach((open, string) => {
-      for (let fret = 0; fret <= last; fret++) {
-        const pc = (open + fret) % 12;
-        if (tones.includes(pc)) out.push({ string, fret, degree: Harmony.DEGREES[(pc - root + 12) % 12] });
-      }
-    });
-    return out;
+  // the places on the neck where bass notes are played, each once, in the order they are first played: with
+  // what the note is to its chord, and how often it is played there
+  shape(notes) {
+    const seen = new Map();
+    for (const n of notes) {
+      const key = n.string + ":" + n.fret, had = seen.get(key);
+      if (had) had.times++; else seen.set(key, { string: n.string, fret: n.fret, degree: n.degree, role: n.role, times: 1 });
+    }
+    return [...seen.values()];
   },
   // the profile as a line of steps: each chord holds its distance from rest for as long as it lasts
   steps(chords, X, Y) {
@@ -406,23 +408,36 @@ function paintPath() {
   $("where").textContent = `Part ${p.letter} · ${rounds > 1 ? `round ${round} of ${rounds} · ` : ""}bar ${S.bar + 1}`;
 }
 function paintNeck() {
-  const c = H.chords[S.chord], n = H.bass[S.note];
-  const X = f => (f === 0 ? 24 : 48 + (f - 0.5) * 56), Y = s => 22 + (3 - s) * 26;   // the G string on top, as in tab
+  const c = H.chords[S.chord], n = H.bass[S.note], p = H.parts[S.part];
+  const last = Math.min(24, Math.max(12, ...H.bass.map(b => b.fret))), W = (724 - 48) / last;
+  const X = f => (f === 0 ? 24 : 48 + (f - 0.5) * W), Y = s => 22 + (3 - s) * 26;   // the G string on top, as in tab
   let s = `<line class="nut" x1="48" x2="48" y1="14" y2="108"/>`;
-  for (let f = 1; f <= 12; f++) s += `<line class="fret" x1="${48 + f * 56}" x2="${48 + f * 56}" y1="16" y2="106"/>`;
-  [3, 5, 7, 9].forEach(f => { s += `<circle class="inlay" cx="${X(f)}" cy="61" r="5"/>`; });
-  s += `<circle class="inlay" cx="${X(12)}" cy="35" r="5"/><circle class="inlay" cx="${X(12)}" cy="87" r="5"/>`;
+  for (let f = 1; f <= last; f++) s += `<line class="fret" x1="${(48 + f * W).toFixed(1)}" x2="${(48 + f * W).toFixed(1)}" y1="16" y2="106"/>`;
+  const single = [3, 5, 7, 9, 15, 17, 19, 21].filter(f => f <= last), double = [12, 24].filter(f => f <= last);
+  single.forEach(f => { s += `<circle class="inlay" cx="${X(f).toFixed(1)}" cy="61" r="5"/>`; });
+  double.forEach(f => { s += `<circle class="inlay" cx="${X(f).toFixed(1)}" cy="35" r="5"/><circle class="inlay" cx="${X(f).toFixed(1)}" cy="87" r="5"/>`; });
   [0, 1, 2, 3].forEach(i => { s += `<line class="string" x1="10" x2="724" y1="${Y(i)}" y2="${Y(i)}" stroke-width="${3.4 - i * 0.6}"/><text class="t-sm" x="742" y="${Y(i) + 4}" style="font-size:11px">${L.STRING_NAMES[i]}</text>`; });
-  [3, 5, 7, 9, 12].forEach(f => { s += `<text class="t-sm" x="${X(f)}" y="126">${f}</text>`; });
-  if (c) L.neck(c.tones, c.root, H.strings).forEach(p => {
-    s += `<g class="tone ${c.job}${p.degree === "R" ? " root" : ""}"><circle cx="${X(p.fret)}" cy="${Y(p.string)}" r="10.5"/><text x="${X(p.fret)}" y="${Y(p.string) + 4}">${L.flat(p.degree)}</text></g>`;
+  single.concat(double).forEach(f => { s += `<text class="t-sm" x="${X(f).toFixed(1)}" y="126">${f}</text>`; });
+  // only what is played: faintly, every place this part of the song uses; ringed and joined in the order they
+  // are played, the notes of this bar; filled, the note that sounds
+  const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [], bar = L.shape(inBar);
+  const here = new Set(bar.map(q => q.string + ":" + q.fret));
+  if (p) L.shape(H.bass.filter(b => b.start >= p.start && b.start < p.end)).forEach(q => {
+    if (!here.has(q.string + ":" + q.fret)) s += `<circle class="ghost" cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="6.5"><title>Played ${q.times} time${q.times > 1 ? "s" : ""} in this part</title></circle>`;
   });
-  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret)}" y="${Y(n.string) + 4}">${L.flat((n.degree || "").replace(/[↑↓]/, "")) || "·"}</text></g>`;
+  if (inBar.length > 1) s += `<polyline class="shape" points="${inBar.map(b => X(b.fret).toFixed(1) + "," + Y(b.string)).join(" ")}"/>`;
+  bar.forEach(q => {
+    const tone = q.role && q.role !== "other" && c ? c.job : "none";
+    s += `<g class="tone ${tone}${q.role === "root" ? " root" : ""}"><circle cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="10.5"/><text x="${X(q.fret).toFixed(1)}" y="${Y(q.string) + 4}">${L.flat((q.degree || "·").replace(/[↑↓]/, ""))}</text></g>`;
+  });
+  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret).toFixed(1)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret).toFixed(1)}" y="${Y(n.string) + 4}">${L.flat((n.degree || "").replace(/[↑↓]/, "")) || "·"}</text></g>`;
   $("neck").innerHTML = s;
   const what = { root: "the root", third: "the third", fifth: "the fifth", seventh: "the seventh", other: "a passing note" };
+  const frets = bar.map(q => q.fret), span = frets.length ? (Math.min(...frets) === Math.max(...frets) ? `fret ${frets[0]}` : `frets ${Math.min(...frets)} to ${Math.max(...frets)}`) : "";
   $("lead").textContent = n && c
     ? `The bass plays ${H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯")}, ${what[n.role] || "a note"} of ${L.flat(c.name)}: ${L.fretName(n.string, n.fret)}.`
-    : c ? `${L.flat(c.name)}: its notes on the neck. The darker rings are its root.` : "The neck shows the notes of the chord that sounds, on all four strings, and the note the bass plays.";
+    : bar.length ? `This bar is played on ${span}. Ringed: its notes, joined in the order they are played. Faint: the other places this part uses.`
+    : "The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.";
 }
 
 /* ----- the maps ----- */
@@ -572,7 +587,7 @@ function tick(force) {
   if (S.loop && S.looping && !au.paused && t >= S.looping.end - 0.02) { au.currentTime = S.looping.start; return tick(true); }
   if (part >= 0 && (!S.looping || au.paused || !S.loop)) S.looping = H.parts[part];
   const moved = force || chord !== S.chord || part !== S.part;
-  const barMoved = force || bar !== S.bar || part !== S.part, noteMoved = force || note !== S.note || chord !== S.chord;
+  const barMoved = force || bar !== S.bar || part !== S.part, noteMoved = barMoved || note !== S.note || chord !== S.chord;
   Object.assign(S, { chord, part, note, bar });
   if (moved) { paintHere(); paintMap(); }
   if (barMoved) paintPath();
