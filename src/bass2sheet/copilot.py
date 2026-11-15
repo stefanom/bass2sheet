@@ -150,7 +150,8 @@ def prepare(workdir, song, opts=None, say=None):
     opts, say = opts or {}, say or (lambda text: print(text, flush=True))
     folder = song_dir(workdir, song["id"])
     os.makedirs(os.path.join(folder, "audio"), exist_ok=True)
-    settings = dict(DEFAULTS, **(opts.get("defaults") or {}), **(song.get("settings") or {}))
+    mine = {**(opts.get("defaults") or {}), **(song.get("settings") or {})}
+    settings = dict(DEFAULTS, **mine)
     kw = dict(
         cache_dir=opts.get("cache_dir"),
         device=opts.get("device"),
@@ -158,7 +159,13 @@ def prepare(workdir, song, opts=None, say=None):
         crepe_model=opts.get("crepe_model", "full"),
     )
     say(f"{song['title']}: hearing it")
-    heard = judge.hear(song["path"], settings, keep=os.path.join(folder, "heard"), **kw)
+    # The beat model is the default, not a must. Where the person has not asked for a tracker and the model
+    # cannot be had (not downloaded and no network, its server down), the built-in tracker finds the beats.
+    asked = settings if "beat_tracker" in mine else dict(settings, beat_tracker="auto")
+    heard = judge.hear(song["path"], asked, keep=os.path.join(folder, "heard"), **kw)
+    if heard.get("beat_tracker", settings["beat_tracker"]) != settings["beat_tracker"]:
+        settings["beat_tracker"] = heard["beat_tracker"]
+        say(f"{song['title']}: the beat model could not be used; the built-in beat tracker found the beats")
     audio = judge.SongAudio(song["path"], kw["cache_dir"], kw["device"], kw["stems_dir"], settings["separator"])
     mono = np.asarray(audio.bass_mono, dtype=np.float32)
     notes = [

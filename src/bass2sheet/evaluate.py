@@ -776,7 +776,7 @@ def main(argv=None):
         action="store_true",
         help="include tracks with more than one bass stem (two bass parts at once are outside the tool's scope)",
     )
-    ap.add_argument("--cache-dir", default="~/.cache/bass2sheet")
+    ap.add_argument("--cache-dir", help="default: $BASS2SHEET_CACHE, else ~/.cache/bass2sheet")
     ap.add_argument("--baseline", help="JSON written by --write-baseline: exit 3 if the scores regress against it")
     ap.add_argument("--max-drop", type=float, default=0.02, help="allowed fall of a mean score against the baseline")
     ap.add_argument("--write-baseline", help="write this run's per-track scores as a baseline JSON")

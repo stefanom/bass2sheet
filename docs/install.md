@@ -72,7 +72,7 @@ bass2sheet 0.2.0 on macOS 27.2.1 (arm64)
   ok       ffmpeg                   9.0.2 /opt/homebrew/bin/ffmpeg
   ok       Pitch model              CREPE, 89 MB inside the torchcrepe package
   ok       Separation model         BS-RoFormer SW, 699 MB in ~/.cache/bass2sheet/models
-  later    Beat model               Beat This! is not downloaded yet (81 MB). Without it: the first song downloads it. If that fails, `bass2sheet` goes on with its built-in beat tracker; the copilot and the judging page have no other and cannot take a song. Fix: bass2sheet-doctor --fetch-models
+  later    Beat model               Beat This! is not downloaded yet (81 MB). Without it: the first song downloads it. If that fails, `bass2sheet` and the copilot go on with the built-in beat tracker and say so; the judging page, which compares the two, cannot take a song. Fix: bass2sheet-doctor --fetch-models
   ok       Second separation model  Demucs htdemucs_ft, 336 MB in ~/.cache/huggingface/hub
   ok       MuseScore 4              4.7.6 /opt/homebrew/bin/mscore
   ok       Rubber Band              4.0.0 /opt/homebrew/bin/rubberband
@@ -142,8 +142,8 @@ About 350 MB are downloaded, `.venv-bp` takes 1.5 GB, and it took 29 seconds. ba
 |---|---|---|---|
 | The Python environment | 1.3 GB | `.venv` in the checkout | |
 | uv's downloads | 1.3 GB | `~/.cache/uv` | `UV_CACHE_DIR`; `uv cache clean` empties it |
-| The separation model | 699 MB | `~/.cache/bass2sheet/models` | `--cache-dir DIR` on the commands, or `AUDIO_SEPARATOR_MODEL_DIR` for the model alone |
-| Each song's separated tracks and pitch | about 0.45 GB for a 4-minute song | `~/.cache/bass2sheet` | `--cache-dir DIR` on the commands |
+| The separation model | 699 MB | `~/.cache/bass2sheet/models` | `BASS2SHEET_CACHE` for every command, `--cache-dir DIR` for one, or `AUDIO_SEPARATOR_MODEL_DIR` for the model alone |
+| Each song's separated tracks and pitch | about 0.45 GB for a 4-minute song | `~/.cache/bass2sheet` | `BASS2SHEET_CACHE` for every command, `--cache-dir DIR` for one |
 | The beat model | 81 MB | `~/.cache/torch/hub/checkpoints` | `TORCH_HOME` |
 | The second separation model | 336 MB | `~/.cache/huggingface/hub` | `HF_HOME` |
 | Basic Pitch | 1.5 GB | `.venv-bp` in the checkout | `BASS2SHEET_BASIC_PITCH_PYTHON` |
@@ -155,7 +155,7 @@ To remove bass2sheet: delete the checkout and `~/.cache/bass2sheet`, then the tw
 ## Trouble
 
 - **`unknown architecture` when a package is compiled** (`ld: tapi error: malformed file ... libSystem.B.tbd`). The Mac's Xcode is older than its command line tools, and the compiler takes an SDK its linker cannot read. `./bootstrap` avoids it by naming the SDK. By hand: `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`, then `uv sync` again.
-- **A model could not be downloaded.** Run `./bootstrap` or `uv run bass2sheet-doctor --fetch-models` again: what is there is kept. Without the beat model `bass2sheet` goes on with its built-in beat tracker, and the copilot and the judging page cannot take a song. Without the separation model nothing can be separated.
+- **A model could not be downloaded.** Run `./bootstrap` or `uv run bass2sheet-doctor --fetch-models` again: what is there is kept. Without the beat model `bass2sheet` and the copilot go on with the built-in beat tracker (the copilot says so on the song's "Beats and bars" step); the judging page, which compares the two trackers, cannot take a song. Without the separation model nothing can be separated.
 - **`uv: command not found` in a new terminal.** Homebrew is not on your `PATH`. The script's last lines give the line to add to `~/.zprofile`.
 
 ## What is not proven

@@ -376,3 +376,15 @@ def test_the_command_is_installed_with_the_package():
         scripts = tomllib.load(f)["project"]["scripts"]
     assert scripts["bass2sheet-doctor"] == "bass2sheet.doctor:main"
     assert set(doctor.INSTALL["Darwin"]) == set(doctor.INSTALL["Linux"])
+
+
+def test_the_cache_is_where_the_command_says_then_where_the_environment_says(monkeypatch, tmp_path):
+    from bass2sheet import common, pipeline
+
+    monkeypatch.delenv(common.CACHE_ENV, raising=False)
+    assert common.cache_home() == os.path.expanduser("~/.cache/bass2sheet")
+    monkeypatch.setenv(common.CACHE_ENV, str(tmp_path / "elsewhere"))
+    assert common.cache_home() == str(tmp_path / "elsewhere")  # $BASS2SHEET_CACHE moves it for every command
+    assert common.cache_home("~/given") == os.path.expanduser("~/given")  # a command's --cache-dir comes first
+    assert doctor.models_dir() == str(tmp_path / "elsewhere" / "models")
+    assert pipeline.cache_home is common.cache_home

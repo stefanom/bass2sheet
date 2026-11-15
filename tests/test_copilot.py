@@ -43,6 +43,33 @@ def _desk(workdir):
 # ------------------------------------------------------------------------------------------------- preparing
 
 
+def test_without_the_beat_model_the_built_in_tracker_finds_the_beats(
+    taste_song_files, cache_dir, tmp_path, monkeypatch
+):
+    """The beat model is downloaded the first time it is used. A song must still be added when that cannot be
+    done, unless the person asked for the model themselves."""
+    from bass2sheet import pipeline
+    from bass2sheet.common import listening
+
+    def no_model(*args, **kw):
+        raise OSError("HTTP Error 500: the model's server is down")
+
+    monkeypatch.setattr(pipeline, "model_beats", no_model)
+    mix, stems = taste_song_files
+    work, said, told = str(tmp_path / "scores"), [], []
+    opts = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE)  # no tracker asked for
+    with listening(told.append):
+        copilot.add([mix], work, opts, stems_dirs={mix: stems}, say=said.append)
+    assert any("the beat model could not be used; the built-in beat tracker found the beats" in s for s in said)
+    machine = copilot.read_json(os.path.join(work, "mix", "machine.json"))
+    assert machine["settings"]["beat_tracker"] == "librosa" and len(machine["notes"]) > 50  # and the song is there
+    beats = next(t for t in told if t.get("step") == "beats" and t["state"] == "done")
+    assert beats["tracker"] == "librosa" and beats["fallback"] is True and beats["bars"] > 4
+    asked = dict(opts, defaults=dict(beat_tracker="beat_this"))  # asked for by name: no quiet replacement
+    with pytest.raises(Bass2SheetError, match="Beat This! beat tracker failed"):
+        copilot.add([mix], str(tmp_path / "asked"), asked, stems_dirs={mix: stems}, say=said.append)
+
+
 def test_a_prepared_song_has_what_the_page_and_the_copilot_need(prepared):
     workdir, said = prepared
     folder = os.path.join(workdir, "mix")

@@ -10,7 +10,7 @@ bass2sheet "Artist - Title.mp3"
 
 The transcription is done by machine and is not perfect. That is why every run measures itself: twelve quality gates decide a PASS, WARN or FAIL verdict, and the bars where independent checks disagree are marked in the PDF. See [Accuracy](#accuracy) for measured results on public datasets.
 
-Feed it audio you have the rights to use. bass2sheet downloads nothing from video or streaming sites.
+Feed it audio you have the rights to use. The commands read files and download no music. The copilot's first page can also fetch the audio behind a link you paste, with yt-dlp: use that only where you have the right to download it.
 
 ## Quick start on a Mac
 

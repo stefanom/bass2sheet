@@ -7,7 +7,7 @@ from pathlib import Path
 
 import soundfile as sf
 
-from .common import SR, log
+from .common import SR, cache_home, log
 
 ENV_VAR = "BASS2SHEET_BASIC_PITCH_PYTHON"
 
@@ -17,7 +17,7 @@ def find_python(explicit=None):
     `.venv-bp` in the working directory, in the source checkout or beside it, then the cache directory."""
     here = Path(__file__).resolve()
     candidates = [explicit, os.environ.get(ENV_VAR)]
-    for base in (Path.cwd(), here.parents[2], here.parents[3], Path.home() / ".cache" / "bass2sheet"):
+    for base in (Path.cwd(), here.parents[2], here.parents[3], Path(cache_home())):
         candidates.append(str(base / ".venv-bp" / "bin" / "python"))
     return next((c for c in candidates if c and os.path.exists(c)), None)
 

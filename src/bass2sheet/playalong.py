@@ -47,7 +47,7 @@ import numpy as np
 import soundfile as sf
 
 from . import copilot, score
-from .common import DEFAULTS, SR, Bass2SheetError, atomic_write_text, sha1_file
+from .common import DEFAULTS, SR, Bass2SheetError, atomic_write_text, cache_home, sha1_file
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "playalong_page.html")
 SOUNDS = ("nobass", "record", "bass")  # what can be heard: the song without the bass, all of it, the bass alone
@@ -129,7 +129,7 @@ def _kept_stems(workdir, song, n):
         if os.path.isdir(song["stems_dir"]):
             stems = load_stems(song["stems_dir"], n)
     elif song.get("path") and os.path.isfile(song["path"]):
-        cache = os.path.abspath(os.path.expanduser(opts.get("cache_dir") or "~/.cache/bass2sheet"))
+        cache = cache_home(opts.get("cache_dir"))
         kept = os.path.join(cache, f"stems-{sha1_file(song['path'])[:16]}-{settings['separator']}.npz")
         if os.path.exists(kept):
             with np.load(kept) as z:

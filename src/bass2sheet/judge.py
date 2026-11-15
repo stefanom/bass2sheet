@@ -31,7 +31,16 @@ import numpy as np
 import soundfile as sf
 
 from . import ownsound, render, score
-from .common import ALTERNATIVES, DEFAULTS, SR, Bass2SheetError, atomic_write_text, clean_name, sha1_file
+from .common import (
+    ALTERNATIVES,
+    DEFAULTS,
+    SR,
+    Bass2SheetError,
+    atomic_write_text,
+    cache_home,
+    clean_name,
+    sha1_file,
+)
 from .rhythm import simplify
 
 # The pipeline, one step at a time, in the order the tool runs it. Each step sets one of the tool's standing
@@ -185,7 +194,7 @@ def _song(audio_path, cache_dir, stems_dir, separator, device):
 def load_song(audio_path, cache_dir=None, device=None, stems_dir=None, separator="roformer"):
     """(wav, stems, audio id, cache dir, device) for one separator, from the cache where possible. The last few
     songs stay in memory: a step's comparisons ask for the same song several times."""
-    cache_dir = os.path.abspath(os.path.expanduser(cache_dir or "~/.cache/bass2sheet"))
+    cache_dir = cache_home(cache_dir)
     os.makedirs(cache_dir, exist_ok=True)
     if device is None:
         import torch
@@ -199,8 +208,10 @@ def load_song(audio_path, cache_dir=None, device=None, stems_dir=None, separator
 
 def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crepe_model="full", keep=None):
     """The notes heard in a song under `settings` (separator, replucks, together, beat_tracker), on their beat
-    grid, with the key and the chords, as plain data. Heavy the first time; with stems and pitch tracks in the cache it
-    takes seconds. `keep` is a directory where results are kept between runs, by settings and by code_id()."""
+    grid, with the key and the chords, and the beat tracker that was used (with the setting "auto" that is the
+    built-in one where the beat model cannot be had), as plain data. Heavy the first time; with stems and pitch
+    tracks in the cache it takes seconds. `keep` is a directory where results are kept between runs, by settings
+    and by code_id()."""
     from .pipeline import find_notes, seg_params
 
     together = settings.get("together", DEFAULTS["together"])  # versions from before the choice existed
@@ -222,7 +233,7 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
         audio_id,
         settings["beat_tracker"],
     )
-    found = {k: c[k] for k in ("notes", "grid", "origin", "tempo", "key", "chords")}
+    found = {k: c[k] for k in ("notes", "grid", "origin", "tempo", "key", "chords", "beat_tracker")}
     heard = json.loads(json.dumps(found, default=lambda x: x.tolist()))  # numpy values to plain ones
     if path:
         os.makedirs(keep, exist_ok=True)

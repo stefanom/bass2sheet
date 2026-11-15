@@ -16,6 +16,7 @@ from .common import (
     SR,
     Bass2SheetError,
     atomic_write_text,
+    cache_home,
     clean_name,
     clock,
     log,
@@ -130,6 +131,9 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
         chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
         key = estimate_key(chroma)
         found.update(tempo=round(float(tempo), 1), bars=max(0, (len(grid) - int(origin) + 15) // 16), key=key[0])
+        found["tracker"] = tracker
+        if beat_tracker == "auto" and tracker != "beat_this":  # the model could not be had: say so where it shows
+            found["fallback"] = True
     return dict(
         notes=notes,
         tempo=tempo,
@@ -227,7 +231,7 @@ def run(
     t_start = time.time()
     timings, warnings = {}, []
     tick = lambda name, t0: timings.__setitem__(name, timings.get(name, 0) + time.time() - t0)
-    cache_dir = os.path.abspath(os.path.expanduser(cache_dir or "~/.cache/bass2sheet"))
+    cache_dir = cache_home(cache_dir)
     os.makedirs(cache_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
     g_title, g_artist = guess_title(audio_path)

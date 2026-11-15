@@ -184,7 +184,7 @@ const Landing = (() => {
       case "notes": return f.notes !== undefined ? count(f.notes, "note") + (f.low ? `, ${f.low} to ${f.high}` : "") : "";
       case "muscriptor": return f.notes !== undefined ? count(f.notes, "note") : "";
       case "second": return f.alone !== undefined ? `${f.alone} of ${f.notes} only MuScriptor hears` : "";
-      case "beats": return f.tempo ? `${Math.round(f.tempo)} bpm · ${count(f.bars, "bar")} · ${f.key}` : "";
+      case "beats": return f.tempo ? `${Math.round(f.tempo)} bpm · ${count(f.bars, "bar")} · ${f.key}` + (f.fallback ? " · by the built-in beat tracker: the beat model could not be used" : "") : "";
       case "checks": return f.doubted !== undefined ? `${count(f.doubted, "note")} doubted` : "";
       case "picture": return f.columns ? "shown below" : "";
       default: return "";

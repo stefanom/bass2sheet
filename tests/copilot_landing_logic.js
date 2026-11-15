@@ -33,6 +33,8 @@ same(done("pitch", {pitched: 0.416}), "a pitch in 42% of it");
 same([done("notes", {notes: 266, low: "F#1", high: "Ab2"}), done("notes", {notes: 1})], ["266 notes, F#1 to Ab2", "1 note"]);
 same(done("second", {notes: 300, alone: 21}), "21 of 300 only MuScriptor hears");
 same(done("beats", {tempo: 157.9, bars: 167, key: "B minor"}), "158 bpm · 167 bars · B minor");
+same(done("beats", {tempo: 120, bars: 12, key: "A minor", tracker: "librosa", fallback: true}),
+  "120 bpm · 12 bars · A minor · by the built-in beat tracker: the beat model could not be used");
 same([done("checks", {doubted: 38}), done("checks", {doubted: 0})], ["38 notes doubted", "0 notes doubted"]);
 same([done("ready", {}), done("unknown", {a: 1}), done("notes", {})], ["", "", ""]);
 same(L.fact({id: "notes", state: "running", found: {notes: 3}}), "");

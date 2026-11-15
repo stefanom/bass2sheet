@@ -93,7 +93,7 @@ def main(argv=None):
     ap.add_argument("--basic-pitch-python", help="Python interpreter that has basic-pitch and onnxruntime")
     ap.add_argument("--mscore", help="MuseScore 4 executable (default: found on PATH or in /Applications)")
     ap.add_argument(
-        "--cache-dir", default="~/.cache/bass2sheet", help="models, stems and pitch tracks (default: %(default)s)"
+        "--cache-dir", help="models, stems and pitch tracks (default: $BASS2SHEET_CACHE, else ~/.cache/bass2sheet)"
     )
     ap.add_argument("--device", choices=["mps", "cuda", "cpu"], help="for separation (default: best available)")
     ap.add_argument("-v", "--verbose", action="store_true")

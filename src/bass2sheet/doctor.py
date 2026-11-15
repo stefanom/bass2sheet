@@ -31,9 +31,9 @@ import warnings
 from dataclasses import dataclass
 
 from . import __version__
+from .common import CACHE, CACHE_ENV, cache_home
 
 OK, MISSING, LATER = "ok", "missing", "later"
-CACHE = "~/.cache/bass2sheet"  # where the pipeline keeps models, stems and pitch tracks unless told otherwise
 MB = 1000 * 1000
 LOW_DISK = 5 * 1000 * MB  # less free space than this is worth a line
 FFMPEG_VERSION = r"version (\S+)"  # ffmpeg's versions are not always numbers
@@ -113,10 +113,6 @@ class Model:
 
 
 # ------------------------------------------------------------------------------------------------- small helpers
-
-
-def cache_home(cache_dir=None):
-    return os.path.abspath(os.path.expanduser(cache_dir or CACHE))
 
 
 def short(path):
@@ -349,8 +345,8 @@ MODELS = [
         "Beat model",
         "Beat This!",
         81,
-        "the first song downloads it. If that fails, `bass2sheet` goes on with its built-in beat tracker; "
-        "the copilot and the judging page have no other and cannot take a song",
+        "the first song downloads it. If that fails, `bass2sheet` and the copilot go on with the built-in beat "
+        "tracker and say so; the judging page, which compares the two, cannot take a song",
         beat_files,
         fetch_beats,
         torch_checkpoints,
@@ -575,7 +571,7 @@ def main(argv=None):
         help=f"first download the model files the default pipeline uses, about {total / 1000:.1f} GB",
     )
     ap.add_argument(
-        "--cache-dir", default=CACHE, help="bass2sheet's cache, as the other commands take it (default: %(default)s)"
+        "--cache-dir", help=f"bass2sheet's cache, as the other commands take it (default: ${CACHE_ENV}, else {CACHE})"
     )
     ap.add_argument("--version", action="version", version=f"bass2sheet {__version__}")
     args = ap.parse_args(argv)

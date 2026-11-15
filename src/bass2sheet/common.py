@@ -46,6 +46,16 @@ class Bass2SheetError(Exception):
     """A failure the user can act on; the message says what went wrong and what to do."""
 
 
+CACHE = "~/.cache/bass2sheet"
+CACHE_ENV = "BASS2SHEET_CACHE"
+
+
+def cache_home(given=None):
+    """Where the models, the separated tracks and the pitch tracks are kept: `given` (a command's --cache-dir),
+    else $BASS2SHEET_CACHE, else ~/.cache/bass2sheet."""
+    return os.path.abspath(os.path.expanduser(given or os.environ.get(CACHE_ENV) or CACHE))
+
+
 _listener = contextvars.ContextVar("bass2sheet_listener", default=None)
 
 
