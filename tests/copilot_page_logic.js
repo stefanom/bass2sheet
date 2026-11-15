@@ -129,4 +129,19 @@ assert.strictEqual(L.alignX(-400, 200, 50, 1000), 50);         // that bar is ou
 assert.strictEqual(L.alignX(950, 200, 50, 1000), 800);         // or to the right: all of it still in sight
 assert.strictEqual(L.alignX(300, 2000, 50, 1000), 50);         // a bar wider than the window starts at its left
 
+// notes played together: one of them taken out, or moved, by itself
+const duo = {id: "n7", pitch: 42, also: [43]}, trio = {id: "n8", pitch: 40, also: [47, 52]};
+same(L.dropTone(duo, 43), {kind: "also", id: "n7", also: []});                    // the upper one goes: the note stays
+same(L.dropTone(duo, 42), {kind: "pitch", id: "n7", pitch: 43, offer: false});    // the note itself goes: the other one is the note
+same(L.dropTone(trio, 47), {kind: "also", id: "n8", also: [52]});
+same(L.dropTone(trio, 40), {kind: "pitch", id: "n8", pitch: 47, offer: false});   // the lowest that is left
+assert.strictEqual(L.dropTone(duo, 50), null);                                    // not one of them
+assert.strictEqual(L.dropTone({id: "n9", pitch: 42}, 42), null);                   // a note by itself is deleted whole
+same(L.moveTone(duo, 43, 49), {kind: "also", id: "n7", also: [49]});
+same(L.moveTone(trio, 52, 45), {kind: "also", id: "n8", also: [45, 47]});
+same(L.moveTone(trio, 52, 47), {kind: "also", id: "n8", also: [47]});             // laid on another of them: it is gone
+same(L.moveTone(duo, 43, 42), {kind: "also", id: "n7", also: []});                // ... or on the note itself
+assert.strictEqual(L.moveTone(duo, 43, 43), null);
+assert.strictEqual(L.moveTone(duo, 42, 45), null);                                // the note itself moves as any note does
+
 console.log("ok");

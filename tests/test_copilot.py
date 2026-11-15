@@ -292,6 +292,40 @@ def test_a_note_is_joined_with_every_repeat_that_follows(workdir):
     assert sorted(d.notes, key=lambda x: x["start"])[k + 1]["id"] == order[k + 1]["id"]  # it stopped at the next pitch
 
 
+def test_one_of_two_notes_played_together_goes_by_itself(workdir):
+    """What the page sends when one note of a pair is clicked and deleted, or dragged (Logic.dropTone, moveTone)."""
+    d = _desk(workdir)
+    n = dict(d.notes[12])
+    low, fifth = n["pitch"], n["pitch"] + 7
+    d.act(dict(kind="also", id=n["id"], also=[fifth]))  # two notes together, as a finder writes them
+    assert (d.note(n["id"])["pitch"], d.note(n["id"])["also"], d.note(n["id"])["state"]) == (low, [fifth], "fixed")
+    d.act(dict(kind="also", id=n["id"], also=[], how="tone"))  # the upper one is taken out: the note stays
+    assert (d.note(n["id"])["pitch"], d.note(n["id"])["also"]) == (low, [])
+    assert d.note(n["id"])["state"] == "machine"  # ... which is what the tool had: it is the tool's note again
+    assert d.act(dict(kind="undo"))["undone"] == "also" and d.note(n["id"])["also"] == [fifth]
+    r = d.act(dict(kind="pitch", id=n["id"], pitch=fifth, how="tone", offer=False))  # the note itself is taken out
+    assert (d.note(n["id"])["pitch"], d.note(n["id"])["also"]) == (
+        fifth,
+        [],
+    ) and "offer" not in r  # the other is the note
+    assert d.note(n["id"])["was"]["pitch"] == low
+    d.act(dict(kind="undo"))
+    d.act(dict(kind="also", id=n["id"], also=[fifth + 3, low], how="drag"))  # the upper one dragged up: it alone moves
+    assert (d.note(n["id"])["pitch"], d.note(n["id"])["also"]) == (
+        low,
+        [fifth + 3],
+    )  # and the note is never its own second
+    again = _desk(workdir).note(n["id"])
+    assert (again["pitch"], again["also"]) == (low, [fifth + 3])
+    log = [json.loads(line) for line in open(os.path.join(workdir, "mix", "log.jsonl"))]
+    assert [(e["kind"], e.get("how")) for e in log if e["kind"] != "undo"] == [
+        ("also", None),
+        ("also", "tone"),
+        ("pitch", "tone"),
+        ("also", "drag"),
+    ]
+
+
 def test_every_fix_can_be_undone_in_turn(workdir):
     d = _desk(workdir)
     before = json.dumps(sorted(d.notes, key=lambda n: n["id"]))

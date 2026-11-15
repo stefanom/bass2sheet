@@ -135,6 +135,16 @@ bass2sheet-copilot serve --dir tests        # then open http://localhost:8770/te
 
 Your answers are kept in `ratings.json` in the working directory, and every change in `ratings.jsonl`.
 
+## Two notes played together
+
+A note with another played together with it is drawn as two boxes, one above the other, joined at the left; under the timeline it reads `F#2 + G2`. Each of the two can be handled by itself:
+
+- **Click the one you mean.** It gets the bright outline, the other keeps its own.
+- **Delete** has a button for each (`Delete F#2`, `Delete G2`) and one for both. ⌫ takes out the one you clicked. When the lower one goes, the other becomes the note.
+- **Drag the upper one** up or down to change it alone, or use `↑` `↓` after clicking it. Laid on the note itself, it is gone. Dragging the lower one moves the note in pitch and time as always; its time is the time of both.
+
+Two notes are only written together where they are heard. bass2sheet's own finder has strict tests for it ([how-it-works.md](how-it-works.md)), and with `--notes muscriptor` a second note is written only where bass2sheet's own finder wrote the same two: left to itself MuScriptor writes a second note every hundred notes or so, and two or three in a hundred of those are in the answer key ([evaluation.md](evaluation.md)). Two notes a semitone or a tone apart are never written together: that low they grate, and nobody plays them.
+
 ## An answer key from somebody's transcription
 
 For most well-known songs somebody has written the bass line down: a MIDI file of the whole arrangement, a Guitar Pro tab, a score. `reference` takes such a file as an answer key for one of your songs:

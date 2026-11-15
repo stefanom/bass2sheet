@@ -21,6 +21,7 @@
   button.on { background: #ddf4ff; border-color: #54aeff; }
   button.guess { font-variant-numeric: tabular-nums; }
   button.guess small { color: var(--soft); margin-right: 5px; }
+  button.picked { border-color: var(--ink); font-weight: 600; }
   button.sq { min-width: 30px; padding: 4px 0; }
   .bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 13px; padding: 6px 14px; background: #fff; border-bottom: 1px solid var(--line); min-height: 44px; }
   .bar label { white-space: nowrap; }
@@ -124,6 +125,7 @@
     <tr><td>Drag in the ruler</td><td>moves the playhead and lets you hear the spot under it as you go.</td></tr>
     <tr><td>Click</td><td>a note selects it; the buttons under the timeline then act on it. Anywhere else puts the playhead there.</td></tr>
     <tr><td>Shift-click</td><td>another note selects all the notes in between.</td></tr>
+    <tr><td>Two notes played together</td><td>are drawn one above the other, joined at the left. Click the one you mean: "Delete" then has a button for each, and ⌫ takes out only the one you clicked. Drag the upper one up or down to change it alone.</td></tr>
     <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
     <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
     <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
@@ -284,7 +286,23 @@ const Logic = (() => {
     }
     return out;
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX};
+  // Notes played together are one note with the others in `also`. One of them is taken out: the action that
+  // leaves the rest (the lowest that is left is the note), or null when it is not one of them.
+  function dropTone(n, q) {
+    const also = n.also || [];
+    if (!also.length || ![n.pitch, ...also].includes(q)) return null;
+    if (q !== n.pitch) return {kind: "also", id: n.id, also: also.filter(p => p !== q)};
+    return {kind: "pitch", id: n.id, pitch: Math.min(...also), offer: false};
+  }
+  // One of the others goes to another pitch: the action, or null when nothing changes. Laid on a pitch the note
+  // already has, it is gone.
+  function moveTone(n, q, to) {
+    const also = n.also || [];
+    if (!also.includes(q) || to === q) return null;
+    const rest = also.filter(p => p !== q);
+    return {kind: "also", id: n.id, also: to === n.pitch || rest.includes(to) ? rest : [...rest, to].sort((a, b) => a - b)};
+  }
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX, dropTone, moveTone};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
@@ -322,6 +340,7 @@ const STRIP_HEAD = 28, STRIP_GAP = 6;  // a repeat's line of buttons, and the sp
 let dock = null, dockAsk = 0, mapDrag = false;
 let hover = null, scrub = null;  // the note (and which part of it) under the pointer; the playhead being dragged in the ruler
 let sel = null, many = [], guesses = [], guessesFor = null, offer = null, offerNext = 0;
+let tone = null;  // of the selected note, when others are played together with it: the pitch that was clicked
 let selBar = null, selDiff = null;  // a bar chosen in the pattern strip; a difference from a repeat that was clicked
 const barSpan = i => [S.bars[i].time, i + 1 < S.bars.length ? S.bars[i + 1].time : S.length];
 const hueOf = pattern => ([...pattern].reduce((v, c) => v * 26 + c.charCodeAt(0) - 64, 0) * 137.5) % 360;  // many: a run of selected notes, sel among them
@@ -445,7 +464,8 @@ function boxes(n) {  // every pitch of a note, as [pitch, x, y, width]
   let s = d ? d.start : n.start, e = d ? d.end : n.end;
   if (drag && drag.prev && drag.prev.id === n.id && e > drag.start) e = Math.max(s + SHORTEST, drag.start);  // it gives way to the note being dragged
   const x = xOf(s), w = Math.max(3, (e - s) * view.pps - 1);
-  return [d ? d.pitch : n.pitch, ...(n.also || [])].map(q => [q, x, yOf(q), w]);
+  const also = (n.also || []).map(q => d && d.also === q ? d.alsoTo : q);  // one of them, held: where it is now
+  return [d ? d.pitch : n.pitch, ...also].map(q => [q, x, yOf(q), w]);
 }
 function draw() {
   dirty = false;
@@ -503,9 +523,11 @@ function draw() {
       g.strokeRect(xOf(n.was.start) + .5, yOf(n.was.pitch) + 1.5, Math.max(3, (n.was.end - n.was.start) * view.pps - 1), row - 3); g.setLineDash([]);
     }
     const bs = boxes(n);
+    const pickAt = n.id === sel && tone !== null && many.length < 2 ? [n.pitch, ...(n.also || [])].indexOf(tone) : -1;  // of notes played together: the one clicked
     bs.forEach(([q, x, y, w], k) => {
+      const lit = pickAt < 0 ? chosen : k === pickAt;
       g.fillStyle = fill; g.fillRect(x, y + 1, w, row - 2);
-      g.strokeStyle = chosen ? T.chosen : edge; g.lineWidth = chosen ? 2.5 : 1.3;
+      g.strokeStyle = lit ? T.chosen : edge; g.lineWidth = lit ? 2.5 : 1.3;
       g.strokeRect(x + .5, y + 1.5, w, row - 3);
       const on = hover && hover.id === n.id ? hover.mode : null;
       if (!k && (on || (n.id === sel && many.length < 2)) && n.id !== held) {  // its ends, to take hold of
@@ -705,14 +727,21 @@ function refresh() {
     const why = n.doubt ? [n.doubt.alone ? "my own note finder does not hear it" : "", n.doubt.better ? "sounds more like " + name(n.doubt.better) : ""].filter(Boolean).join("; ") : "";
     const doubt = n.state === "machine" && n.doubt ? ` · <span style="color:var(--amber)">doubted${why ? ": " + why : ""}</span>` : "";
     const also = (n.also || []).length ? " + " + n.also.map(name).join(" + ") : "";
+    // notes played together: each can go by itself; the one that was clicked is the one ⌫ takes
+    const tones = [n.pitch, ...(n.also || [])];
+    const deletes = tones.length > 1
+      ? tones.map(q => `<button data-tone="${q}"${q === tone ? ' class="picked"' : ""} title="Take ${name(q)} out and leave the rest${q === tone ? " (⌫)" : ""}">Delete ${name(q)}</button>`).join("")
+        + `<button data-act="delete" title="Delete the whole note${tone === null ? " (⌫)" : ""}">Delete ${tones.length === 2 ? "both" : "all"}</button>`
+      : `<button data-act="delete" title="Delete it (⌫)">Delete</button>`;
     const offers = guessesFor === n.id + ":" + n.pitch
       ? (guesses.length ? guesses.map((p, k) => `<button class="guess" data-guess="${k}"><small>${k + 1}</small>${name(p)}</button>`).join("") : `<span class="soft">no guess</span>`)
       : `<span class="soft">…</span>`;
     panel.innerHTML = `<span><b>${name(n.pitch)}${also}</b> <span class="soft">bar ${bar} · ${Logic.clock(n.start)} · ${(n.end - n.start).toFixed(2)} s${was}${doubt}</span></span>
       <span class="group"><span class="soft">Or is it</span>${offers}</span>
       <span class="group"><button data-act="hear" title="Hear the note again in its place (Enter)">Hear it</button><button data-act="up8" title="An octave up (⇧↑)">▲ Octave</button><button data-act="down8" title="An octave down (⇧↓)">▼ Octave</button>
-      <button data-act="split" title="Make it two notes, at the playhead or in the middle (S)">Split</button><button data-act="join" title="Make it one note with the next (M)">Join with next</button><button data-act="delete" title="Delete it (⌫)">Delete</button></span>`;
+      <button data-act="split" title="Make it two notes, at the playhead or in the middle (S)">Split</button><button data-act="join" title="Make it one note with the next (M)">Join with next</button>${deletes}</span>`;
     panel.querySelectorAll("button.guess").forEach(b => b.onclick = () => takeGuess(+b.dataset.guess));
+    panel.querySelectorAll("button[data-tone]").forEach(b => b.onclick = () => removeTone(+b.dataset.tone));
     panel.querySelectorAll("button[data-act]").forEach(b => b.onclick = () => doAct(b.dataset.act));
   }
   dirty = true;
@@ -744,7 +773,7 @@ function extend(id) {  // from the selected note to this one
   refresh();
 }
 function select(id, quiet) {
-  sel = id; many = []; selBar = null; selDiff = null;
+  sel = id; many = []; selBar = null; selDiff = null; tone = null;
   const n = note(id);
   if (n && !(guessesFor === n.id + ":" + n.pitch)) askGuesses(n);
   if (n && !quiet) {
@@ -793,8 +822,24 @@ async function remove() {
     return;
   }
   const n = note(sel); if (!n) return;
+  if (tone !== null && Logic.dropTone(n, tone)) return removeTone(tone);  // of notes played together: only the one clicked
   const next = Logic.neighbour(S.notes, n.id, 1, n.start);
   if (await act({kind: "delete", id: n.id})) select(next !== n.id ? next : null, true);
+}
+async function removeTone(q) {  // one of the notes played together goes; the rest stay
+  const n = note(sel), action = n && Logic.dropTone(n, q);
+  if (!action) return;
+  stop();
+  const r = await act(Object.assign(action, {how: "tone"}));
+  const m = r && note(n.id);
+  if (m) { tone = null; askGuesses(m); audition(m); refresh(); }
+}
+async function moveTone(n, q, to, how) {  // one of the others, to another pitch
+  const action = Logic.moveTone(n, q, to);
+  if (!action) return;
+  const r = await act(Object.assign(action, {how}));
+  const m = r && note(n.id);
+  if (m) { tone = (m.also || []).includes(to) ? to : null; audition(m); refresh(); }
 }
 async function addHere(t, pitch) {
   const order = Logic.sorted(S.notes), before = order.filter(n => n.start <= t).pop(), after = order.find(n => n.start > t);
@@ -1249,7 +1294,7 @@ function hit(x, y) {  // the note under the pointer and the part of it: its body
     boxes(n).forEach(([q, bx, by, w], k) => {
       if (y < by || y >= by + row) return;
       const z = Logic.zone(x, bx, w, GRAB, k === 0);  // only the note itself has ends to grab, not what sounds with it
-      if (z && (!best || z.off < best.off)) best = {note: n, mode: z.mode, off: z.off};
+      if (z && (!best || z.off < best.off)) best = {note: n, mode: z.mode, off: z.off, tone: q, main: k === 0};
     });
     if (best && !best.off) return best;
   }
@@ -1331,9 +1376,10 @@ function wire() {
     if (e.shiftKey && sel) { extend(h.note.id); return; }
     select(h.note.id, true);
     const n = h.note, [prev, next] = around(n.id);
-    // from: the note as it was; grab: the moment and the row the pointer took hold of
+    if ((n.also || []).length) { tone = h.tone; refresh(); }  // of notes played together: this one
+    // from: the note as it was; grab: the moment and the row the pointer took hold of; also: one of the others, held by itself
     drag = {id: n.id, mode: h.mode, x, y, grabT: tOf(x), grabP: pOf(y), from: {start: n.start, end: n.end, pitch: n.pitch}, prev, next,
-      start: n.start, end: n.end, pitch: n.pitch, moved: false, timed: false};
+      start: n.start, end: n.end, pitch: n.pitch, moved: false, timed: false, also: h.main ? undefined : h.tone, alsoTo: h.tone};
     c.style.cursor = h.mode === "move" ? "move" : "ew-resize";
     e.preventDefault();
   });
@@ -1363,7 +1409,10 @@ function wire() {
     }
     const n = note(drag.id); if (!n) { drag = null; return; }
     const d = drag, f = d.from;
-    if (d.mode === "move") {  // the whole note: up and down in pitch, left and right in time
+    if (d.also !== undefined) {  // one of the others played with it: up and down only, its time is the note's
+      d.alsoTo = Math.max(S.low, Math.min(S.high, d.also + pOf(y) - d.grabP));
+      if (d.alsoTo !== d.also) d.moved = true;
+    } else if (d.mode === "move") {  // the whole note: up and down in pitch, left and right in time
       d.pitch = Math.max(S.low, Math.min(S.high, f.pitch + pOf(y) - d.grabP));
       if (Math.abs(x - d.x) > 5) d.timed = true;  // a little play, so that a change of pitch alone leaves the time alone
       const lag = (x > d.x ? 5 : -5) / view.pps, dt = d.timed ? tOf(x) - d.grabT - lag : 0;
@@ -1390,6 +1439,7 @@ function wire() {
     const d = drag, n = note(d.id), f = d.from;
     const timed = Math.abs(d.start - f.start) > 0.0005 || Math.abs(d.end - f.end) > 0.0005;
     c.style.cursor = d.mode === "move" ? "move" : "ew-resize";
+    if (d.also !== undefined) { drag = null; dirty = true; if (n && d.moved) await moveTone(n, d.also, d.alsoTo, "drag"); return; }
     if (!n || !d.moved || (d.pitch === f.pitch && !timed)) { drag = null; dirty = true; return; }
     if (!timed) await setPitch(n, d.pitch, "drag");
     else {  // moved in time, and perhaps in pitch too: one fix, one undo
@@ -1493,6 +1543,9 @@ function keys(e) {
     if (k === "m" || k === "M") { stop(); act({kind: "merge", ids}).then(r => { if (r) select(ids[0], true); }); return done(); }
     if (k === "Backspace" || k === "Delete") { stop(); remove(); return done(); }
     return;
+  }
+  if ((k === "ArrowUp" || k === "ArrowDown") && tone !== null && (n.also || []).includes(tone)) {  // one of the others played with it
+    stop(); moveTone(n, tone, Math.max(S.low, Math.min(S.high, tone + (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1))), "key"); return done();
   }
   if (k === "ArrowUp" || k === "ArrowDown") { stop(); setPitch(n, n.pitch + (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1), "key"); return done(); }
   if (k >= "1" && k <= "6") { stop(); takeGuess(+k - 1); return done(); }

@@ -29,6 +29,7 @@ SHORTEST = 0.03  # s: what it closes at once (10 ms) is not a note
 SAME = 0.05  # s: one pitch twice within this is one note (it now and then writes a note for both basses)
 TOGETHER = 0.04  # s: notes that start within this of each other are played together
 HEARD_TOO = 0.1  # s: bass2sheet has the note too if it starts one of that pitch within this
+STEP = 2  # semitones: two notes this close are not played together on a bass; one of them is the note
 ALONE = "alone"  # the flag of a note bass2sheet's own finder does not hear
 LOW = (
     8  # the level around a note's start is read from the audio at an eighth of the rate: its partials are below 1.4 kHz
@@ -74,13 +75,56 @@ def heard(bass_mono, stem_id, cache_dir):
         ]
 
 
+def _partials(mono, start, end, pitch):
+    """How strongly a pitch's second to fourth partials sound in the bass track over a note. A step apart, two
+    fundamentals are too close to tell in a short note; their partials are not."""
+    if mono is None:
+        return 0.0
+    seg = np.asarray(mono[int((start + 0.03) * SR) : int(max(end, start + 0.2) * SR)], dtype=np.float64)
+    if len(seg) < 256:
+        return 0.0
+    window, t = np.hanning(len(seg)), np.arange(len(seg)) / SR
+    f0 = 440.0 * 2 ** ((pitch - 69) / 12)
+    at = lambda hz: abs(np.sum(seg * window * np.exp(-2j * np.pi * hz * t)))
+    return float(sum(at(k * f0) for k in (2, 3, 4)) / window.sum())
+
+
+def _apart(tones, start, ends, theirs, bass_mono):
+    """The pitches that start together, without those a step from another. A bass does not play two notes a
+    semitone or a tone apart at once: that low they grate. Where MuScriptor writes two that close, one is the note
+    and the other its shadow: the one bass2sheet's finder hears too is kept, or else the one whose partials are
+    the stronger in the bass track."""
+    tones = sorted(tones)
+    while True:
+        close = [(a, b) for a, b in zip(tones, tones[1:]) if b - a <= STEP]
+        if not close:
+            return tones
+        a, b = close[0]
+        mine = [any(q == t and abs(s - start) <= HEARD_TOO for s, q in theirs) for t in (a, b)]
+        if mine[0] != mine[1]:
+            tones.remove(b if mine[0] else a)
+        else:
+            level = [_partials(bass_mono, start, ends[t], t) for t in (a, b)]
+            tones.remove(a if level[1] > level[0] else b)
+
+
+def _both(start, low, high, own):
+    """Whether bass2sheet's own finder wrote the same two notes together there."""
+    return any(
+        abs(o["start"] - start) <= HEARD_TOO and o.get("also") and {low, high} <= {o["pitch"], *o["also"]} for o in own
+    )
+
+
 def as_notes(raw, own, bass_mono, p):
     """MuScriptor's notes as the pipeline's (see notes.segment_notes for the shape).
 
     `raw` is (start, end, pitch); `own` the notes bass2sheet's finder heard in the same track; `p` the SegParams.
-    A bass plays one line: a pitch written twice at once is one note, notes that start together are one note with
-    the others in `also` (octaves of the lowest are left out, and all of them when `p.together` is off), and a
-    note ends where the next begins. Pitches under the instrument's lowest note go up by octaves. Starts move
+    A bass plays one line: a pitch written twice at once is one note, and a note ends where the next begins.
+    Of the notes MuScriptor starts together one is the note: the one bass2sheet hears too, or else the lowest (of
+    two a step apart, see _apart). The others are written with it, in `also`, only where bass2sheet's own finder
+    wrote the same two together (and `p.together` is on): on the test songs two or three in a hundred of
+    MuScriptor's second notes are in the answer key (docs/evaluation.md). Pitches under the instrument's lowest
+    note go up by octaves. Starts move
     from MuScriptor's 10 ms steps to where the pluck begins to sound; a note bass2sheet hears too ends where
     bass2sheet ends it.
 
@@ -97,23 +141,25 @@ def as_notes(raw, own, bass_mono, p):
             pitch += 12
         if end - start >= SHORTEST and not any(q == pitch and abs(start - a) <= SAME for a, _, q in line[-8:]):
             line.append((start, end, pitch))
-    notes = []
+    groups = []  # what starts together: (start, {pitch: end})
     for start, end, pitch in line:
-        last = notes[-1] if notes else None
-        if last and start - last["start"] <= TOGETHER:
-            low, high = sorted((last["pitch"], pitch))
-            if pitch < last["pitch"]:  # the lower one is the note; it keeps its own end
-                last["end"] = end
-            last["pitch"] = low
-            last["also"] = sorted(set(last["also"]) | {high})
+        if groups and start - groups[-1][0] <= TOGETHER:
+            groups[-1][1][pitch] = max(end, groups[-1][1].get(pitch, 0.0))
         else:
-            notes.append(dict(pitch=pitch, start=start, end=end, also=[]))
+            groups.append((start, {pitch: end}))
     theirs = [(o["start"], q) for o in own for q in (o["pitch"], *o.get("also", []))]
     in_order = sorted(own, key=lambda o: o["start"])
-    for nt in notes:
-        nt["also"] = [q for q in nt["also"] if (q - nt["pitch"]) % 12] if p.together else []
-        if not nt["also"]:
-            del nt["also"]
+    notes = []
+    for start, ends in groups:
+        tones = _apart(ends, start, ends, theirs, bass_mono)
+        heard = [q for q in tones if any(pq == q and abs(s - start) <= HEARD_TOO for s, pq in theirs)]
+        note = (heard or tones)[0]  # the one bass2sheet hears too, or else the lowest
+        with_it = [q for q in tones if q != note and (q - note) % 12 and _both(start, *sorted((note, q)), own)]
+        kept = sorted([note, *with_it]) if p.together else [note]
+        nt = dict(pitch=kept[0], start=start, end=ends[kept[0]])  # the lowest is the note; it keeps its own end
+        if kept[1:]:
+            nt["also"] = kept[1:]
+        notes.append(nt)
         under = [o for o in own if o["start"] <= nt["start"] + 0.03 < o["end"]]  # what bass2sheet has sounding there
         if any(q == nt["pitch"] and abs(s - nt["start"]) <= HEARD_TOO for s, q in theirs):
             nt["agree"] = 1.0

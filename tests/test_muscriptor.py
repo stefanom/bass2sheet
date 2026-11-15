@@ -30,6 +30,39 @@ def _line(spec, seconds):
     return y
 
 
+def test_two_notes_a_step_apart_are_one_note():
+    """A bass does not play two notes a semitone or a tone apart at once. Where MuScriptor writes two that close,
+    the one that sounds is the note."""
+    p = SegParams(refine_onsets=False)
+    sound = _line([(0.5, 0.7, 42), (1.5, 0.7, 45), (2.5, 0.7, 40), (2.5, 0.7, 47)], 4)
+    raw = [
+        (0.50, 1.20, 42),
+        (0.51, 1.20, 43),  # a shadow a semitone above the note that sounds
+        (1.50, 2.20, 43),  # ... and here a tone below it
+        (1.51, 2.10, 45),
+        (2.50, 3.20, 40),  # a fifth, which bass2sheet wrote too: both stay
+        (2.51, 3.20, 47),
+    ]
+    fifth = [dict(start=2.5, end=3.2, pitch=40, also=[47])]
+    notes = muscriptor.as_notes(raw, fifth, sound, p)
+    assert [(n["start"], n["end"], n["pitch"], n.get("also")) for n in notes] == [
+        (0.50, 1.20, 42, None),
+        (1.50, 2.10, 45, None),  # the note that stays keeps its own end
+        (2.50, 3.20, 40, [47]),
+    ]
+    single = muscriptor.as_notes(raw, fifth, sound, SegParams(refine_onsets=False, together=False))
+    assert [n["pitch"] for n in single] == [42, 45, 40]  # one note at a time: the one that sounds, not the lower
+    # What bass2sheet's own finder hears there decides before the sound does.
+    own = [dict(start=0.5, end=1.2, pitch=43)]
+    assert [n["pitch"] for n in muscriptor.as_notes(raw[:2], own, sound, p)] == [43]
+    # With nothing to go by the lower one stays; three in a row come down to one.
+    quiet = np.zeros(4 * SR, np.float32)
+    assert [n["pitch"] for n in muscriptor.as_notes(raw[:2], [], quiet, p)] == [42]
+    row = [(0.50, 1.2, 41), (0.51, 1.2, 42), (0.52, 1.2, 43)]
+    assert [(n["pitch"], n.get("also")) for n in muscriptor.as_notes(row, [], sound, p)] == [(42, None)]
+    assert muscriptor._apart([40, 43, 47], 0.0, {}, [], None) == [40, 43, 47]  # a third and a fifth are not steps
+
+
 def _stand_in(tmp_path, monkeypatch, rows, fails=False):
     """Sets up a program that writes `rows` (start, end, pitch, instrument) as MuScriptor would, and the weights
     file it is pointed at. Returns the path of the log of its calls."""
@@ -106,12 +139,23 @@ def test_what_it_writes_becomes_one_line():
     notes = muscriptor.as_notes(raw, [], np.zeros(4 * SR, np.float32), p)
     assert [(n["start"], n["end"], n["pitch"], n.get("also")) for n in notes] == [
         (0.50, 1.00, 40, None),
-        (1.00, 1.50, 43, [47]),
+        (1.00, 1.50, 43, None),  # bass2sheet did not write the two together: the lower one is the note
         (1.50, 2.00, 45, None),
         (2.00, 2.50, 40, None),  # the octave above the note is not written
         (3.00, 3.40, 39, None),
     ]
     assert all(n["flag"] == muscriptor.ALONE and n["agree"] == 0.0 for n in notes)  # nobody else heard any of it
+    # Two notes are written together only where bass2sheet's own finder wrote the same two.
+    pair = [dict(start=1.03, end=1.5, pitch=43, also=[47])]
+    assert muscriptor.as_notes(raw, pair, np.zeros(4 * SR, np.float32), p)[1].get("also") == [47]
+    for other in ([dict(start=1.03, end=1.5, pitch=43)], [dict(start=1.03, end=1.5, pitch=43, also=[50])]):
+        assert "also" not in muscriptor.as_notes(raw, other, np.zeros(4 * SR, np.float32), p)[1]
+    assert "also" not in muscriptor.as_notes(raw, [dict(pair[0], start=1.4)], np.zeros(4 * SR, np.float32), p)[1]
+    upper = [dict(start=1.0, end=1.6, pitch=47)]  # bass2sheet hears the upper one only: that one is the note
+    assert [(n["pitch"], n["end"]) for n in muscriptor.as_notes(raw, upper, np.zeros(4 * SR, np.float32), p)][1] == (
+        47,
+        1.5,
+    )
     single = muscriptor.as_notes(raw, [], np.zeros(4 * SR, np.float32), SegParams(refine_onsets=False, together=False))
     assert not any("also" in n for n in single) and [n["pitch"] for n in single] == [40, 43, 45, 40, 39]
     assert (
