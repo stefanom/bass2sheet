@@ -6,8 +6,10 @@ import hashlib
 import logging
 import os
 import re
+import sys
 import tempfile
 import time
+from http.server import ThreadingHTTPServer
 
 import numpy as np
 
@@ -81,6 +83,21 @@ def step(name):
     yield found
     if tell:
         tell(dict(found, step=name, state="done", seconds=round(time.monotonic() - began, 2)))
+
+
+class PageServer(ThreadingHTTPServer):
+    """The server behind the pages (the copilot's and the judging page's)."""
+
+    # A page asks for many things at once (the first page: a picture of every song), and a browser opens several
+    # connections to do it. With the standard five waiting to be answered, one more is turned away now and then.
+    request_queue_size = 64
+
+    def handle_error(self, request, client_address):
+        """A browser that goes away before its answer is written (a tab closed, a sound cut off when another
+        starts) is nothing to report. Anything else is, as always."""
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def release_gpu_memory():

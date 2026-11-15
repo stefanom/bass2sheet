@@ -1008,6 +1008,31 @@ def test_serve_says_where_the_pages_are_and_stops_at_ctrl_c(workdir, tmp_path, m
     assert said[1] == "Add your first song on the page, or with `bass2sheet-copilot add SONG`."
     assert served == [("127.0.0.1", port)] * 2  # this machine only
     assert not os.path.exists(os.path.join(empty, "phone_key"))  # no key is made where no phone is let in
+    assert copilot.main(["serve", "--dir", workdir, "--port", "0"]) == 0  # any port that is free
+    got = served[-1][1]
+    assert got != 0 and capsys.readouterr().out.splitlines()[0] == f"1 song. Open http://localhost:{got}"
+
+
+def test_a_browser_that_goes_away_is_nothing_to_report(workdir, capsys):
+    """A tab closed while its answer is written, or a sound cut off when another starts, breaks the connection.
+    That is no error of the server's, and the terminal stays quiet; a real error is still printed."""
+    srv = copilot_server.make_server(workdir, 0)
+    try:
+        for gone in (BrokenPipeError(32, "Broken pipe"), ConnectionResetError(54, "Connection reset by peer")):
+            try:
+                raise gone
+            except OSError:
+                srv.handle_error(None, ("127.0.0.1", 50000))
+        assert capsys.readouterr().err == ""
+        try:
+            raise ValueError("a real fault")
+        except ValueError:
+            srv.handle_error(None, ("127.0.0.1", 50000))
+        said = capsys.readouterr().err
+        assert "Traceback" in said and "a real fault" in said
+        assert srv.request_queue_size == 64  # a page's burst of requests is not turned away
+    finally:
+        srv.server_close()
 
 
 def test_the_command_line_hands_each_command_what_it_was_given(tmp_path, monkeypatch, capsys):

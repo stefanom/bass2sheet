@@ -10,11 +10,11 @@ import mimetypes
 import os
 import re
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from . import judge
-from .common import Bass2SheetError
+from .common import Bass2SheetError, PageServer
 
 mmss = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
 LEGENDS = dict(
@@ -208,7 +208,7 @@ def make_server(workdir, port=8765):
     workdir = os.path.abspath(workdir)
     handler = type("JudgeHandler", (Handler,), dict(workdir=workdir, worker=Worker(workdir)))
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+        server = PageServer(("127.0.0.1", port), handler)
     except OSError as e:
         raise Bass2SheetError(f"cannot listen on port {port} ({e}); pick another with --port") from e
     handler.worker.kick()  # steps opened by picks made before this run
@@ -217,6 +217,7 @@ def make_server(workdir, port=8765):
 
 def serve(workdir, port=8765):
     server = make_server(workdir, port)
+    port = server.server_address[1]  # the one it got: `--port 0` asks for any that is free
     s = state(workdir)
     print(
         f"{s['total'] - s['judged']} passages to judge ({s['judged']} done). Open http://localhost:{port}", flush=True
