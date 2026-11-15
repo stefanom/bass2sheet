@@ -218,7 +218,12 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
     parts = [code_id(), "given" if stems_dir else settings["separator"], settings["replucks"], together]
     finder = settings.get("notes", "own")  # whose notes: see pipeline.seg_params
     parts += [finder] if finder != "own" else []
-    path = os.path.join(keep, "-".join([*parts, settings["beat_tracker"], crepe_model]) + ".json") if keep else None
+    # What is kept is kept under the tracker that found the beats. "auto" asks for the model first, so it looks for
+    # the model's result: beats the built-in tracker found when the model could not be had are not kept as the
+    # model's, and the model is asked again the next time.
+    asked = settings["beat_tracker"]
+    kept = lambda tracker: os.path.join(keep, "-".join([*parts, tracker, crepe_model]) + ".json")
+    path = kept("beat_this" if asked == "auto" else asked) if keep else None
     if path and os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -235,9 +240,9 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
     )
     found = {k: c[k] for k in ("notes", "grid", "origin", "tempo", "key", "chords", "beat_tracker")}
     heard = json.loads(json.dumps(found, default=lambda x: x.tolist()))  # numpy values to plain ones
-    if path:
+    if keep:
         os.makedirs(keep, exist_ok=True)
-        atomic_write_text(path, json.dumps(heard))
+        atomic_write_text(kept(heard["beat_tracker"]), json.dumps(heard))
     return heard
 
 

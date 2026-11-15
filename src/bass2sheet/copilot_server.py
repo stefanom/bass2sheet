@@ -67,6 +67,7 @@ def songs(workdir):
                 spans=dict(heard=mine["checked"], worked=far["worked"]),
                 fixes=far["fixes"],
                 finder=machine["settings"].get("notes", "own"),
+                beats=machine["settings"].get("beat_tracker"),  # which tracker found the beats and the bar lines
                 at=mine.get("at"),
                 touched=os.path.getmtime(os.path.join(folder, "notes.json")),
                 score={k: made[k] for k in ("when", "fixes", "checked")} if made else None,  # as it was last made

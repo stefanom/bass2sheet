@@ -65,6 +65,17 @@ def test_without_the_beat_model_the_built_in_tracker_finds_the_beats(
     assert machine["settings"]["beat_tracker"] == "librosa" and len(machine["notes"]) > 50  # and the song is there
     beats = next(t for t in told if t.get("step") == "beats" and t["state"] == "done")
     assert beats["tracker"] == "librosa" and beats["fallback"] is True and beats["bars"] > 4
+    assert copilot_server.songs(work)[0]["beats"] == "librosa"  # the song's card says whose bars these are
+    # The model is there the next time the song is prepared: it is asked again, and its beats are the song's.
+    # What the built-in tracker found was not kept in the model's place.
+    from songsynth import make_song
+
+    truth = make_song(taste=True)
+    monkeypatch.setattr(pipeline, "model_beats", lambda *a, **kw: (truth["beats"], truth["downbeats"]))
+    copilot.add([mix], work, opts, stems_dirs={mix: stems}, say=said.append)
+    assert copilot.read_json(os.path.join(work, "mix", "machine.json"))["settings"]["beat_tracker"] == "beat_this"
+    assert copilot_server.songs(work)[0]["beats"] == "beat_this"
+    monkeypatch.setattr(pipeline, "model_beats", no_model)
     asked = dict(opts, defaults=dict(beat_tracker="beat_this"))  # asked for by name: no quiet replacement
     with pytest.raises(Bass2SheetError, match="Beat This! beat tracker failed"):
         copilot.add([mix], str(tmp_path / "asked"), asked, stems_dirs={mix: stems}, say=said.append)

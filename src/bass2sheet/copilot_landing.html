@@ -205,7 +205,9 @@ const Landing = (() => {
   }
   const whose = finder => finder === "muscriptor" ? "MuScriptor's notes" : "bass2sheet's own notes";
   const esc = t => String(t).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-  return {clock, took, refusal, fact, progress, whose, count, esc, when};
+  // the built-in tracker often counts at half the tempo: a song whose bars it found says so on its card
+  const bars = tracker => tracker === "librosa" ? " · bars by the built-in beat tracker" : "";
+  return {clock, took, refusal, fact, progress, whose, bars, count, esc, when};
 })();
 if (typeof module !== "undefined") module.exports = Landing;
 </script>
@@ -265,7 +267,7 @@ function showSongs() {
         <canvas class="strip"></canvas><div class="band" title="Dark green: worked through. Pale: only heard.">${band}</div>
         <div class="text"><div class="title">${L.esc(s.title)}</div><div class="soft">${L.esc(s.artist) || "&nbsp;"}</div>
           <div class="facts">${L.progress(s)}</div>
-          <div class="soft">${L.count(s.notes, "note")} · ${L.whose(s.finder)}${s.score ? " · score made " + L.when(s.score.when, new Date()) : ""}</div>
+          <div class="soft">${L.count(s.notes, "note")} · ${L.whose(s.finder)}${L.bars(s.beats)}${s.score ? " · score made " + L.when(s.score.when, new Date()) : ""}</div>
         </div></a>
       <div class="foot"><a class="btn main" href="/song#${id}">${begun ? "Carry on with the notes" : "Fix the notes"} ›</a><a class="btn" href="/score#${id}">${s.score ? "See the score" : "Make the score"}</a></div>
     </div>`;

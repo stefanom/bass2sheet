@@ -155,7 +155,7 @@ To remove bass2sheet: delete the checkout and `~/.cache/bass2sheet`, then the tw
 ## Trouble
 
 - **`unknown architecture` when a package is compiled** (`ld: tapi error: malformed file ... libSystem.B.tbd`). The Mac's Xcode is older than its command line tools, and the compiler takes an SDK its linker cannot read. `./bootstrap` avoids it by naming the SDK. By hand: `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`, then `uv sync` again.
-- **A model could not be downloaded.** Run `./bootstrap` or `uv run bass2sheet-doctor --fetch-models` again: what is there is kept. Without the beat model `bass2sheet` and the copilot go on with the built-in beat tracker (the copilot says so on the song's "Beats and bars" step); the judging page, which compares the two trackers, cannot take a song. Without the separation model nothing can be separated.
+- **A model could not be downloaded.** Run `./bootstrap` or `uv run bass2sheet-doctor --fetch-models` again: what is there is kept. Without the beat model `bass2sheet` and the copilot go on with the built-in beat tracker and say so (the copilot on the song's "Beats and bars" step and on its card). That tracker often counts at the wrong level, half the tempo for the most part, so the bar lines may be wrong; once the model is there, add the song again and its bars are found anew, with your fixes kept. The judging page, which compares the two trackers, cannot take a song. Without the separation model nothing can be separated.
 - **`uv: command not found` in a new terminal.** Homebrew is not on your `PATH`. The script's last lines give the line to add to `~/.zprofile`.
 
 ## What is not proven

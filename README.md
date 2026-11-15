@@ -171,6 +171,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 - The tab assumes a 4-string bass in standard tuning, and so do the notes: what is heard below E1 (an octave effect, a synth under the bass) is written an octave up. `--lowest B0` is a five-string, `--lowest D1` drop-D, `--lowest none` writes the notes as heard.
 - Very short staccato notes (under about 100 ms) are often missed, and fast repeated notes on one pitch can come out as one long note.
 - A bar of another length (a 2/4 bar in a 4/4 song) shifts the bar lines after it.
+- Without the Beat This! model the built-in beat tracker finds the beats, and it often counts at the wrong level, half the tempo for the most part (it did on 7 of the BabySlakh test songs), which puts the bar lines in the wrong places and makes the rhythm coarser. The notes and their pitches are not affected. The command's log says when it was used, and so does the song's card on the copilot's first page; `uv run bass2sheet-doctor --fetch-models` gets the model.
 - Chord symbols are rough. Slides, ghost notes and dead notes are not notated.
 
 ## Development
