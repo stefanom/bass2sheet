@@ -132,7 +132,9 @@ and run ./bootstrap again. To do without Homebrew, docs/install.md lists what to
 elif [ "$os" = "Linux" ]; then
     step "System packages"
     cat <<'EOF'
-    On Linux this script installs no system packages. bass2sheet runs without them; each adds something:
+    On Linux this script installs no system packages. One is needed: a C compiler, for one Python package
+    that is compiled when the environment is created (sudo apt install build-essential).
+    bass2sheet runs without the others; each adds something:
       MuseScore 4    the PDF and the pictures of the score. From musescore.org; `mscore` must be on the PATH
       Rubber Band    slower playback that keeps a bass line clean:  sudo apt install rubberband-cli
       yt-dlp         adding a song to the copilot by a link:        uv tool install yt-dlp
@@ -168,6 +170,23 @@ if [ "$os" = "Darwin" ] && [ -x "$("$brew" --prefix)/opt/python@3.12/bin/python3
     python="$("$brew" --prefix)/opt/python@3.12/bin/python3.12"
 fi
 has_python_312() { [ -x "$1" ] && "$1" -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))' 2>/dev/null; }
+
+# One package (diffq, which the separation library asks for) has no built package for Python 3.12 and is
+# compiled when the environment is created, so a C compiler has to be there: on a Mac the Xcode command line
+# tools, which Homebrew does not work without either. The SDK is named outright. On a Mac whose Xcode is older
+# than its command line tools the compiler otherwise takes an SDK that its own linker cannot read, and the
+# build stops at "unknown architecture".
+if [ "$os" = "Darwin" ] && [ -z "${SDKROOT:-}" ]; then
+    if sdk="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)" && [ -d "$sdk" ]; then
+        export SDKROOT="$sdk"
+    elif has_python_312 .venv/bin/python; then
+        : # the environment is there, so the package is compiled already
+    elif [ "$check" -eq 1 ]; then
+        problem "a C compiler: one Python package is compiled. \`xcode-select --install\` installs the Xcode command line tools."
+    else
+        fail "there is no C compiler, and one Python package has to be compiled. Install the Xcode command line tools with \`xcode-select --install\`, wait until that is done, and run ./bootstrap again."
+    fi
+fi
 if has_python_312 .venv/bin/python; then
     sync=(uv sync --locked)
 else
@@ -185,7 +204,7 @@ if command -v uv >/dev/null 2>&1; then
             problem "some of the packages uv.lock lists, or .venv has others. ./bootstrap puts that right."
         fi
     else
-        "${sync[@]}" || fail "uv could not create the Python environment; its lines above say why. The usual causes: no network (behind a proxy, set HTTPS_PROXY), a full disk, or a pyproject.toml changed without \`uv lock\`. Then run ./bootstrap again."
+        "${sync[@]}" || fail "uv could not create the Python environment; its lines above say why. The usual causes: no network (behind a proxy, set HTTPS_PROXY), no C compiler for the one package that is compiled (on Linux: sudo apt install build-essential), a full disk, or a pyproject.toml changed without \`uv lock\`. Then run ./bootstrap again."
         say "    .venv: $(.venv/bin/python --version 2>&1), $(du -sh .venv | cut -f1 | tr -d ' ') on disk"
     fi
 fi

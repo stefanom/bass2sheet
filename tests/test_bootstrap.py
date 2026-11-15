@@ -40,6 +40,7 @@ case "$1" in
     sync)
         case "$*" in *--check*) exit "$(cat "$FAKES/uv-check" 2>/dev/null || echo 0)" ;; esac
         code=$(cat "$FAKES/uv-sync" 2>/dev/null || echo 0)
+        echo "${SDKROOT:-}" > "$FAKES/sdkroot"
         [ "$code" = 0 ] && python .venv
         exit "$code" ;;
     venv) python .venv-bp ;;
@@ -59,6 +60,10 @@ esac
 UNAME = """#!/bin/sh
 cat "$FAKES/os"
 """
+XCRUN = """#!/bin/sh
+echo "$FAKES/sdk"
+exit "$(cat "$FAKES/xcrun" 2>/dev/null || echo 0)"
+"""
 
 
 class Clone:
@@ -70,7 +75,8 @@ class Clone:
             folder.mkdir()
         for name in ("bootstrap", "Brewfile", "uv.lock", "pyproject.toml"):
             shutil.copy(os.path.join(ROOT, name), self.dir / name)
-        for name, text in (("brew", BREW), ("uv", UV), ("uname", UNAME)):
+        (self.fakes / "sdk").mkdir()
+        for name, text in (("brew", BREW), ("uv", UV), ("uname", UNAME), ("xcrun", XCRUN)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
         (self.fakes / "python").write_text(PYTHON)
@@ -116,6 +122,7 @@ def test_a_first_run_on_a_mac_installs_creates_fetches_checks_and_says_what_to_t
     assert clone.called("brew bundle install") == ["brew bundle install --file=Brewfile --no-upgrade [muscriptor=]"]
     assert clone.called("uv sync") == [f"uv sync --locked --python {clone.python}"]  # Homebrew's Python 3.12
     assert clone.called("doctor") == ["doctor -m bass2sheet.doctor --fetch-models"]
+    assert (clone.fakes / "sdkroot").read_text().strip() == str(clone.fakes / "sdk")  # the compiler is told its SDK
     for command in ('uv run bass2sheet "Artist - Title.mp3"', "uv run bass2sheet-copilot serve", "uv run pytest"):
         assert command in out
     steps = re.findall(r"^==> (.*)$", out, re.M)
@@ -198,6 +205,19 @@ def test_a_step_that_fails_stops_the_run_with_a_sentence(clone, what, sentence, 
     assert "Try it" not in out
     if never:
         assert clone.called(never) == []
+
+
+def test_without_a_c_compiler_it_says_how_to_get_one_before_anything_is_built(clone):
+    clone.set("xcrun", 1)  # as on a Mac without the Xcode command line tools
+    code, out, err = clone.run()
+    assert code == 1
+    assert "there is no C compiler" in err and "xcode-select --install" in err
+    assert clone.called("uv sync") == []
+    code, out, err = clone.run("--check")
+    assert code == 1 and "NOT THERE: a C compiler" in out
+    clone.environment()  # with the environment there, nothing is left to compile
+    code, out, err = clone.run()
+    assert code == 0, err
 
 
 def test_a_stop_nobody_foresaw_is_told_too(clone):
