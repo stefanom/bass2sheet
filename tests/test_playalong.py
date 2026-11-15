@@ -24,6 +24,20 @@ CREPE = os.environ.get("BASS2SHEET_TEST_CREPE", "tiny")
 needs_mscore = pytest.mark.skipif(score.find_mscore() is None, reason="needs MuseScore 4 to engrave the score")
 
 
+@pytest.fixture(params=["a stand-in", "MuseScore"])
+def engraver(request, tmp_path, monkeypatch):
+    """What draws the score: a stand-in that lays the bars out evenly (tests/mscore_standin.py), so that the test
+    runs anywhere, and MuseScore itself where it is installed."""
+    from conftest import mscore_stand_in
+
+    if request.param == "MuseScore":
+        if score.find_mscore() is None:
+            pytest.skip("MuseScore 4 is not installed")
+    else:
+        monkeypatch.setattr(score, "MSCORE_CANDIDATES", [mscore_stand_in(tmp_path)])
+    return request.param
+
+
 @pytest.fixture(scope="module")
 def prepared(taste_song_files, cache_dir, tmp_path_factory):
     mix, stems = taste_song_files
@@ -186,8 +200,7 @@ def _png_size(path):
     return struct.unpack(">II", head[16:24])
 
 
-@needs_mscore
-def test_the_score_is_engraved_line_by_line_with_the_time_of_everything_in_it(workdir):
+def test_the_score_is_engraved_line_by_line_with_the_time_of_everything_in_it(workdir, engraver):
     made = playalong.lines(workdir, "mix", 3)
     folder = os.path.join(workdir, "mix", "play", "b3")
     machine = copilot.read_json(os.path.join(workdir, "mix", "machine.json"))
@@ -244,8 +257,7 @@ def test_without_musescore_the_page_is_told_what_is_missing(workdir, monkeypatch
         playalong.lines(workdir, "mix", 3)
 
 
-@needs_mscore
-def test_the_highlight_follows_a_record_that_does_not_keep_time(workdir):
+def test_the_highlight_follows_a_record_that_does_not_keep_time(workdir, engraver):
     """The same song played by a band that drifts: every moment t of it happens at warp(t) instead. The score is
     the same; every bar and note in it is played when the drifting record plays it."""
     steady = playalong.lines(workdir, "mix", 3)
@@ -368,8 +380,7 @@ def test_the_server_gives_the_page_what_a_phone_needs(server):
     assert b"bass2sheet" in _get(url + "/")[2]  # the copilot's own page is still where it was
 
 
-@needs_mscore
-def test_the_server_gives_a_song_with_its_lines(server):
+def test_the_server_gives_a_song_with_its_lines(server, engraver):
     url, workdir = server
     song = json.loads(_get(url + "/api/play/song?id=mix&bars=3")[2])
     assert song["sounds"] == ["nobass", "record", "bass"] and song["speeds"] == [100, 90, 80, 70, 60, 50]
@@ -519,3 +530,165 @@ def test_serving_on_the_home_network_says_where_to_open_it(workdir, monkeypatch,
     assert copilot.main(["serve", "--dir", workdir, "--port", "8799", "--lan"]) == 0
     assert copilot.main(["serve", "--dir", workdir]) == 0
     assert asked == [(workdir, 8799, True), (workdir, 8770, False)]
+
+
+# ------------------------------------------------------------------------------- what goes wrong, and what is said
+
+
+def _program(tmp_path, name, body):
+    import stat
+    import sys
+
+    path = str(tmp_path / name)
+    with open(path, "w") as f:
+        f.write(f"#!{sys.executable}\nimport json, os, sys, time\n{body}")
+    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    return path
+
+
+def test_a_musescore_that_fails_says_so_and_nothing_half_made_is_left(workdir, tmp_path, monkeypatch):
+    tests = os.path.dirname(os.path.abspath(__file__))
+    without_pictures = (  # the positions of everything, and no picture of any page
+        f"sys.path.insert(0, {tests!r})\nimport mscore_standin\n"
+        "for job in json.load(open(sys.argv[sys.argv.index('-j') + 1])):\n"
+        "    outs = [out for out in job['out'] if not out.endswith('.png')]\n"
+        "    mscore_standin.engrave(job['in'], outs, open(sys.argv[2]).read(), 360.0)\n"
+    )
+    folder = os.path.join(workdir, "mix", "play", "b3")
+    for body, said in (
+        (
+            "sys.stderr.write('sandbox_extension: noise\\nno display to draw on\\n')\nsys.exit(1)\n",
+            r"exit 1\): no display",
+        ),
+        ("sys.exit(0)\n", r"MuseScore did not engrave the score \(exit 0\)"),  # it says it is done and wrote nothing
+        (without_pictures, "MuseScore wrote no picture of one of the score's pages"),
+    ):
+        monkeypatch.setattr(score, "MSCORE_CANDIDATES", [_program(tmp_path, "mscore", body)])
+        with pytest.raises(Bass2SheetError, match=said):
+            playalong.lines(workdir, "mix", 3)
+        assert os.listdir(folder) == []  # no picture, no score.json, and its work folder is gone
+    machine, mine = (copilot.read_json(os.path.join(workdir, "mix", name)) for name in ("machine.json", "notes.json"))
+    xml, first_bar, starts, sounding = playalong.score_xml(machine, mine["notes"], 3)
+    stuck = _program(tmp_path, "mscore", "time.sleep(30)\n")
+    with pytest.raises(Bass2SheetError, match="MuseScore took more than 0.5 s over the score"):
+        playalong.engrave(
+            xml, first_bar, machine["grid"], machine["origin"], starts, sounding, folder, stuck, timeout=0.5
+        )
+    assert os.listdir(folder) == []
+    with pytest.raises(Bass2SheetError, match="nope is not prepared"):
+        playalong.lines(workdir, "nope", 3)
+
+
+def test_where_the_grid_or_the_layout_has_nothing_to_go_by():
+    assert playalong.grid_time([], 5) == 0.0  # no grid at all: the start
+    assert playalong.grid_time([1.5], 7) == 1.5 and playalong.grid_time([1.5], -3) == 1.5  # one moment: that one
+    with pytest.raises(Bass2SheetError, match="MuseScore laid out no measures"):
+        playalong.lines_of([], [], 1, [0.0, 0.125], 0)
+
+
+def test_a_sound_that_cannot_be_made_is_said_once_and_then_tried_again(workdir, monkeypatch):
+    def cannot(*args):
+        raise Bass2SheetError("could not slow the song down (ffmpeg): no such filter")
+
+    monkeypatch.setattr(copilot, "slowed", cannot)
+    maker = playalong.Sounds(workdir)
+    assert maker.ask("mix", "record", 60) == dict(ready=False)  # it is being made, as far as the page knows
+    with pytest.raises(Bass2SheetError, match="no such filter"):
+        for _ in range(500):
+            maker.ask("mix", "record", 60)
+            time.sleep(0.01)
+    assert maker.ask("mix", "record", 60) == dict(ready=False)  # asked again, it is tried again
+    with pytest.raises(Bass2SheetError, match="nope is not prepared"):
+        playalong.sound(workdir, "nope", "record")
+    with pytest.raises(Bass2SheetError, match="no record at 85%"):
+        playalong.sound(workdir, "mix", "record", 85)
+
+
+def test_the_record_without_its_bass_is_made_from_the_separators_stems_in_the_cache(workdir, tmp_path):
+    from bass2sheet.common import sha1_file
+    from bass2sheet.separate import load_stems
+
+    first = _audio(workdir, "nobass")
+    out = os.path.join(workdir, "mix", "audio", "nobass.flac")
+    songs = copilot.load_songs(workdir)
+    stems = load_stems(songs["mix"]["stems_dir"], first.shape[1])
+    songs["mix"]["stems_dir"] = None  # a song the tool separated itself: its stems are in the cache, by the song
+    with open(os.path.join(workdir, "songs.json"), "w") as f:
+        json.dump(songs, f)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    with open(os.path.join(workdir, "settings.json"), "w") as f:
+        json.dump(dict(cache_dir=str(cache)), f)
+    kept = cache / f"stems-{sha1_file(songs['mix']['path'])[:16]}-roformer.npz"
+    np.savez(kept, **stems)
+    os.remove(out)
+    playalong.backing(workdir, "mix")
+    assert float(np.abs(_audio(workdir, "nobass") - first).max()) < 2e-3  # the same sum a new song gets
+    np.savez(kept, bass=stems["bass"])  # a cache that holds the bass and nothing else: nothing to add up
+    os.remove(out)
+    playalong.backing(workdir, "mix")  # the isolated bass is taken out of the record instead
+    assert float(np.corrcoef(_audio(workdir, "nobass").ravel(), first.ravel())[0, 1]) > 0.99
+    kept.write_bytes(b"not what was kept")  # a file that cannot be read is not the end of it either
+    os.remove(out)
+    playalong.backing(workdir, "mix")
+    assert float(np.corrcoef(_audio(workdir, "nobass").ravel(), first.ravel())[0, 1]) > 0.99
+    assert playalong._fitted(np.zeros(10), np.ones(10)) == (0.0, 1.0)  # silence holds nothing of anything
+
+
+def test_sound_is_served_in_the_ranges_a_phone_asks_for(server, monkeypatch):
+    url, workdir = server
+    record = url + "/play/mix/audio/record.flac"
+    size = os.path.getsize(os.path.join(workdir, "mix", "audio", "record.flac"))
+    status, headers, body = _get(record, {"Range": "bytes=-4"})  # its last four bytes
+    assert (status, len(body), headers["Content-Range"]) == (206, 4, f"bytes {size - 4}-{size - 1}/{size}")
+    request = urllib.request.Request(record, headers={"Range": f"bytes={size + 5}-"})
+    with pytest.raises(urllib.error.HTTPError) as e:  # from beyond its end
+        urllib.request.urlopen(request, timeout=30)
+    assert e.value.code == 416 and e.value.headers["Content-Range"] == f"bytes */{size}"
+    with urllib.request.urlopen(urllib.request.Request(record, method="HEAD"), timeout=30) as r:
+        assert (r.status, r.read(), int(r.headers["Content-Length"])) == (200, b"", size)
+    # the silent film that keeps the screen lit: where it cannot be made, the page is told it is not there
+    import imageio_ffmpeg
+
+    monkeypatch.setattr(imageio_ffmpeg, "get_ffmpeg_exe", lambda: "/nonexistent/ffmpeg")
+    assert playalong.awake(workdir) is None and _status(url + "/play/awake.mp4") == 404
+    monkeypatch.setattr(imageio_ffmpeg, "get_ffmpeg_exe", lambda: "/usr/bin/false")
+    assert playalong.awake(workdir) is None and not os.path.exists(os.path.join(workdir, ".play-awake.mp4"))
+
+
+def test_the_addresses_a_phone_can_reach_are_the_home_networks(tmp_path, monkeypatch):
+    import socket
+
+    listed = (
+        "lo0: flags=8049<UP,LOOPBACK>\\n\\tinet 127.0.0.1 netmask 0xff000000\\n"
+        "en0: flags=8863<UP>\\n\\tinet 10.0.0.7 netmask 0xffffff00\\n\\tinet addr:192.168.1.20  Bcast:192.168.1.255\\n"
+        "\\tinet 192.0.0.2 netmask 0xffffffff\\n\\tinet 8.8.8.8 netmask 0xffffff00\\n\\tinet6 fe80::1%lo0\\n"
+    )
+    program = _program(tmp_path, "ifconfig", f"print('{listed}')\n")
+
+    def no_socket(*args, **kw):
+        raise OSError("no network")
+
+    monkeypatch.setattr(socket, "socket", no_socket)
+    monkeypatch.setattr(socket, "gethostbyname_ex", no_socket)
+    monkeypatch.setattr(playalong.shutil, "which", lambda name: program)
+    # the home network's own first; not the loopback, a hotspot's 192.0.0.x or an address the internet reaches
+    assert playalong.addresses() == ["192.168.1.20", "10.0.0.7"]
+    assert playalong.links(8770, "12345678") == [
+        "http://192.168.1.20:8770/play?key=12345678",
+        "http://10.0.0.7:8770/play?key=12345678",
+    ]
+    monkeypatch.setattr(playalong.shutil, "which", lambda name: "/nonexistent/ifconfig")
+    assert playalong.addresses() == []  # nothing to ask: no address, and no failure
+    assert playalong.announce(8770, "12345678")[0].startswith("Listening on the network, but this machine has no")
+
+
+def test_a_phone_key_that_is_not_one_is_made_again(tmp_path):
+    work = str(tmp_path / "scores")
+    key = playalong.phone_key(work)  # the folder is made for it
+    assert re.fullmatch(r"\d{8}", key) and playalong.phone_key(work) == key  # made once
+    with open(os.path.join(work, "phone_key"), "w") as f:
+        f.write("let me in\n")
+    again = playalong.phone_key(work)
+    assert re.fullmatch(r"\d{8}", again) and open(os.path.join(work, "phone_key")).read() == again + "\n"
+    assert os.stat(os.path.join(work, "phone_key")).st_mode & 0o777 == 0o600
