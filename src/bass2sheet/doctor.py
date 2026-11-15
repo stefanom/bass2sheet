@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 
 from . import __version__
@@ -577,6 +578,7 @@ def main(argv=None):
     )
     ap.add_argument("--version", action="version", version=f"bass2sheet {__version__}")
     args = ap.parse_args(argv)
+    warnings.filterwarnings("ignore")  # what the model libraries say about each other as they load
     failed = []
     if args.fetch_models:
         failed = fetch_models(args.cache_dir)
