@@ -129,6 +129,13 @@ assert.strictEqual(L.alignX(-400, 200, 50, 1000), 50);         // that bar is ou
 assert.strictEqual(L.alignX(950, 200, 50, 1000), 800);         // or to the right: all of it still in sight
 assert.strictEqual(L.alignX(300, 2000, 50, 1000), 50);         // a bar wider than the window starts at its left
 
+// the repeats' strips: as tall as the window leaves room for
+assert.strictEqual(L.dockHeight(1300, 100, 900, 500), 378);    // many strips, a tall window: 42% of it
+assert.strictEqual(L.dockHeight(200, 100, 900, 500), 200);     // few strips: all of them
+assert.strictEqual(L.dockHeight(1300, 100, 720, 281), 281);    // a low window: what is left, the panel under them stays in sight
+assert.strictEqual(L.dockHeight(1300, 170, 600, 149), 149);    // lower than one strip: it scrolls
+assert.strictEqual(L.dockHeight(1300, 100, 500, 40), 72);      // a strip's buttons and a few rows at the least
+
 // notes played together: one of them taken out, or moved, by itself
 const duo = {id: "n7", pitch: 42, also: [43]}, trio = {id: "n8", pitch: 40, also: [47, 52]};
 same(L.dropTone(duo, 43), {kind: "also", id: "n7", also: []});                    // the upper one goes: the note stays

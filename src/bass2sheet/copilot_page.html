@@ -286,6 +286,11 @@ const Logic = (() => {
     }
     return out;
   }
+  // How tall the repeats' strips under the timeline are: all of them if they fit, at most 42% of the window, and
+  // never more than the room the window has left for them; a strip's line of buttons and a few rows at the least.
+  function dockHeight(total, block, win, room, least = 72) {
+    return Math.min(total, Math.max(Math.min(block, least), Math.min(Math.round(win * 0.42), room)));
+  }
   // Notes played together are one note with the others in `also`. One of them is taken out: the action that
   // leaves the rest (the lowest that is left is the note), or null when it is not one of them.
   function dropTone(n, q) {
@@ -302,7 +307,7 @@ const Logic = (() => {
     const rest = also.filter(p => p !== q);
     return {kind: "also", id: n.id, also: to === n.pitch || rest.includes(to) ? rest : [...rest, to].sort((a, b) => a - b)};
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX, dropTone, moveTone};
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX, dockHeight, dropTone, moveTone};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
@@ -335,6 +340,7 @@ if (!SCHEMES[look.scheme]) look.scheme = "blue";
 const ink = () => SCHEMES[look.scheme].dark ? INK.dark : INK.light;
 const cssOf = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 const STRIP_HEAD = 28, STRIP_GAP = 6;  // a repeat's line of buttons, and the space under its rows
+const ROLL_LEAST = 140;  // the timeline is never lower than this (#rollwrap's min-height)
 // dock: the repeats of a bar lined up under the timeline. kind "bar": a bar that was chosen; "offer": after a fix.
 // strips: one per bar, from the server; done: bar -> {state: "taken" (with the fix's name) or "left"}
 let dock = null, dockAsk = 0, mapDrag = false;
@@ -744,6 +750,7 @@ function refresh() {
     panel.querySelectorAll("button[data-tone]").forEach(b => b.onclick = () => removeTone(+b.dataset.tone));
     panel.querySelectorAll("button[data-act]").forEach(b => b.onclick = () => doAct(b.dataset.act));
   }
+  if (dock) sizeDock();
   dirty = true;
 }
 function doAct(what) {  // the buttons under the timeline: what the keys do, for the mouse
@@ -939,6 +946,15 @@ function syncDock() {  // after any fix: what was taken back is open again, and 
 const stateOf = s => (dock.done[s.bar] ? dock.done[s.bar].state : s.items.length ? "open" : "same");
 const stripRow = () => { const rows = dock.hi - dock.lo + 1; return rows <= 16 ? 10 : rows <= 24 ? 8 : 7; };  // many pitches: shorter rows
 const stripBlock = () => STRIP_HEAD + (dock.hi - dock.lo + 1) * stripRow() + STRIP_GAP;
+function sizeDock() {  // how tall the strips are: what the window has left, so that the note's panel under them stays in it
+  const total = dock.strips.length * stripBlock();
+  const room = window.innerHeight - $("rollwrap").getBoundingClientRect().top - ROLL_LEAST - $("dockHead").offsetHeight - $("panel").offsetHeight - 2;
+  const h = Logic.dockHeight(total, stripBlock(), window.innerHeight, room);
+  if ($("dockScroll").style.height !== h + "px") dirty = true;
+  $("dockScroll").style.height = h + "px";
+  $("strips").style.height = h + "px";
+  $("dockInner").style.height = total + "px"; $("dockInner").style.marginTop = -h + "px";
+}
 function layDock() {  // the line over the strips, each strip's own line of buttons, and the room they take
   const d = dock, ref = d.bar, R = S.repeats;
   const inBar = i => { const [a, z] = barSpan(i); return S.notes.filter(n => n.end > a && n.start < z).flatMap(n => [n.pitch, ...(n.also || [])]); };
@@ -975,10 +991,7 @@ function layDock() {  // the line over the strips, each strip's own line of butt
       : `<span class="soft">written the same as bar ${ref + 1}</span><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`;
     return `<div class="strip" style="top:${k * stripBlock()}px">${where}${body}</div>`;
   }).join("");
-  const total = d.strips.length * stripBlock(), h = Math.min(total, Math.max(stripBlock(), Math.round(window.innerHeight * 0.42)));
-  $("dockScroll").style.height = h + "px";
-  $("strips").style.height = h + "px";
-  $("dockInner").style.height = total + "px"; $("dockInner").style.marginTop = -h + "px";
+  sizeDock();
   markHearing();
   dirty = true;
 }
