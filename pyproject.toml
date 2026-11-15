@@ -40,6 +40,7 @@ bass2sheet = "bass2sheet.cli:main"
 bass2sheet-eval = "bass2sheet.evaluate:main"
 bass2sheet-judge = "bass2sheet.judge:main"
 bass2sheet-copilot = "bass2sheet.copilot:main"
+bass2sheet-doctor = "bass2sheet.doctor:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
