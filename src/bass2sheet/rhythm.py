@@ -1,4 +1,6 @@
-"""Beat grid, bar phase and quantization; key and chord estimates."""
+"""Beat grid, bar phase and quantization. Also the chord per bar and the key as they were estimated before
+harmony.py: the built-in beat tracker still reads the harmony's changes that way, dev/chords_eval.py measures
+the new finder against them, and the key of a song without chords is still estimated here."""
 
 import librosa
 import numpy as np
@@ -201,7 +203,8 @@ TRIADS = {"": (0, 4, 7), "m": (0, 3, 7)}
 
 def chords_per_bar(harmony, notes, grid, origin):
     """Rough chord per bar: bar-averaged chroma of the guitars/keys matched to major/minor triads, with a small
-    bonus for the bass note."""
+    bonus for the bass note. What the sheet's chord symbols were before harmony.find; kept as the baseline that
+    dev/chords_eval.py measures it against."""
     y = librosa.resample(harmony.mean(0), orig_sr=SR, target_sr=22050)
     chroma = librosa.feature.chroma_cqt(y=y, sr=22050, hop_length=512)
     t = librosa.times_like(chroma, sr=22050, hop_length=512)

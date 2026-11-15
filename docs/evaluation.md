@@ -311,6 +311,69 @@ To measure what that is worth, the reference plays the person: it goes through e
 - **Marks are hints.** A sixteenth marked as written unlike a repeat is wrong about two times in three, more often when the repeat is one the person fixed; what the repeat has there is the right answer about six times in ten. The tool against itself (most of its repeats agree against one bar) points at wrong notes as often, and its answer is right less often. A note against silence is marked only as a whole note: how long a note is held is not. Nor is the line between two notes falling a sixteenth earlier in one bar than in another.
 - Tried and not adopted: counting a sixteenth where neither bar sounds as sounding the same (it carried changes between bars the reference has different notes in), and carrying every bar the person has passed, fixed or not, to its repeats (as much saved on average, far more broken on the songs where it goes wrong).
 
+### Chords and key
+
+`python dev/chords_eval.py --audio RWC_DIR --annotations RWC_ANNOTATIONS --slakh BABYSLAKH_DIR --ingredients`
+
+`harmony.py` finds a song's chords and its key or keys. The record without its bass and drums is heard eighth note by eighth note on the tool's beat grid; each eighth is matched against major and minor triads and three seventh chords (7, maj7, m7) on every root, by the notes that sound in it and by the tool's own bass notes; the chords are then one line through the song that changes where the music does, cheaply on a bar line, less so in the middle of a bar, dearly anywhere else. The key is read from the chords.
+
+Measured on the 24 RWC Popular songs with `mir_eval.chord`, against the dataset's chord annotations (Cho and Bello's, to 10 ms). Every figure is a share of the song's time. **Root**: the root is right. **Major/minor**: the root and the third; reference chords that are neither (sus, dim, aug: 5% of the time) are left out, as mir_eval does. **Sevenths**: root and quality right among maj, min, 7, maj7 and min7. **Bass**: the note under the chord. **Changes**: mir_eval's measure of chord changes falling where the reference's do. "Before" is the chord per bar the tool wrote until now (`rhythm.chords_per_bar`: one major or minor triad a bar from the bar's notes), on the same bar times.
+
+| | Root | Major/minor | Sevenths | Bass | Changes |
+|---|---|---|---|---|---|
+| Before, mean | 0.73 | 0.72 | 0.50 | 0.73 | 0.79 |
+| Before, median / worst song | 0.74 / 0.54 | 0.72 / 0.54 | 0.53 / 0.15 | | |
+| The finder, mean | 0.86 | 0.86 | 0.68 | 0.85 | 0.91 |
+| The finder, median / worst song | 0.87 / 0.63 | 0.87 / 0.62 | 0.75 / 0.30 | | |
+
+- **The root is better than before by 0.02 or more on 23 of the 24 songs and worse on one.** One song is under 0.70, where eight were. The five lowest: RWC_P061 0.63 (before 0.74; the one song that got worse: bars of E minor and D come out as D and G), RWC_P024 0.74, RWC_P033 0.75, RWC_P027 0.75, RWC_P084 0.81.
+- **The bars are the tool's own.** Both are scored on the beat grid the tool tracked, which follows the record. Bars laid out at one constant tempo drift off it, and any chord per bar scores far lower on them.
+- **What the reference holds.** Major triads 43% of the time, minor 19%, min7 13%, maj7 7%, 7 4%, maj6 3%, no chord 2%, the rest sus, dim, aug and extended chords. 13% of the time the bass is not on the root (a slash chord). The chord changes 1.2 times a bar: 60% of the changes on a bar line, 14% in the middle of a bar, 11% an eighth or a sixteenth before a bar line.
+- **Nothing the finder ships with was fitted to these songs.** RWC's audio and annotations are for non-commercial use, so no number fitted to them is in the code. The 125 weights of the match are fitted on BabySlakh (16 songs, CC BY 4.0), which has no chord annotations but has every instrument's MIDI: the chord of each eighth is read from the notes themselves, and the weights are fitted so that the audio, as the tool separates it, says the same (`dev/chords_eval.py --slakh DIR --fit`). What a chord change costs and how common each chord is in a key are set by hand.
+- **Four settings were chosen by their scores on these songs**, so the table is a little kinder than new songs will be. The length of a frame (an eighth; below). The share of a chord's note time at which a seventh in the MIDI counts (0.07; with 0.10 and 0.15 the sevenths score is 0.66 and 0.63). The costs of a change (1 on a bar line, 3 in the middle of a bar, 5 elsewhere; three other tables set by hand scored within 0.003, and costs read off where BabySlakh's own chords change 0.01 lower). The cost of a key change (below). The script names 25 other songs of the set (`--songs held-out`, every third of the rest); they have not been separated and are not measured.
+
+**What each part is worth.** The weights are fitted again on BabySlakh for each row; measured on the same 24 songs.
+
+| | Root | Major/minor | Sevenths | Root under a slash chord | Changes |
+|---|---|---|---|---|---|
+| The finder | 0.86 | 0.86 | 0.68 | 0.59 | 0.91 |
+| Without the tool's bass notes | 0.81 | 0.82 | 0.67 | 0.72 | 0.89 |
+| Triads only | 0.85 | 0.85 | 0.60 | 0.55 | 0.90 |
+| A change costs the same anywhere in the bar (3, the best of three) | 0.85 | 0.85 | 0.68 | 0.59 | 0.90 |
+| A beat at a time, not an eighth | 0.84 | 0.85 | 0.67 | 0.56 | 0.89 |
+| A bar at a time | 0.75 | 0.75 | 0.55 | 0.50 | 0.75 |
+| Weights set by hand, no data | 0.85 | 0.84 | 0.64 | 0.45 | 0.90 |
+| Weights fitted on these songs' own annotations, each song by the others | 0.86 | 0.85 | 0.67 | 0.65 | 0.91 |
+
+- **Hearing eighths in place of bars is most of the gain** (root 0.75 to 0.86). A bar at a time, the new match is hardly better than the old one.
+- **The bass notes are worth 0.045 of root** (0.812 without them, 0.857 with). They cost where the bass is not on the root: there the root is right 0.59 of the time with them and 0.72 without. Over a whole song they gain more than they lose.
+- **Weights fitted on synthesized songs carry over to recordings.** They score what weights fitted on RWC's own annotations score (0.857 and 0.857 on the root, 0.861 against 0.853 on major/minor; the RWC weights are a measurement and are not shipped). Weights set by hand, a chord's own notes with their first overtones, are 0.01 behind on the root, 0.02 on major/minor and 0.04 on sevenths, and get the root under a slash chord less often.
+- **Knowing where in the bar a change is likely is worth 0.007 of root**, and 0.01 on where the changes are. An eighth at a time against a beat at a time: 0.014.
+- **Tried, and nothing gained** (with weights fitted on RWC, each within 0.01): what is sung, the notes of the half bar around each eighth, the notes by octave band, the bass track's own spectrum beside the bass notes, the eighths before and after, overtones taken out of the spectrum before matching, a sixteenth at a time (0.01 worse). Feeding the key back into the chords, so that a key's own chords are preferred: +0.003 on major/minor at best. So the key is read from the chords, and not found with them.
+
+**A chord's score.** Each chord has a score between 0 and 1: the share of chords found that surely which have the right root and third. It comes from the chord's likelihood along the whole line, which runs high (chords with a likelihood of 0.9 to 0.95 are right three times in four), mapped through a table measured on BabySlakh. On the RWC songs, never used for the table:
+
+| Score | 0 to 0.3 | 0.3 to 0.4 | 0.4 to 0.5 | 0.5 to 0.6 | 0.6 to 0.7 | 0.7 to 0.8 | 0.8 to 0.9 | 0.9 to 1 |
+|---|---|---|---|---|---|---|---|---|
+| Share of the chords' time | 1% | 0.4% | 3% | 1% | 8% | 10% | 13% | 64% |
+| Root and third right | 0.21 | 0.32 | 0.39 | 0.57 | 0.60 | 0.77 | 0.80 | 0.92 |
+
+So a score means about what it says, a little less at the top: chords scored 0.97 on average are right 0.92 of the time. Two thirds of the time is in the top band, which the score cannot divide further.
+
+**The key.** There are no key annotations. The main key of each song was read by hand from its annotated chords (which chords take the most time in each part, how the song starts and ends) before any key the finder gave was looked at; 10 of the songs' MIDI files have a key signature other than the default C major, and it agrees with the reading on all 10.
+
+- **The main key is right on 24 of 24 songs**; the estimate used before (Krumhansl profiles on the song's average chroma) on 19, with the relative key on 2 and a key a fifth away on 2.
+- **The other key.** With every key comes the key that explains its chords next best, for the person to choose: on 19 of the 24 songs it is the relative major or minor of the main key. The key's score is lower where the two are close: between 0.5 and 0.65 on five of the six songs in C major, whose other key is A minor.
+- **Key changes.** 18 songs come out in one key, four in two and two in five. The two songs that end a tone or a semitone higher are found (RWC_P039 from D to E flat, RWC_P088 from C to D), and so are a middle part in C minor of a song in G sharp minor and an introduction in C of a song in D. The cost of a change was chosen on these songs: at 30 two songs' main key goes wrong, at 150 one; 60 and 100 keep all 24, and 100 splits fewer songs. Where the keys change is not annotated, so it is not measured.
+- **The table of how common each chord is in a key is set by hand**, as levels: the tonic most, then the fourth and fifth steps (in minor the flat sixth and seventh), then the key's other triads, then the chords pop borrows.
+
+**What does not work.**
+
+- **Chords over another bass note.** Where the reference has a slash chord the root is right 0.59 of the time: the bass pulls the root to itself, and C over E comes out as E minor. The bass under the chord is written only when it is another note of the chord found; where the reference's bass is not the root it is right 0.55 of the time.
+- **Sevenths are right about two times in three**, and a chord outside the five kinds (sus4, diminished, augmented, a sixth) is written as the nearest of them.
+- **Sparse and riff-based songs.** Where a guitar picks single notes or the band plays a riff, there is no chord to hear in an eighth.
+- **The beat grid is the tool's, and Beat This! was trained on RWC Popular**, so bars are right here more often than on other songs. On the grid of the built-in beat tracker (`--beats librosa`), which counts some of these songs at the wrong level and misplaces bar lines, the root is right 0.83 of the time and root and major/minor 0.83, where the chord per bar of before falls to 0.65; the main key is still right on all 24, and a chord's score still means what it says (0.9 and up: right 0.94 of the time).
+
 ### Verdicts against measured scores
 
 The score is F for BabySlakh, note acc for MDB-bass-synth and F 100ms for RWC.

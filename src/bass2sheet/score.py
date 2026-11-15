@@ -9,8 +9,9 @@ from xml.sax.saxutils import escape
 import numpy as np
 
 from .common import FLATS, SHARPS, log
+from .harmony import TONES, for_sheet
 
-TRIADS = {"": (0, 4, 7), "m": (0, 3, 7)}
+KINDS = {"": "major", "m": "minor", "7": "dominant", "maj7": "major-seventh", "m7": "minor-seventh"}  # MusicXML's
 STRINGS = [28, 33, 38, 43]  # E1 A1 D2 G2, sounding MIDI
 MAX_FRET = 20
 TYPES = {
@@ -364,6 +365,8 @@ def musicxml(
     subtitle=None,
 ):
     """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check").
+    `chords` is what harmony.for_sheet made of the song's chords (a symbol on beat 1 of a bar and, where the
+    chord changes in the bar, one on beat 3), or the list of one triad per bar that older data has.
     `subtitle` replaces the line under the title that says the bass is a machine transcription.
     Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes).
 
@@ -371,17 +374,34 @@ def musicxml(
     same fingering. `bar_times` maps a bar to where it starts in the recording, for the time printed at each line
     start; without it the times assume a steady tempo from `first_downbeat`."""
     key_name, key_root, key_major = key
-    chord_of = {c["bar"]: c for c in chords}
+    symbols = chords if isinstance(chords, dict) else for_sheet(dict(chords=chords))
     rel_major = key_root if key_major else (key_root + 3) % 12
     fifths = {0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 5: -1, 10: -2, 3: -3, 8: -4, 1: -5}[rel_major]
     key_names = SHARPS if fifths >= 0 else FLATS
 
     def spell(nt, pitch=None):
+        """A note of the chord it is played under is spelled as the chord spells it; any other by the key."""
         pitch = nt["pitch"] if pitch is None else pitch
-        c = chord_of.get(nt["bar"])
-        if c and pitch % 12 in {(c["root"] + i) % 12 for i in TRIADS[c["quality"]]}:
-            return c["names"][pitch % 12]
+        under = [c for at, c in symbols.get(nt["grid_start"] // 16 + 1, ()) if at <= nt["grid_start"] % 16]
+        if under and (pitch - under[-1]["root"]) % 12 in TONES[under[-1]["quality"]]:
+            return under[-1]["names"][pitch % 12]
         return key_names[pitch % 12]
+
+    def symbol_xml(c, at):
+        """A chord symbol `at` sixteenths into the bar it is written in."""
+        named = lambda tag, name: (
+            f"<{tag}><{tag}-step>{name[0]}</{tag}-step>"
+            + (f"<{tag}-alter>{1 if name[1:] == '#' else -1}</{tag}-alter>" if name[1:] else "")
+            + f"</{tag}>"
+        )
+        return (
+            "<harmony>"
+            + named("root", c["names"][c["root"]])
+            + f"<kind>{KINDS[c['quality']]}</kind>"
+            + (named("bass", c["names"][c["bass"]]) if c.get("bass") is not None else "")
+            + (f"<offset>{at}</offset>" if at else "")
+            + "<staff>1</staff></harmony>"
+        )
 
     events = written_events(notes, tab_style)
     first_bar = min(1, min(e["grid_start"] // 16 + 1 for e in events))
@@ -486,17 +506,11 @@ def musicxml(
             x += words(mmss(bar_time(bar)))
         if bar in check_bars:
             x += words("check", size=8, style="normal", color="#C62828")
-        c = chord_of.get(bar)
-        if c and bar in by_bar and c["chord"] != prev_chord:
-            root = c["names"][c["root"]]
-            alter = {"": 0, "#": 1, "b": -1}[root[1:]]
-            x += (
-                f"<harmony><root><root-step>{root[0]}</root-step>"
-                + (f"<root-alter>{alter}</root-alter>" if alter else "")
-                + f"</root><kind>{'major' if c['quality'] == '' else 'minor'}</kind><staff>1</staff></harmony>"
-            )
-            prev_chord = c["chord"]
-        elif bar not in by_bar:
+        for at, c in symbols.get(bar, ()) if bar in by_bar else ():  # a chord is named again only when it changes
+            if (c["root"], c["quality"], c.get("bass")) != prev_chord:
+                x += symbol_xml(c, at)
+                prev_chord = (c["root"], c["quality"], c.get("bass"))
+        if bar not in by_bar:
             prev_chord = None
         for staff in (1, 2):
             if staff == 2:

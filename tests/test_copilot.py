@@ -110,6 +110,49 @@ def test_preparing_a_song_again_keeps_the_persons_work(workdir, prepared, cache_
     assert again.note(first["id"])["state"] == "fixed" and again.public()["fixes"] == 1
 
 
+def test_a_song_added_again_gets_its_harmony_from_the_stems_it_has_and_the_persons_notes_stay(
+    taste_song_files, tmp_path, monkeypatch
+):
+    """A song prepared by a version of the tool from before there was harmony has one triad a bar and no more.
+    Adding it again hears it again: from the stems already in the cache, without separating it a second time."""
+    from bass2sheet import judge, separate
+
+    mix, stems_dir = taste_song_files
+    asked = []
+
+    def roformer(mix_path, n, cache_dir):
+        asked.append(mix_path)
+        return separate.load_stems(stems_dir, n)
+
+    monkeypatch.setattr(separate, "_roformer", roformer)
+    judge._song.cache_clear()
+    work = str(tmp_path / "scores")
+    opts = dict(
+        cache_dir=str(tmp_path / "cache"), device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa")
+    )
+    copilot.add([mix], work, opts, say=lambda _: 0)
+    folder = os.path.join(work, "mix")
+    machine = copilot.read_json(os.path.join(folder, "machine.json"))
+    assert len(asked) == 1 and machine["harmony"]["chords"] and machine["harmony"]["keys"]
+    assert {c["quality"] for c in machine["chords"]} <= {"", "m"} and len(machine["key"]) == 3  # as older code reads
+    # the song as the older tool left it, and the person has fixed a note in it since
+    with open(os.path.join(folder, "machine.json"), "w") as f:
+        json.dump({k: v for k, v in machine.items() if k != "harmony"}, f)
+    shutil.rmtree(os.path.join(folder, "heard"))
+    d = copilot.Desk(work, "mix")
+    fixed = d.notes[5]
+    d.act(dict(kind="pitch", id=fixed["id"], pitch=fixed["pitch"] + 2, how="key"))
+    old_sheet = open(copilot.sheet(work, "mix", mscore="/nonexistent/mscore")["musicxml"]).read()
+    assert "<harmony>" in old_sheet  # its chord per bar still gives the sheet its symbols
+    judge._song.cache_clear()
+    copilot.add([mix], work, opts, say=lambda _: 0)
+    again = copilot.read_json(os.path.join(folder, "machine.json"))
+    assert len(asked) == 1  # the stems were in the cache
+    assert again["harmony"] == machine["harmony"] and again["chords"] == machine["chords"]
+    assert copilot.Desk(work, "mix").note(fixed["id"])["state"] == "fixed"
+    judge._song.cache_clear()
+
+
 def _plucks(spec, seconds):
     import librosa
 

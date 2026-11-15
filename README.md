@@ -67,7 +67,7 @@ bass2sheet SONG [-o OUT_DIR] [--title T] [--artist A] [--strict]
 | `bass.pdf` | The printable score: bass clef (written an octave up, as bass parts are) over 4-string tab, chord symbols, the recording time at the start of each line, uncertain notes in parentheses, a red "check" over bars to verify |
 | `bass.musicxml` | The same score, editable in MuseScore or any notation program |
 | `bass.mid`, `bass_as_played.mid` | MIDI on a steady grid, and MIDI aligned with the recording |
-| `notes.json` | Every note with its time, pitch, bar position and flags; key, tempo, chords |
+| `notes.json` | Every note with its time, pitch, bar position and flags; the tempo; the song's harmony: its chords with where each starts and ends and how sure it is, and its key or keys |
 | `report.html`, `report.json` | The verdict, each gate's value and threshold, the bars to check and why |
 | `audio/` | The separated bass, the transcription synthesized, the transcription played with the bass's own sound (`bass_rebuilt.wav`: each note by a sample cut from another note), the song with the transcription in place of the real bass, and real bass left / transcription right for headphones |
 
@@ -114,7 +114,7 @@ Every fix is the tool's record of a mistake, with the right answer attached: `ba
 3. **Track pitch.** CREPE on the GPU, with pYIN as a cross-check. CREPE's output is decoded into a pitch path that moves smoothly within a note and may leap between notes, as a bass line does.
 4. **Find the notes.** Hysteresis on pitch confidence, so a note survives the brief loss of pitch at each pluck; a held note is split where the string is plucked again, and only there; notes hold until the next one; each start moves to where its pluck begins to sound, at 1 ms resolution; notes whose spectrum contradicts their octave are corrected. What the pitch tracker reports between notes is not written: the slide from one note to the next, the pitch sinking as a note is let go, the thump of a pluck. The pitch trackers follow one note at a time, so every stretch is then looked at again for two notes played together: the spectrum's peaks must hold a second note of their own that starts with the first, lasts with it and is louder in the bass track than in the rest of the record. An octave is never written as two notes.
 5. **Find the grid.** Beats and downbeats come from the [Beat This!](https://github.com/CPJKU/beat_this) model on the full mix. A built-in tracker (beats from drums and bass, the downbeat where the harmony changes) is the fallback. Notes are quantized to sixteenths in 4/4.
-6. **Key and chords.** Rough estimates for the chord symbols and note spelling.
+6. **Chords and key.** The record without its bass and drums is heard eighth note by eighth note, and each eighth is matched against major and minor triads and seventh chords on every root: by the notes that sound in it, and by the bass notes just found, since the bass holds the root most of the time. The chords are one line through the song that changes where the music does, on a bar line or in the middle of a bar far more readily than elsewhere. The key is read from the chords, and may change during the song; with it comes the next most likely key, which for most songs is the relative major or minor. The sheet's chord symbols and the spelling of its notes come from these.
 7. **Engrave.** MusicXML with a tab staff whose fingering comes from a search that keeps the fretting hand in place; MuseScore turns it into the PDF.
 8. **Check the notes by the bass's own sound.** Every note found is also a sample of what this bass sounds like at that pitch on this recording. Each note is compared with the other notes written with its pitch. One they do not explain, or that another pitch's notes explain better, is probably wrong: it goes in parentheses and on the list of bars to check.
 9. **Judge the result.** The quality gates below.
@@ -155,6 +155,8 @@ Version 0.2.0, measured with `bass2sheet-eval`. The full mix goes in, with the s
 | MDB-bass-synth: real multitrack songs, exact pitch curve | 24 of 71 | Share of the time the bass plays that has the right note | 0.77 | 0.80 |
 | RWC Popular: studio pop, bass transcribed by ear | 24 of 100 | Notes right, start within 100 ms (F-measure) | 0.77 | 0.73 |
 | | | Notes right, start within 50 ms | 0.71 | 0.67 |
+| | | Chords: share of the time the root is right | 0.86 | 0.87 |
+| | | Chords: root and major or minor right | 0.86 | 0.87 |
 | IDMT-SMT-Bass-Single-Track: a real bass guitar played alone, exact notes | 17 lines | Notes right: start within 50 ms, exact pitch (F-measure); no separation involved | 0.79 | 0.80 |
 
 What that means in practice:
@@ -163,6 +165,7 @@ What that means in practice:
 - **A real bass guitar is harder than a sampled one.** Played alone, with nothing to separate, 89% of the notes are found, but 13% of what the tool writes are re-attacks that were not played, and slap pops are found 66% of the time. Lines that jump a fifth or more upward are written right 78% of the time.
 - **Real recordings are harder.** On RWC about a third of the notes differ from the reference: repeated notes written as one long note (12% of the reference's notes), re-attacks the reference does not have (9% of ours) and wrong pitches (6%). The reference was transcribed by ear, so part of the difference is its own.
 - **Pitch is more reliable than rhythmic detail.** Octave errors are 1–3% of the notes.
+- **Chords: the root is right 86% of the time.** So is major or minor. Whether a chord is a plain triad or a seventh chord is right about two times in three, and where the bass is not on the root, the root is right 0.59 of the time. Each chord carries a score, and it means what it says: chords scored 0.9 and up are right 92% of the time, chords scored 0.5 to 0.7 about 60%. The main key was right on all 24 songs. Measured on RWC Popular, to which nothing in the chord finder was fitted.
 - **Tempo is right on nearly every song; bar lines are not.** On BabySlakh, 5 of 11 songs have their notes on the right sixteenth of the bar throughout. On the others the bar lines are off for part or all of the song: finding the downbeat is the hard part, and the fixed 4/4 grid cannot follow a song whose bars change length. RWC scores 1.00 here, but the beat tracker was trained on RWC, so that number says little.
 - **The verdict tracks accuracy.** Over the 80 runs, PASS results averaged 0.96 with none below 0.90, WARN 0.85 and FAIL 0.66. The thresholds were set on these same runs, so expect a looser relation on new songs.
 
@@ -176,7 +179,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 - Very short staccato notes (under about 100 ms) are often missed, and fast repeated notes on one pitch can come out as one long note.
 - A bar of another length (a 2/4 bar in a 4/4 song) shifts the bar lines after it.
 - Without the Beat This! model the built-in beat tracker finds the beats, and it often counts at the wrong level, half the tempo for the most part (it did on 7 of the BabySlakh test songs), which puts the bar lines in the wrong places and makes the rhythm coarser. The notes and their pitches are not affected. The command's log says when it was used, and so does the song's card on the copilot's first page; `uv run bass2sheet-doctor --fetch-models` gets the model.
-- Chord symbols are rough. Slides, ghost notes and dead notes are not notated.
+- Chords are major and minor triads and three seventh chords (7, maj7, m7); a suspended, diminished or augmented chord is written as the nearest of those. A chord over another bass note is often named after the bass. Slides, ghost notes and dead notes are not notated.
 
 ## Development
 
@@ -198,6 +201,7 @@ bass2sheet is MIT licensed (see [LICENSE](LICENSE)). It stands on other people's
 - Beats: [Beat This!](https://github.com/CPJKU/beat_this)
 - Second opinion: [Basic Pitch](https://github.com/spotify/basic-pitch)
 - Optional note finder: [MuScriptor](https://github.com/muscriptor/muscriptor) through [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp) (weights CC BY-NC 4.0 with conditions of use; not downloaded by bass2sheet)
+- Chords: the weights that match a chord to what is heard are fitted on [BabySlakh](https://zenodo.org/records/4603870), the first 20 songs of Slakh2100 (Manilow, Wichern, Seetharaman and Le Roux, 2019; CC BY 4.0)
 - Evaluation: [mir_eval](https://github.com/mir-evaluation/mir_eval), [pretty_midi](https://github.com/craffel/pretty-midi)
 - Engraving: [MuseScore](https://musescore.org)
 

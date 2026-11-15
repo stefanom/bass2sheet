@@ -7,7 +7,7 @@ import time
 import numpy as np
 import soundfile as sf
 
-from . import __version__, ownsound, render, report
+from . import __version__, harmony, ownsound, render, report
 from .audio import decode, validate
 from .common import (
     ALTERNATIVES,
@@ -27,16 +27,7 @@ from .common import (
 from .notes import SegParams, segment_notes
 from .pitch import features
 from .quality import CHECK_SEVERITY, check_list, gates_json, stem_gates, transcription_gates, verdict
-from .rhythm import (
-    beat_grid,
-    beats_and_downbeats,
-    chords_per_bar,
-    estimate_key,
-    grid_from_model_beats,
-    model_beats,
-    quantize,
-    simplify,
-)
+from .rhythm import beat_grid, beats_and_downbeats, grid_from_model_beats, model_beats, quantize, simplify
 from .score import engrave, find_mscore, musicxml
 from .second_opinion import basic_pitch_notes
 from .separate import load_stems, separate
@@ -97,7 +88,9 @@ def track_grid(stems, mix, audio_id, cache_dir, device, beat_tracker):
 
 def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, audio_id="", beat_tracker="auto"):
     """Everything the sheet is written from: the notes heard in the bass stem, placed on the beat grid, with the
-    key and the chords. Returns them with the pitch features (`feat`) and the 4/4 fit of the beats (`meter_fit`)."""
+    song's harmony (`harmony`: its keys and chords over time, see harmony.find; `key`: the key it is in for the
+    longest; `chords`: one triad a bar, as stored data has always had them). Returns them with the pitch
+    features (`feat`) and the 4/4 fit of the beats (`meter_fit`)."""
     bass_mono = stems["bass"].mean(0)
     with step("pitch") as found:
         feat = features(bass_mono, cache_dir, device, crepe_model)
@@ -128,8 +121,9 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
         )
         grid, origin = beat_grid(pulses, per_quarter, phase, len(bass_mono) / SR)
         notes = quantize(notes, grid, origin)
-        chords, chroma = chords_per_bar(stems["harmony"], notes, grid, origin)
-        key = estimate_key(chroma)
+        found_harmony = harmony.find(stems, notes, grid, origin)
+        key = harmony.main_key(found_harmony, notes)
+        chords = harmony.per_bar(found_harmony, origin, key)
         found.update(tempo=round(float(tempo), 1), bars=max(0, (len(grid) - int(origin) + 15) // 16), key=key[0])
         found["tracker"] = tracker
         if beat_tracker == "auto" and tracker != "beat_this":  # the model could not be had: say so where it shows
@@ -143,6 +137,7 @@ def find_notes(stems, cache_dir, params, device, crepe_model="full", mix=None, a
         origin=origin,
         chords=chords,
         key=key,
+        harmony=found_harmony,
         feat=feat,
         meter_fit=meter_fit,
     )
@@ -350,7 +345,7 @@ def run(
         files["bass_as_played.mid"] = "MIDI aligned with the recording"
         xml = musicxml(
             notes,
-            best["chords"],
+            harmony.for_sheet(best),
             best["key"],
             tempo,
             float(grid[origin]),
@@ -410,6 +405,7 @@ def run(
                 notes=data_notes,
                 chords=best["chords"],
                 key=best["key"][0],
+                harmony=best["harmony"],
                 tempo_bpm=tempo,
                 first_downbeat_s=float(grid[origin]),
                 tracked_pulse="eighth" if best["per_quarter"] == 2 else "quarter",
@@ -421,7 +417,7 @@ def run(
             default=float,
         ),
     )
-    files["notes.json"] = "notes, chords, key, tempo, grid"
+    files["notes.json"] = "notes, key, chords (a triad per bar, and the harmony over time), tempo, grid"
     tick("outputs", t0)
     timings["total"] = time.time() - t_start
     files["report.html"] = "this report"

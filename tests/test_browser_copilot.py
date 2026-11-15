@@ -503,7 +503,11 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     )
 
     # the other two maps show the same chord
-    for view, spots in (("wheel", 36), ("semitones", 36), ("roads", 22)):
+    for view, spots in (
+        ("wheel", 36),
+        ("semitones", 36),
+        ("roads", 21),
+    ):  # the map's own chords; all of the song's are among them
         page.click(f"#lens-tabs [data-view='{view}']")
         assert page.locator("#map .st").count() == spots and page.locator("#map .st.cur").count() == 1
         assert page.locator("#map .st.cur").get_attribute("data-spot") == str(

@@ -65,6 +65,8 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .edit select{min-height:28px;font-size:.875rem}
 .chip.pick{box-shadow:inset 0 0 0 2px var(--text)}
 .chip.yours b::after{content:" ✓";font-family:var(--sans);font-size:.65em;color:var(--text-2)}
+.chip.unsure{border-style:dashed;border-bottom-style:solid}
+.chip.unsure b::after{content:" ?";font-family:var(--sans);font-size:.7em;color:var(--pull)}
 .kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
 .kside{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
 .v-tag{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--text-2)}
@@ -253,6 +255,7 @@ svg text{font-family:var(--sans);fill:var(--text)}
         <h3>Home</h3>
         <div class="row" id="homes"></div>
         <p class="small muted" style="margin:var(--s2) 0 0">Home is the note the song comes back to. Two keys share the same notes, a major one and a minor one: if the numerals read oddly, try the other.</p>
+        <p class="small" id="keys-note" style="margin:var(--s2) 0 0" hidden></p>
       </div>
       <div class="card">
         <h3>The song in parts</h3>
@@ -498,7 +501,7 @@ function toggle() { if (au.paused) au.play(); else au.pause(); }
 /* ----- the chord that sounds, the part's loop as chips, the neck ----- */
 function paintHere() {
   const c = H.chords[S.chord], job = $("here-job");
-  $("here-name").textContent = c ? L.flat(c.name) : "–";
+  $("here-name").textContent = c ? L.flat(c.name + (c.slash ? "/" + c.slash : "")) : "–";
   $("here-num").textContent = c ? L.flat(c.numeral) : "";
   job.hidden = !c;
   if (c) {
@@ -519,10 +522,10 @@ function paintPath() {
   const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
   const held = p.loop.map((bar, i) => {   // what this round's bars hold; the loop's own where the round has no such bar
     const at = p.bar - 1 + (round - 1) * p.size + i - p.skip, inside = at >= p.bar - 1 && at < p.bar - 1 + p.bars;
-    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours } : { bar, yours: false };
+    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours, unsure: H.bars[at].unsure } : { bar, yours: false, unsure: false };
   });
   const shown = held.map(h => h.bar);
-  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : ""))).join("");
+  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : "") + (h.unsure ? " unsure" : ""))).join("");
   el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[L.barOf(p, round, +b.dataset.k)].time + 0.01, false); });
   const cur = el.querySelector(".playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -746,7 +749,7 @@ function paintEdit() {
   const bar = H.bars[E.bar - 1], part = H.parts.find(p => E.bar >= p.bar && E.bar < p.bar + p.bars);
   const say = list => list.map(c => L.flat(c.name)).join(" and ") || "no chord";
   $("edit-where").textContent = `Bar ${E.bar}${part ? " · part " + part.letter : ""}`;
-  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : `The tool heard ${say(bar.heard)}.`;
+  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : `The tool heard ${say(bar.heard)}${bar.unsure ? ", and is not sure of it" : ""}.`;
   const offers = L.offers(bar.heard, H.places, H.home);
   $("edit-offers").innerHTML = offers.map((c, i) => {
     const n = named(c), on = E.pick && E.pick.root === c.root && E.pick.quality === c.quality;
@@ -783,6 +786,9 @@ function paintHomes() {
   el.innerHTML = H.homes.map(h => `<button type="button" class="btn" data-root="${h.root}" data-major="${h.major ? 1 : 0}" aria-pressed="${h.root === H.home.root && h.major === H.home.major}">${L.esc(L.flat(h.name))}${h.found ? ' <span class="small" style="opacity:.7">found</span>' : ""}</button>`).join("")
     + `<select id="other-home" aria-label="Another home"><option value="">another…</option>${[1, 0].map(major => Array.from({ length: 12 }, (_, r) => `<option value="${r},${major}">${L.esc(L.flat(names[r]))} ${major ? "major" : "minor"}</option>`).join("")).join("")}</select>`;
   el.querySelectorAll("button").forEach(b => { b.onclick = () => setHome([+b.dataset.root, b.dataset.major === "1"]); });
+  const changes = H.keys.filter((k, i) => i === 0 || k.name !== H.keys[i - 1].name);
+  $("keys-note").hidden = changes.length < 2;
+  $("keys-note").textContent = "The tool hears the song change key: " + changes.map((k, i) => (i ? `${L.flat(k.name)} from ${L.clock(k.start)}` : L.flat(k.name))).join(", then ") + ". Every step on this page is counted from the one home you pick.";
   $("other-home").onchange = e => { if (e.target.value) { const [r, m] = e.target.value.split(","); setHome([+r, m === "1"]); } };
 }
 async function setHome(home) {
@@ -848,8 +854,11 @@ function paintAll() {
   $("title").textContent = H.title + (H.artist ? " · " + H.artist : "");
   $("to-notes").href = "/song#" + encodeURIComponent(H.id);
   $("to-score").href = "/score#" + encodeURIComponent(H.id);
-  $("rough").hidden = H.fine;
-  $("rough").textContent = "For this song the tool heard one chord a bar, major or minor. Its chords are rougher than its notes: trust the shape of the song more than any single chord.";
+  const doubted = H.bars.filter(b => b.unsure).length;
+  $("rough").hidden = H.fine && !doubted;
+  $("rough").textContent = H.fine
+    ? `A ? marks a chord the tool is unsure of: ${doubted} of this song's ${H.bars.length} bars have one. Such a chord is right about half the time. "Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`
+    : "For this song the tool has one chord a bar, major or minor, as it heard chords before: its separated tracks are not kept any more. Add the song again to have its chords heard anew.";
   paintShort(); paintHomes(); paintTabs(); paintStrip(); paintLoops(); paintProfile(); paintBass();
   tick(true);
   document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");

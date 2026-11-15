@@ -62,6 +62,19 @@ def test_rhythm_grid_matches(result, song):
     assert data["key"] in ("E minor", "G major")
 
 
+def test_the_songs_harmony_is_stored_beside_the_chord_per_bar_that_older_data_has(result):
+    data = result["data"]
+    chords, keys = data["harmony"]["chords"], data["harmony"]["keys"]
+    name = lambda c: "C C# D Eb E F F# G Ab A Bb B".split()[c["root"]] + c["quality"]
+    assert [name(c) for c in chords[:8]] == ["Em", "C", "G", "D"] * 2
+    assert all(c["until"] - c["at"] == 16 and 0.5 < c["score"] <= 1 and c["bass"] is None for c in chords[:8])
+    assert keys[0]["start"] == 0.0 and keys[-1]["end"] >= chords[-1]["end"] and "other" in keys[0]
+    assert [c["chord"] for c in data["chords"][:4]] == ["Em", "C", "G", "D"]  # one triad a bar, as before
+    assert {c["quality"] for c in data["chords"]} <= {"", "m"} and data["chords"][0]["bar"] >= 1
+    sheet = open(os.path.join(result["out"], "bass.musicxml")).read()  # and the sheet names them
+    assert sheet.count("<harmony>") >= 8 and "<root-step>E</root-step></root><kind>minor</kind>" in sheet
+
+
 def test_outputs_are_complete_and_valid(result, song):
     out = result["out"]
     for name in (

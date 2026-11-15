@@ -46,7 +46,7 @@ from xml.etree import ElementTree
 import numpy as np
 import soundfile as sf
 
-from . import copilot, score
+from . import copilot, harmony, score
 from .common import DEFAULTS, SR, Bass2SheetError, atomic_write_text, cache_home, sha1_file
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "playalong_page.html")
@@ -279,7 +279,7 @@ def score_xml(machine, notes, bars, tab=None):
     enters = max(1, min(n["grid_start"] // 16 + 1 for n in quantized))  # lines are counted from where the bass enters
     xml = score.musicxml(
         quantized,
-        machine["chords"],
+        harmony.for_sheet(machine),
         tuple(machine["key"]),
         machine["tempo"],
         grid_time(machine["grid"], machine["origin"]),

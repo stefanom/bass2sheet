@@ -100,6 +100,7 @@ TONES = {
 MAJOR = frozenset((0, 2, 4, 5, 7, 9, 11))
 MINOR = frozenset((0, 2, 3, 5, 7, 8, 10, 11))  # the natural minor scale, and the raised seventh its V chord needs
 JOBS = ("rest", "drift", "pull")
+PLAIN = dict(maj="", dom="", min="m", dim="dim")  # the triad under a chord, by its family (kind)
 # The job of a plain chord by its step above home, where no rule below says otherwise.
 BY_STEP = ("rest", "drift", "drift", "rest", "rest", "drift", "pull", "pull", "drift", "rest", "drift", "pull")
 # A root's place on the line of fifths from home, by its step above home; and, for a diminished chord that passes
@@ -404,10 +405,19 @@ def degree(pitch, root, base):
 
 
 def chords_of(machine):
-    """The tool's chords as stretches of time, in order: [dict(start, end, root, quality, score)]. A song
-    prepared when the tool wrote one chord a bar has one a bar; a bar where it heard no harmony has none."""
+    """The tool's chords as stretches of time, in order: [dict(start, end, root, quality, score, over)]. `over`
+    is the note the bass holds under the chord when that is not its root (C over E), else None. A song has its
+    chords eighth by eighth (harmony.find): two may share a bar, and where only bass and drums play there is
+    none. A song prepared before the tool heard chords that way has one a bar, major or minor."""
     grid, origin, length = machine["grid"], machine["origin"], machine["length"]
     out = []
+    for c in (machine.get("harmony") or {}).get("chords") or []:
+        start, end = max(0.0, c["start"]), min(c["end"], length)
+        if end - start > 0.05:
+            chord = dict(start=round(start, 3), end=round(end, 3), root=int(c["root"]), quality=c["quality"])
+            out.append(dict(chord, score=round(float(c["score"]), 3), over=c.get("bass")))
+    if out or machine.get("harmony"):
+        return out
     for c in machine.get("chords") or []:
         i = origin + 16 * (c["bar"] - 1)
         if not 0 <= i < len(grid) or float(c.get("score", 1.0)) <= 0:
@@ -417,8 +427,38 @@ def chords_of(machine):
         if end - start <= 0.05:
             continue
         chord = dict(start=round(start, 3), end=round(min(end, max(length, start)), 3), root=int(c["root"]))
-        out.append(dict(chord, quality=c.get("quality", ""), score=round(float(c.get("score", 1.0)), 3)))
+        out.append(dict(chord, quality=c.get("quality", ""), score=round(float(c.get("score", 1.0)), 3), over=None))
     return out
+
+
+UNSURE = 0.6  # a chord the tool gives less than this is marked on the page: it is right about half the time
+_ASKED = set()  # the songs whose harmony was asked for and could not be had: not asked for at every look
+
+
+def keys_of(machine):
+    """The keys the tool hears the song in, in time order: [dict(start, end, root, major, score, other)], or
+    none for a song without its harmony. `other` is the key that explains that stretch next best."""
+    return [
+        dict(
+            start=round(k["start"], 3),
+            end=round(k["end"], 3),
+            root=int(k["root"]),
+            major=bool(k["major"]),
+            score=round(float(k["score"]), 3),
+            other=(int(k["other"]["root"]), bool(k["other"]["major"])),
+        )
+        for k in (machine.get("harmony") or {}).get("keys") or []
+    ]
+
+
+def with_harmony(desk):
+    """The song's machine data, with its harmony heard now if the song was prepared before there was any
+    (copilot.hear_harmony: a few seconds, once)."""
+    if "harmony" not in desk.machine and desk.folder not in _ASKED:
+        _ASKED.add(desk.folder)
+        if copilot.hear_harmony(desk.workdir, desk.song_id) is not None:
+            desk.machine = copilot.read_json(os.path.join(desk.folder, "machine.json"))
+    return desk.machine
 
 
 def read_home(folder):
@@ -494,16 +534,19 @@ def with_fixes(machine, chords, fixes):
         each = (t1 - t0) / len(held)
         for k, (root, quality) in enumerate(held):
             mine = dict(start=round(t0 + k * each, 3), end=round(t0 + (k + 1) * each, 3), root=root, quality=quality)
-            out.append(dict(mine, score=1.0, yours=True))
+            out.append(dict(mine, score=1.0, over=None, yours=True))
     return sorted(out, key=lambda c: c["start"])
 
 
 def _per_bar(chords, bars, bar_ends):
-    """What each bar holds: its chords in order, as (root, quality). A chord counts in a bar it fills a tenth of."""
-    return [
-        tuple((c["root"], c["quality"]) for c in chords if min(c["end"], t1) - max(c["start"], t0) > 0.1 * (t1 - t0))
-        for t0, t1 in zip(bars, bar_ends)
-    ]
+    """What each bar holds: its chords in order. A chord counts in a bar it fills a fifth of (a beat; a chord
+    that comes in an eighth early belongs to the next bar); one that goes on after another of the same name
+    counts once."""
+    out = []
+    for t0, t1 in zip(bars, bar_ends):
+        held = [c for c in chords if min(c["end"], t1) - max(c["start"], t0) > 0.2 * (t1 - t0)]
+        out.append([c for k, c in enumerate(held) if k == 0 or _same(c) != _same(held[k - 1])])
+    return out
 
 
 def _under(notes, start, end):
@@ -608,7 +651,7 @@ def _loops(song_parts, bass, n_bars):
 
 def view(desk):
     """Everything the harmony page shows of a song (see the page for how). Times are seconds of the record."""
-    machine = desk.machine
+    machine = with_harmony(desk)
     found = (int(machine["key"][1]) % 12, bool(machine["key"][2]))
     chosen = read_home(desk.folder)
     home = chosen or found
@@ -639,6 +682,7 @@ def view(desk):
         chord.update(
             bass=None if on is None else int(on["pitch"]) % 12,
             role=None if on is None else role(on["pitch"], c["root"]),
+            slash=None if c["over"] is None or c["over"] == c["root"] else names[c["over"]],
         )
         chords.append(chord)
     maps = {}
@@ -651,7 +695,19 @@ def view(desk):
         maps[name] = dict(box=(760, 534) if name == "roads" else WHEEL["box"], spots=spots)
         for chord in chords:
             chord.setdefault("on", {})[name] = where[(chord["root"], chord["quality"])]
-    held, by_tool = _per_bar(chords, bars, bar_ends), _per_bar(heard, bars, bar_ends)  # then the parts
+    in_bar, by_tool = _per_bar(chords, bars, bar_ends), _per_bar(heard, bars, bar_ends)
+    held = [tuple(_same(c) for c in bar) for bar in in_bar]  # what the song is cut into parts by
+    # The song is cut by its triads: a seventh heard in one round and not in the next is the same bar. A chord
+    # the tool is unsure of does not count where the bar has one it is sure of. What a loop is then shown with,
+    # bar by bar, is what most of its rounds hold there, sevenths and all.
+    sure = [[c for c in bar if c["yours"] or c["score"] >= UNSURE] or bar for bar in in_bar]
+    plain = [_once(tuple((c["root"], PLAIN[kind(c["quality"])]) for c in bar)) for bar in sure]
+    cut, shown = parts(plain), collections.defaultdict(collections.Counter)
+    for part in cut:
+        for k in range(part["bars"]):
+            at = (k + part["skip"]) % len(part["loop"])
+            if plain[part["first"] + k] == part["loop"][at]:
+                shown[(part["letter"], at)][held[part["first"] + k]] += 1
     song_parts = [
         dict(
             letter=part["letter"],
@@ -661,9 +717,12 @@ def view(desk):
             skip=part["skip"],
             start=round(max(0.0, bars[part["first"]]), 3),
             end=round(bar_ends[part["first"] + part["bars"] - 1], 3),
-            loop=[[said(*chord) for chord in bar] for bar in part["loop"]],
+            loop=[
+                [said(*chord) for chord in (shown[(part["letter"], at)].most_common(1) or [(bar, 1)])[0][0]]
+                for at, bar in enumerate(part["loop"])
+            ],
         )
-        for part in parts(held)
+        for part in cut
     ]
     tab, ways = copilot.tab_style(desk.folder), fingerings(machine, notes)
     bass = _bass(machine, notes, chords, bars, ways[tab])
@@ -673,7 +732,10 @@ def view(desk):
         (b["root"] - a["root"]) % 12 for a, b in zip(runs, runs[1:]) if a["root"] != b["root"]
     )
     total, sung = sum(spent.values()) or 1.0, sum(played.values()) or 1.0
-    homes = [found, relative(found)] + ([chosen] if chosen and chosen not in (found, relative(found)) else [])
+    keys = keys_of(machine)
+    homes = [found, relative(found)]  # the choices: the key found, the one with the same notes, the next best
+    homes += [k["other"] for k in keys if (k["root"], k["major"]) == found and k["other"] not in homes][:1]
+    homes += [chosen] if chosen and chosen not in homes else []
     return dict(
         id=desk.song_id,
         title=desk.song.get("title", desk.song_id),
@@ -682,6 +744,7 @@ def view(desk):
         tempo=machine["tempo"],
         home=dict(root=home[0], major=home[1], name=key_name(home), yours=chosen is not None),
         homes=[dict(root=h[0], major=h[1], name=key_name(h), found=h == found) for h in homes],
+        keys=[dict(k, name=key_name((k["root"], k["major"])), other=None) for k in keys],  # where each key is heard
         names=names,
         bars=[
             dict(
@@ -690,8 +753,9 @@ def view(desk):
                 end=round(bar_ends[k], 3),
                 pattern=patterns[k]["pattern"] if k < len(patterns) else None,
                 holds=[said(*chord) for chord in held[k]],
-                heard=[said(*chord) for chord in by_tool[k]],  # what the tool heard there, whatever it holds now
+                heard=[said(*_same(c)) for c in by_tool[k]],  # what the tool heard there, whatever it holds now
                 yours=k + 1 in fixes,
+                unsure=k + 1 not in fixes and any(c["score"] < UNSURE for c in in_bar[k]),
             )
             for k, t in enumerate(bars)
         ],
@@ -716,10 +780,16 @@ def view(desk):
         motions=[dict(up=up, name=MOTIONS[up], times=n) for up, n in motions.most_common()],
         roles={r: round(played[r] / sung, 3) for r in ROLE_ORDER},
         on_root=round(sum(c["role"] == "root" for c in chords) / max(1, sum(c["role"] is not None for c in chords)), 3),
-        fine=bool((machine.get("harmony") or {}).get("chords")),  # chords found beat by beat, or one a bar
+        fine="harmony" in machine,  # chords found eighth by eighth, or the one a bar of a song prepared long ago
+        unsure=round(sum(c["end"] - c["start"] for c in chords if not c["yours"] and c["score"] < UNSURE), 1),
         audio={name: f"/data/{desk.song_id}/audio/{name}.flac" for name in ("record", "nobass", "bass")},
     )
 
 
 def _same(chord):
     return chord["root"], chord["quality"]
+
+
+def _once(held):
+    """What a bar holds, with a chord that follows itself counted once."""
+    return tuple(c for k, c in enumerate(held) if k == 0 or c != held[k - 1])
