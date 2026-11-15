@@ -414,7 +414,10 @@ def test_the_page_logic_holds():
 # ------------------------------------------------------------------------------------------------ the home network
 
 
-def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
+def test_only_the_machine_itself_may_change_a_score(workdir, tmp_path, monkeypatch):
+    from conftest import mscore_stand_in
+
+    monkeypatch.setattr(score, "MSCORE_CANDIDATES", [mscore_stand_in(tmp_path)])  # the score is drawn on any machine
     for address, ours in (
         ("127.0.0.1", True),
         ("127.8.9.10", True),

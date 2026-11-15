@@ -83,12 +83,17 @@ def note(start, end, pitch, **kw):
 @pytest.fixture(scope="session")
 def browser():
     """A browser without a window to open the pages in: the Chromium Playwright installs (`playwright install
-    chromium`), else the Chrome or the Edge that is on the machine. BASS2SHEET_TEST_BROWSER=chrome asks for one of
-    them by name. The tests that need it are skipped where there is no Playwright or no such browser."""
+    chromium`), else the Chrome or the Edge that is on the machine. The tests that need it are skipped where there
+    is no Playwright or no such browser. BASS2SHEET_TEST_BROWSER=chromium (or chrome, or msedge) asks for one by
+    name: then it has to be there, and a browser that is missing fails the tests instead of skipping them."""
+    named = os.environ.get("BASS2SHEET_TEST_BROWSER")
+    missing = pytest.fail if named else pytest.skip
     if os.environ.get("BASS2SHEET_TEST_BARE") == "1":
         pytest.skip("a machine with nothing but `uv sync` on it has no browser to drive")
-    sync_api = pytest.importorskip("playwright.sync_api", reason="Playwright is not installed: uv sync --group browser")
-    named = os.environ.get("BASS2SHEET_TEST_BROWSER")
+    try:
+        from playwright import sync_api
+    except ImportError:
+        missing("Playwright is not installed: uv sync --group browser")
     channels = [None if named == "chromium" else named] if named else [None, "chrome", "msedge"]
     # no GPU: what is drawn is the same on every machine; sound may start without a click having asked for it
     args = ["--disable-gpu", "--autoplay-policy=no-user-gesture-required"]
@@ -103,7 +108,7 @@ def browser():
             except Exception as e:  # not installed
                 why.append(f"{channel or 'chromium'}: {str(e).splitlines()[0]}")
         if found is None:
-            pytest.skip("no browser to drive (uv run playwright install chromium): " + "; ".join(why))
+            missing("no browser to drive (uv run playwright install chromium): " + "; ".join(why))
         yield found
         found.close()
 

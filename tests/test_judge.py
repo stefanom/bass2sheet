@@ -612,10 +612,15 @@ def test_the_first_step_is_judged_on_the_isolated_bass_tracks_themselves(tmp_pat
 def built(taste_song_files, cache_dir, tmp_path_factory):
     """A synthetic song with its stems given (so there is no separator to judge) and three later steps that
     need no model download. The tests below walk through it in order."""
+    from conftest import mscore_stand_in
+
     mix, stems = taste_song_files
     workdir = str(tmp_path_factory.mktemp("judging"))
     said = []
     kw = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    # the score snippets are drawn by a stand-in for MuseScore (tests/mscore_standin.py), so that the steps that
+    # show a score are the same on a machine without MuseScore; test_score_snippets_... also asks MuseScore itself
+    kw["mscore"] = mscore_stand_in(tmp_path_factory.mktemp("bin"))
     n = judge.build(
         [mix], workdir, ["replucks", "rhythm", "tab"], per_song=2, stems_dirs={mix: stems}, say=said.append, **kw
     )
@@ -725,11 +730,8 @@ def test_the_server_prepares_the_step_a_pick_opens(built):
         srv.server_close()
 
 
-def test_score_snippets_follow_the_audio_and_are_engraved_once(built):
-    if not find_mscore():
-        pytest.skip("needs MuseScore")
-    workdir = built["workdir"]
-    comps = judge.load_comparisons(workdir)
+def _snippets_hold(workdir, comps):
+    """What every engraved score snippet has to be, whoever drew it. Returns the comparisons that show a score."""
     scores = [c for c in comps if c["kind"] in ("writing", "tab")]
     assert scores and all(set(c["sheets"]) == {"A", "B"} and c["sheet_rev"] == judge.SHEET_REV for c in scores)
     for c in scores:
@@ -744,15 +746,26 @@ def test_score_snippets_follow_the_audio_and_are_engraved_once(built):
             assert y0 < sheet["staff"][0] < sheet["staff"][1] < y1 and all(x0 < m < x1 for m in sheet["marks"])
         if c["kind"] == "tab":
             assert not c["sheets"]["A"]["marks"]  # every fingering differs: nothing worth marking
+    return scores
+
+
+def test_score_snippets_follow_the_audio_and_are_engraved_once(built):
+    workdir = built["workdir"]
+    drawer = built["kw"]["mscore"]  # the stand-in the directory was built with
+    comps = judge.load_comparisons(workdir)
+    scores = _snippets_hold(workdir, comps)
     quiet = lambda _: 0
-    assert judge.render_sheets(workdir, comps, find_mscore(), quiet) == 0
+    assert judge.render_sheets(workdir, comps, drawer, quiet) == 0
     scores[0]["sheet_rev"] = 1  # from an older layout
-    assert judge.render_sheets(workdir, comps, find_mscore(), quiet) == 1
-    assert judge.render_sheets(workdir, comps, find_mscore(), quiet, force=True) == len(scores)  # pictures are kept
+    assert judge.render_sheets(workdir, comps, drawer, quiet) == 1
+    assert judge.render_sheets(workdir, comps, drawer, quiet, force=True) == len(scores)  # pictures are kept
     said = []
     scores[0]["sheet_rev"] = 1
     assert judge.render_sheets(workdir, comps, None, said.append) == 0 and "MuseScore 4 not found" in said[0]
-    judge.render_sheets(workdir, comps, find_mscore(), quiet)  # leave the directory as it was
+    if find_mscore():  # where MuseScore is installed: what it draws holds as well
+        assert judge.render_sheets(workdir, comps, find_mscore(), quiet, force=True) == len(scores)
+        _snippets_hold(workdir, judge.load_comparisons(workdir))
+    judge.render_sheets(workdir, comps, drawer, quiet, force=True)  # leave the directory as it was
 
 
 def test_building_again_adds_nothing_and_keeps_the_picks(built):

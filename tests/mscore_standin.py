@@ -22,7 +22,6 @@ import sys
 import zlib
 from xml.etree import ElementTree
 
-BAR_MS = 2000.0  # how long a bar lasts by the score's own clock (4/4 at 120)
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="850" height="1100" viewBox="0 0 850 1100">'
     '<rect width="850" height="1100" fill="white"/><title>page {k}</title>'
@@ -32,9 +31,11 @@ SVG = (
 
 
 def measures_of(xml_path):
-    """[(starts a new page, [sixteenths of the bar where a note or rest of the upper staff is])] of a MusicXML file."""
+    """(how long a bar lasts at the tempo the score names, in milliseconds; for each measure: whether it starts a
+    new page, and the sixteenths of the bar where a note or rest of the upper staff is) of a MusicXML file."""
     root = ElementTree.parse(xml_path).getroot()
     assert root.tag == "score-partwise", root.tag
+    tempo = next((float(e.get("tempo")) for e in root.iter("sound") if e.get("tempo")), 120.0)
     out = []
     for measure in root.iter("measure"):
         new_page = any(p.get("new-page") == "yes" for p in measure.iter("print"))
@@ -54,7 +55,7 @@ def measures_of(xml_path):
         assert set(total.values()) == {16}, f"measure {measure.get('number')} does not add up: {total}"
         out.append((new_page, places))
     assert out, "the score has no measures"
-    return out
+    return 4 * 60000.0 / round(tempo), out
 
 
 def pages_of(measures):
@@ -92,7 +93,7 @@ def positions(path, items):
         f.write(f"<events>{events}</events></score>\n")
 
 
-def layout(measures, style, dpi):
+def layout(bar_ms, measures, style, dpi):
     """Where everything is: (page width, page height, the measures' boxes, the notes' and rests' boxes), the boxes
     as `positions` takes them. Every page holds one line; its bars share the width evenly."""
     inches = lambda name, default: (
@@ -107,10 +108,10 @@ def layout(measures, style, dpi):
         each = across / len(held)
         for slot, (k, places) in enumerate(held):
             x0 = left + slot * each
-            boxes.append((x0, top, each, tall, page, k * BAR_MS))
+            boxes.append((x0, top, each, tall, page, k * bar_ms))
             for at in places:
                 x = x0 + (at + 0.5) / 16 * each
-                marks.append((x, top, min(0.3 * each / 16, 30), tall, page, (k + at / 16) * BAR_MS))
+                marks.append((x, top, min(0.3 * each / 16, 30), tall, page, (k + at / 16) * bar_ms))
     return width, height, boxes, marks
 
 
@@ -136,8 +137,8 @@ def draw(stem, width, height, boxes, marks):
 
 
 def engrave(xml_path, outs, style, dpi):
-    measures = measures_of(xml_path)
-    width, height, boxes, marks = layout(measures, style, dpi)
+    bar_ms, measures = measures_of(xml_path)
+    width, height, boxes, marks = layout(bar_ms, measures, style, dpi)
     for out in outs:
         stem, kind = out.rsplit(".", 1)
         if kind == "pdf":
