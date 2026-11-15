@@ -824,3 +824,329 @@ def test_the_command_line_reports_and_refuses_politely(workdir, capsys):
     assert "no such file" in capsys.readouterr().out
     assert copilot.main(["sheet", "nope", "--dir", workdir]) == 1
     assert "is not prepared" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------------- what is refused, and by whom
+
+
+def test_fixes_that_cannot_be_made_are_refused_and_nothing_changes(workdir):
+    d = _desk(workdir)
+    order = sorted(d.notes, key=lambda n: n["start"])
+    first, last, length = order[0], order[-1], d.machine["length"]
+    notes = json.dumps(d.notes)
+    assert d.act(dict(kind="undo")) == dict(undone=None)  # with nothing to take back, nothing happens
+    for action, said in (
+        (dict(kind="keep", start=5.0, end=5.0), "nothing to keep"),
+        (dict(kind="add", start=-1.0, end=0.5, pitch=40), "no room for a note here"),
+        (dict(kind="add", start=0.2, end=0.21, pitch=40), "no room for a note here"),  # shorter than a note can be
+        (dict(kind="add", start=length + 2, end=length + 3, pitch=40), "no room for a note here"),
+        (dict(kind="add", start=0.2, end=0.6, pitch=5), "5 is not a pitch a bass plays"),
+        (dict(kind="move", id=first["id"], end=first["start"] + 0.01), "that would leave no note"),
+        (dict(kind="merge", id=last["id"]), "there is no note after this one to join it with"),
+        (dict(kind="merge", ids=[first["id"]]), "only notes that follow each other can be joined"),
+        (dict(kind="pitches", ids=[first["id"], "nope"], pitch=45), "no note nope"),
+        (dict(kind="also", id=first["id"], also=[200]), "200 is not a pitch a bass plays"),
+        (dict(kind="repeats", items=[]), "there is nothing to take from a repeat"),
+        (dict(kind="upto", time=length + 5), "that is not a moment of the song"),
+        (dict(kind="undo", fix=7), "that fix can no longer be taken back on its own"),
+    ):
+        if action["kind"] == "undo":  # a fix can only be missing from a history that has something in it
+            d.act(dict(kind="pitch", id=first["id"], pitch=first["pitch"] + 1, offer=False))
+        with pytest.raises(Bass2SheetError, match=said):
+            d.act(action)
+        if action["kind"] == "undo":
+            d.act(dict(kind="undo"))
+        assert json.dumps(d.notes) == notes and d.public()["undo"] == 0, action
+    assert json.dumps(_desk(workdir).notes) == notes  # and nothing of it reached the disk
+
+
+def test_the_record_tells_a_second_note_and_a_moved_end(workdir):
+    d = _desk(workdir)
+    a, b = dict(d.notes[10]), dict(d.notes[20])
+    d.act(dict(kind="also", id=a["id"], also=[a["pitch"] + 7]))  # another note was played with this one
+    d.act(dict(kind="move", id=b["id"], end=round(b["end"] - 0.1, 3)))  # this one stops earlier
+    m = copilot.mistakes(workdir, "mix")
+    assert m["kinds"] == {"second note": 1, "end": 1}
+    assert [(r["kind"], r["time"]) for r in m["rows"]] == [
+        ("second note", round(a["start"], 2)),
+        ("end", round(b["start"], 2)),
+    ]
+    d.act(dict(kind="move", id=b["id"], end=b["end"] - 0.02))  # two hundredths of a second are not a mistake
+    assert copilot.mistakes(workdir, "mix")["kinds"] == {"second note": 1}
+
+
+def test_the_sheet_is_written_with_the_rhythm_asked_for(workdir, monkeypatch):
+    from bass2sheet import score
+
+    monkeypatch.setattr(score, "MSCORE_CANDIDATES", [])
+    sixteenths = lambda **kw: open(copilot.sheet(workdir, "mix", **kw)["musicxml"]).read().count("<type>16th</type>")
+    literal, simple = sixteenths(), sixteenths(rhythm="simple")
+    assert literal > simple >= 0  # the song has notes a sixteenth early: simplified, they are on the eighths
+    made = copilot.score_made(workdir, "mix")
+    assert made["version"] == 2 and made["pages"] == [] and set(made["files"]) == {"musicxml", "midi"}
+    assert copilot.main(["sheet", "mix", "--dir", workdir]) == 0  # the command writes the song's own rhythm again
+
+
+def test_the_song_is_not_slowed_when_the_program_fails_or_the_song_is_not_there(workdir, monkeypatch, tmp_path):
+    import stat
+    import sys
+
+    program = str(tmp_path / "stretcher")
+    with open(program, "w") as f:
+        f.write(f"#!{sys.executable}\nimport sys\nsys.exit('cannot read this file')\n")
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(copilot, "stretcher", lambda: ("rubberband", program))
+    with pytest.raises(Bass2SheetError, match=r"could not slow the song down \(rubberband\): cannot read this file"):
+        copilot.slowed(workdir, "mix", "bass", 70)
+    with pytest.raises(Bass2SheetError, match="nope is not prepared"):
+        copilot.slowed(workdir, "nope", "bass", 70)
+    assert sorted(os.listdir(os.path.join(workdir, "mix", "audio"))) == ["bass.flac", "nobass.flac", "record.flac"]
+
+
+def test_without_rubber_band_the_ffmpeg_that_comes_with_the_tool_slows_the_song(monkeypatch):
+    import shutil as sh
+
+    monkeypatch.setattr(sh, "which", lambda name: None)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    kind, program = copilot.stretcher()
+    assert kind == "ffmpeg" and os.path.basename(program).startswith("ffmpeg")
+
+
+def _ask(url, method="GET", body=None, headers=None):
+    """(status, headers, body) of any request, a refused one too."""
+    req = urllib.request.Request(url, body, headers or {}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, dict(r.headers), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), e.read()
+
+
+def test_the_server_refuses_what_it_does_not_have_and_says_why(server, monkeypatch):
+    url, workdir = server
+    picture = url + "/data/mix/picture.bin"
+    size = os.path.getsize(os.path.join(workdir, "mix", "picture.bin"))
+    status, headers, body = _ask(picture, headers={"Range": f"bytes={size + 10}-"})  # past the end of the file
+    assert (status, body, headers["Content-Range"]) == (416, b"", f"bytes */{size}")
+    status, headers, body = _ask(picture, headers={"Range": "bytes=-4"})  # its last four bytes
+    assert (status, len(body), headers["Content-Range"]) == (206, 4, f"bytes {size - 4}-{size - 1}/{size}")
+    status, headers, body = _ask(url + "/data/mix/audio/bass.flac", "HEAD")
+    assert (status, body, headers["Accept-Ranges"]) == (200, b"", "bytes") and int(headers["Content-Length"]) > 100_000
+    status, headers, body = _ask(url + "/song", "HEAD")
+    assert (status, body, headers["Content-Type"]) == (200, b"", "text/html; charset=utf-8")
+    for path in ("/nothing", "/api/nothing", "/data/mix/sheet/bass.pdf", "/api/guesses?song=mix&id=nope"):
+        status, _, body = _ask(url + path)
+        assert status == 404 and json.loads(body)["error"], path
+    asked = json.dumps(dict(song="mix")).encode()
+    assert _ask(url + "/api/nothing", "POST", asked)[0] == 404
+    for path, sent, said in (
+        ("/api/act", b"this is not json", ""),
+        ("/api/checked", json.dumps(dict(song="mix", start=0)).encode(), "end"),  # half of what it needs
+        ("/api/checked", json.dumps(dict(song="mix", start="soon", end=3)).encode(), "could not convert"),
+        ("/api/strips", json.dumps(dict(song="mix", bar=999)).encode(), "no such bar"),
+        ("/api/adding", json.dumps(dict(do="dance", id="mix")).encode(), "dance"),
+    ):
+        status, _, body = _ask(url + path, "POST", sent)
+        assert status == 400 and said in json.loads(body)["error"], (path, body)
+
+    def cannot(*args):
+        raise Bass2SheetError("could not slow the song down (ffmpeg): no such filter")
+
+    monkeypatch.setattr(copilot, "slowed", cannot)
+    status, _, body = _ask(url + "/data/mix/audio/record-60.flac")
+    assert (status, json.loads(body)["error"]) == (500, "could not slow the song down (ffmpeg): no such filter")
+    with pytest.raises(Bass2SheetError, match=r"cannot listen on port \d+ \(.*\); pick another with --port"):
+        copilot_server.make_server(workdir, int(url.rsplit(":", 1)[1]))
+    with pytest.raises(Bass2SheetError, match="is not a directory"):
+        copilot_server.make_server(os.path.join(workdir, "songs.json"), 0)
+
+
+def test_at_most_two_songs_are_open_at_once_and_a_closed_one_opens_as_it_was_left(workdir):
+    songs = copilot.load_songs(workdir)
+    for name in ("second", "third"):
+        shutil.copytree(os.path.join(workdir, "mix"), os.path.join(workdir, name))
+        songs[name] = dict(songs["mix"], id=name, title=name)
+    json.dump(songs, open(os.path.join(workdir, "songs.json"), "w"))
+    desks = copilot_server.Desks(workdir)
+    first = desks.get("mix")
+    n = dict(first.notes[5])
+    first.act(dict(kind="pitch", id=n["id"], pitch=n["pitch"] + 2, offer=False))
+    assert desks.get("mix") is first and desks.get("second").song_id == "second"
+    desks.get("third")
+    assert list(desks.open) == ["second", "third"]  # the one opened first made room
+    again = desks.get("mix")
+    assert (
+        again is not first and again.note(n["id"])["pitch"] == n["pitch"] + 2 and list(desks.open) == ["third", "mix"]
+    )
+    with pytest.raises(Bass2SheetError, match="no song fourth"):
+        desks.get("fourth")
+
+
+def test_serve_says_where_the_pages_are_and_stops_at_ctrl_c(workdir, tmp_path, monkeypatch, capsys):
+    from http.server import ThreadingHTTPServer
+
+    served = []
+
+    def forever(self):
+        served.append(self.server_address)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever", forever)
+    with ThreadingHTTPServer(("127.0.0.1", 0), copilot_server.Handler) as probe:
+        port = probe.server_address[1]  # a port that is free
+    assert copilot.main(["serve", "--dir", workdir, "--port", str(port)]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"1 song. Open http://localhost:{port}",
+        f"To play along: http://localhost:{port}/play",
+        "Stop with Ctrl-C; your fixes are saved as you make them.",
+        "",
+    ]
+    empty = str(tmp_path / "no songs yet")
+    assert copilot.main(["serve", "--dir", empty, "--port", str(port)]) == 0  # the port was given back
+    said = capsys.readouterr().out.splitlines()
+    assert said[0] == f"0 songs. Open http://localhost:{port}"
+    assert said[1] == "Add your first song on the page, or with `bass2sheet-copilot add SONG`."
+    assert served == [("127.0.0.1", port)] * 2  # this machine only
+    assert not os.path.exists(os.path.join(empty, "phone_key"))  # no key is made where no phone is let in
+
+
+def test_the_command_line_hands_each_command_what_it_was_given(tmp_path, monkeypatch, capsys):
+    from bass2sheet import testsongs
+
+    song, where = tmp_path / "Band - Song.wav", str(tmp_path / "scores")
+    song.write_bytes(b"")
+    calls = []
+    monkeypatch.setattr(copilot, "add", lambda *a, **kw: calls.append(("add", a, kw)))
+    assert copilot.main(["add", str(song), "--dir", where, "--notes", "muscriptor", "--device", "cpu"]) == 0
+    assert calls == [
+        ("add", ([str(song)], where, dict(device="cpu")), dict(settings=dict(notes="muscriptor"), judging=None))
+    ]
+    assert capsys.readouterr().out == f"Ready. Open the page with: bass2sheet-copilot serve --dir {where}\n"
+    assert copilot.main(["add", str(song), "--dir", where, "--judging", "/judging", "--cache-dir", "/cache"]) == 0
+    assert calls[1] == ("add", ([str(song)], where, dict(cache_dir="/cache")), dict(settings=None, judging="/judging"))
+    capsys.readouterr()
+
+    def add_set(*args):
+        calls.append(("testset", args))
+        return dict(songs=dict(a={}, b={}))
+
+    monkeypatch.setattr(testsongs, "add_set", add_set)
+    asked = ["testset", "/data/RWC", "--annotations", "/data/ann", "--scores", "bass2sheet=/runs/a"]
+    assert copilot.main(asked + ["--scores", "MuScriptor=/runs/b", "--tracks", "x,y", "--dir", where]) == 0
+    runs = dict(bass2sheet="/runs/a", MuScriptor="/runs/b")
+    assert calls[2] == ("testset", ("/data/RWC", where, "/data/ann", runs, None, ["x", "y"], {}))
+    assert capsys.readouterr().out == (
+        f"2 test songs. Hear and rate them: bass2sheet-copilot serve --dir {where}, then /tests\n"
+    )
+    assert copilot.main(["testset", "/data/RWC", "--scores", "/runs/a", "--dir", where]) == 1
+    assert capsys.readouterr().out == "bass2sheet-copilot: --scores takes NAME=RUN_DIR\n"
+
+    def stopped(*a, **kw):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(copilot, "add", stopped)
+    assert copilot.main(["add", str(song), "--dir", where]) == 130  # Ctrl-C ends it without a traceback
+
+
+def test_a_song_that_was_judged_is_added_with_the_settings_its_picks_settled_on(tmp_path, monkeypatch):
+    from bass2sheet import judge
+
+    judging, where = str(tmp_path / "judging"), str(tmp_path / "scores")
+    os.makedirs(judging)
+    json.dump(dict(choices=["tab"]), open(os.path.join(judging, "settings.json"), "w"))
+    judged = dict(id="band-song", title="Song", artist="Band", stems_dir="/stems/of/it", built=dict(tab={"": 1}))
+    json.dump({"band-song": judged}, open(os.path.join(judging, "songs.json"), "w"))
+    comp = dict(id="band-song.tab.1", song="band-song", choice="tab", base_key="", flip=False)
+    comp.update(a_value="low", b_value="position")
+    judge.save_comparisons(judging, [comp])
+    judge.record_judgment(judging, comp, "B")  # the tab with the hand in one position
+    prepared = []
+    monkeypatch.setattr(copilot, "prepare", lambda workdir, song, opts, say: prepared.append(song))
+    for name in ("Band - Song.wav", "Another - One.wav"):
+        (tmp_path / name).write_bytes(b"")
+    paths = [str(tmp_path / "Band - Song.wav"), str(tmp_path / "Another - One.wav")]
+    songs = copilot.add(paths, where, settings=dict(notes="own"), judging=judging)
+    assert [s["id"] for s in prepared] == ["band-song", "another-one"] and set(songs) == {"band-song", "another-one"}
+    assert prepared[0]["settings"]["tab"] == "position" and prepared[0]["settings"]["notes"] == "own"
+    assert prepared[0]["stems_dir"] == "/stems/of/it"  # and with the stems it was judged on
+    assert prepared[1]["settings"] == dict(notes="own") and prepared[1]["stems_dir"] is None  # not judged: the defaults
+    assert copilot.load_songs(where)["band-song"]["settings"]["tab"] == "position"
+
+
+def test_a_song_of_less_than_two_bars_has_no_repeats_and_is_fixed_all_the_same(workdir):
+    folder = os.path.join(workdir, "mix")
+    machine, mine = (json.load(open(os.path.join(folder, name))) for name in ("machine.json", "notes.json"))
+    cut = machine["origin"] + 32  # the grid ends before the second bar does
+    end = machine["grid"][cut - 1]
+    machine["grid"] = machine["grid"][:cut]
+    machine["notes"] = [n for n in machine["notes"] if n["end"] <= end]
+    mine["notes"] = [n for n in mine["notes"] if n["end"] <= end]
+    for name, data in (("machine.json", machine), ("notes.json", mine)):
+        json.dump(data, open(os.path.join(folder, name), "w"))
+    if os.path.exists(os.path.join(folder, "repeats.npz")):
+        os.remove(os.path.join(folder, "repeats.npz"))
+    d = _desk(workdir)
+    assert len(d.notes) >= 3 and d.repeats is None
+    assert d.public()["repeats"] == dict(bars=[], differences=[]) and d.differences() == [] and d.strips(bar=0) == []
+    n = dict(d.notes[0])
+    result = d.act(dict(kind="pitch", id=n["id"], pitch=n["pitch"] + 12))
+    assert d.note(n["id"])["pitch"] == n["pitch"] + 12 and result.get("offer", dict(type="alike"))["type"] == "alike"
+    with pytest.raises(Bass2SheetError, match="there is nothing to take from a repeat"):
+        d.act(dict(kind="repeats", items=[dict(source=0, bar=1, k0=0, k1=3)]))
+
+
+def test_a_note_unlike_the_songs_others_of_its_pitch_is_doubted_when_the_song_is_prepared(
+    taste_song_files, cache_dir, tmp_path, monkeypatch
+):
+    from bass2sheet import judge
+
+    mix, stems = taste_song_files
+    real = judge.hear
+
+    def one_wrong(*args, **kw):  # the tool hears one note a fourth too high
+        heard = real(*args, **kw)
+        notes = [dict(n, pitch=n["pitch"] + 5) if k == 20 else n for k, n in enumerate(heard["notes"])]
+        return dict(heard, notes=notes)
+
+    monkeypatch.setattr(judge, "hear", one_wrong)
+    workdir, said = str(tmp_path / "scores"), []
+    opts = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    copilot.add([mix], workdir, opts, stems_dirs={mix: stems}, say=said.append)
+    machine = json.load(open(os.path.join(workdir, "mix", "machine.json")))
+    doubted = [n for n in machine["notes"] if "doubt" in n]
+    assert [n["id"] for n in doubted] == ["m20"] and said[-1].endswith("1 of them doubted")
+    assert doubted[0]["doubt"]["better"] == doubted[0]["pitch"] - 5  # it sounds like the song's notes a fourth below
+    assert doubted[0]["doubt"]["explained"] < 0.5
+    shown = next(n for n in _desk(workdir).public()["notes"] if n["id"] == "m20")
+    assert shown["doubt"] == doubted[0]["doubt"] and shown["state"] == "machine"  # amber on the page
+
+
+def test_serve_names_the_test_songs_and_the_link_for_a_phone_when_it_listens_for_one(workdir, monkeypatch, capsys):
+    from http.server import ThreadingHTTPServer
+
+    from bass2sheet import playalong, testsongs
+
+    served = []
+
+    def forever(self):
+        served.append(self.server_address)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever", forever)
+    monkeypatch.setattr(playalong, "addresses", lambda: ["192.168.1.20"])
+    tests = dict(sets=dict(Tiny=dict(kind="slakh", about="", measure="f")), songs=dict(mix=dict(set="Tiny")))
+    json.dump(tests, open(os.path.join(workdir, "tests.json"), "w"))
+    assert testsongs.load(workdir)["songs"]
+    with ThreadingHTTPServer(("127.0.0.1", 0), copilot_server.Handler) as probe:
+        port = probe.server_address[1]
+    assert copilot.main(["serve", "--dir", workdir, "--port", str(port), "--lan"]) == 0
+    said = capsys.readouterr().out.splitlines()
+    key = open(os.path.join(workdir, "phone_key")).read().strip()
+    assert said[:3] == [
+        f"1 song. Open http://localhost:{port}",
+        f"To play along: http://localhost:{port}/play",
+        f"The test songs, to hear and to rate: http://localhost:{port}/tests",
+    ]
+    assert said[3] == f"On your phone, on the same Wi-Fi, open http://192.168.1.20:{port}/play?key={key}"
+    assert said[-2] == "Stop with Ctrl-C; your fixes are saved as you make them."
+    assert served == [("0.0.0.0", port)]  # on the network too, as asked

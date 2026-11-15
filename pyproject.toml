@@ -43,12 +43,43 @@ bass2sheet-copilot = "bass2sheet.copilot:main"
 bass2sheet-doctor = "bass2sheet.doctor:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "pytest-cov>=6", "coverage>=7.10", "ruff>=0.6"]
+# The pages in a real browser (tests/test_browser_*.py): `uv sync --group browser`, then a Chrome or Chromium to
+# drive (`uv run playwright install chromium` where there is none). Not needed for the default tests.
+browser = ["playwright>=1.49"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["full: needs the separation models (and optionally an evaluation dataset); enable with BASS2SHEET_FULL_E2E=1"]
+markers = [
+  "full: needs the separation models (and optionally an evaluation dataset); enable with BASS2SHEET_FULL_E2E=1",
+  "browser: drives the pages in a real browser; skipped where Playwright or a Chrome/Chromium is missing",
+]
 filterwarnings = ["ignore::UserWarning", "ignore::DeprecationWarning", "ignore::FutureWarning"]
+
+# Coverage is measured with `pytest --cov` (see CONTRIBUTING.md). The programs the code starts as a process of their
+# own (a song prepared by `python -m bass2sheet.copilot_adding`) are measured too. The package is named both ways:
+# as a package, for a run started from another folder, and as a folder, for bp_runner.py, which runs as a script
+# in a process that never imports the package.
+[tool.coverage.run]
+source_pkgs = ["bass2sheet"]
+source = ["src/bass2sheet"]
+branch = true
+parallel = true
+patch = ["subprocess"]
+data_file = "build/coverage/data"
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.coverage.html]
+directory = "build/coverage/html"
+
+[tool.coverage.xml]
+output = "build/coverage/coverage.xml"
+
+[tool.coverage.json]
+output = "build/coverage/coverage.json"
 
 [tool.ruff]
 line-length = 120

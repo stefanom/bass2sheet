@@ -13,24 +13,60 @@ jobs:
   test:
     name: lint + tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            browser: true # the pages are opened in a real browser on this one
+          - os: macos-latest # Apple Silicon
+            browser: false
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # The pages' own logic is tested under Node.js (tests/*_logic.js); without it those tests are skipped.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Install
         run: uv sync --python 3.12
       - name: Lint
         run: |
           uv run ruff check .
           uv run ruff format --check .
-      # Unit tests plus the end-to-end run on a synthesized song with its stems given: no separation model, no
-      # dataset and no network are needed. The slow tier (real separation, dataset regression) runs locally:
-      # see CONTRIBUTING.md.
-      - name: Tests
-        run: uv run pytest
+      # Unit tests plus the end-to-end runs on a synthesized song with its stems given: no separation model, no
+      # dataset and no network are needed, and where MuseScore or another program would run, a stand-in does. The
+      # slow tier (real separation, dataset regression) runs locally: see CONTRIBUTING.md.
+      # The run fails if less of the code is reached than the floor below. The floor is what a machine with
+      # nothing but `uv sync` on it reaches (97%; BASS2SHEET_TEST_BARE=1 measures that at home), rounded down a little:
+      # raise it when the tests reach more, and do not lower it to let a change through.
+      - name: Tests, with coverage
+        run: uv run pytest -m "not browser" --cov --cov-report=term-missing:skip-covered --cov-fail-under=95
+      # The pages in a real browser, with clicks and keys (tests/test_browser_*.py). The browser is asked for by
+      # name, so a browser that is missing or does not start fails the step instead of skipping its tests.
+      - name: Install a browser
+        if: matrix.browser
+        run: uv run --group browser playwright install --with-deps chromium
+      - name: The pages in a browser
+        if: matrix.browser
+        env:
+          BASS2SHEET_TEST_BROWSER: chromium
+        run: uv run --group browser pytest -m browser
+
+  # The one place where everything in the Brewfile is installed on a machine that has not seen it, and where
+  # `./bootstrap` runs from a fresh clone. Without the model files (1.1 GB): downloading those is the libraries' work.
+  bootstrap:
+    name: ./bootstrap on a fresh Mac
+    runs-on: macos-latest # Apple Silicon
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap
+        run: ./bootstrap --no-models
+      - name: Self-check
+        run: uv run bass2sheet-doctor
+      - name: Run it again (nothing to do)
+        run: ./bootstrap --no-models

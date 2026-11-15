@@ -289,3 +289,45 @@ def test_repeats_are_found_in_the_sound_of_the_bass_track():
     notes[2]["pitch"] = 59  # bar 1, sixteenths 6 and 7: unlike bars 3 and 6, which sound the same there
     found = rep.differences(notes, rep.tokens(notes)[0], [])
     assert [(d["bar"], d["k0"], d["k1"], d["why"], d["count"]) for d in found] == [(1, 6, 7, "most", 2)]
+
+
+def test_one_bar_against_another_what_counts_as_written_differently():
+    """Repeats.unlike: what the strips under the timeline show when a bar is chosen."""
+    rep = _rep(2, groups=((0, 1),))
+
+    def unlike(bar0, bar1, r=rep):  # where bar 1 is written unlike bar 0: each bar given by its riff
+        notes = _notes([0], riff=bar0) + _notes([1], riff=bar1)
+        for k, n in enumerate(notes):
+            n["id"] = f"m{k}"
+        pitch, start, _ = r.tokens(notes)
+        return r.unlike(pitch, start, 0, 1)
+
+    without = lambda k, riff=RIFF: riff[:k] + riff[k + 1 :]
+    assert unlike(RIFF, RIFF) == []  # written the same
+    assert unlike(RIFF, RIFF[:2] + [(6, 2, 59)] + RIFF[3:]) == [(6, 7)]  # another pitch
+    assert unlike(RIFF, without(4)) == [(12, 13)]  # a note bar 1 does not have: all of it
+    assert unlike(without(4), RIFF) == [(12, 13)]  # ... or has, where bar 0 has none
+    assert unlike(RIFF, RIFF[:4] + [(12, 1, 47)] + RIFF[5:]) == []  # held for less long: the same note
+    alike = np.ones((2, 2, R.SLOTS))
+    alike[0, 1, 6:8] = alike[1, 0, 6:8] = 0.3  # where the two do not sound the same, nothing follows
+    assert unlike(RIFF, RIFF[:2] + [(6, 2, 59)] + RIFF[3:], _rep(2, alike=alike)) == []
+
+    def plucked(k):  # bar 1's level rises on sixteenth k: a note really starts there
+        rise = np.zeros((2, R.SLOTS))
+        rise[1, k] = R.HELD_DB
+        return _rep(2, groups=((0, 1),), rise=rise)
+
+    # the same notes with the line between two of them a sixteenth later are the same notes; two later are not
+    line = [(0, 4, 40), (4, 4, 47), (8, 8, 52)]
+    assert unlike(line, [(0, 5, 40), (5, 3, 47), (8, 8, 52)], plucked(5)) == []
+    assert unlike(line, [(0, 6, 40), (6, 2, 47), (8, 8, 52)], plucked(6)) == [(4, 5)]
+
+    # a note plucked again in one bar and held in the other: what bar 1's own sound says decides
+    held = [(0, 6, 40)] + RIFF[2:]
+    assert unlike(RIFF, held) == []  # bar 1 holds it and its level does not rise there: it may well be held
+    rise = np.zeros((2, R.SLOTS))
+    rise[1, 4] = R.PLUCK_DB  # the level rises in bar 1 too: a pluck that is not written
+    assert unlike(RIFF, held, _rep(2, groups=((0, 1),), rise=rise)) == [(4, 4)]
+    assert unlike(held, RIFF) == [(4, 4)]  # bar 1 starts a note there and nothing in its sound says so
+    rise[1, 4] = R.HELD_DB  # ... unless its level rises: it is right to start one
+    assert unlike(held, RIFF, _rep(2, groups=((0, 1),), rise=rise)) == []

@@ -175,7 +175,14 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 
 ## Development
 
-`uv run pytest` runs the unit tests and end-to-end runs on a synthesized song in about a minute, with no model download. [CONTRIBUTING.md](CONTRIBUTING.md) covers the test tiers, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
+```
+uv run pytest                 # the default tests: about 5 minutes, nothing needed beyond `uv sync`
+uv run pytest --cov           # the same, with what they reach of the code: about 97% of lines and branches
+uv run pytest -m browser      # every page in a real browser (uv sync --group browser; uv run playwright install chromium)
+BASS2SHEET_FULL_E2E=1 uv run pytest -m full    # the real models: about 1 GB to download the first time
+```
+
+The default tests run the unit tests and the whole pipeline, the copilot and its pages' servers on a synthesized song, with no model download, no network and no browser: where a model or MuseScore would run, a stand-in does. CI runs them on every push to `main` and on every pull request, on Linux and macOS, and fails if they reach less than 95% of the code. [CONTRIBUTING.md](CONTRIBUTING.md) covers the tiers, what each needs and how long it takes, the evaluation workflow and the rule for changing transcription behaviour: measure it against ground truth first.
 
 ## Credits and licenses
 

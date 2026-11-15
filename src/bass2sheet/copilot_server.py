@@ -313,6 +313,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dict(error=str(e) or type(e).__name__), 400)
 
 
+class Server(ThreadingHTTPServer):
+    # The first page asks for a picture of every song at once, and a browser opens several connections to do it. With
+    # the standard five waiting to be answered, one more is turned away now and then, and that song's picture is
+    # missing until the page is loaded again.
+    request_queue_size = 64
+
+
 def make_server(workdir, port=8770, lan=False, stems_dir=None):
     """The server for a working directory, which may hold no song yet: the first one can be added on the page.
     It listens on this machine only or, with `lan`, on its network too. `stems_dir` is for tests
@@ -325,7 +332,7 @@ def make_server(workdir, port=8770, lan=False, stems_dir=None):
     served = dict(workdir=workdir, desks=Desks(workdir), adding=adding, door=door)
     handler = type("CopilotHandler", (Handler,), served)
     try:
-        return ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), handler)
+        return Server(("0.0.0.0" if lan else "127.0.0.1", port), handler)
     except OSError as e:
         raise Bass2SheetError(f"cannot listen on port {port} ({e}); pick another with --port") from e
 

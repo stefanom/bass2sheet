@@ -1,7 +1,7 @@
 """The slow tier: real source separation, the second-opinion model, and the dataset regression.
 
-Off by default. Enable with BASS2SHEET_FULL_E2E=1; the first run downloads the separation models (about 1 GB) into
-the cache. The dataset regression also needs BASS2SHEET_EVAL_DATA=<BabySlakh directory>.
+Off by default. Enable with BASS2SHEET_FULL_E2E=1; the first run downloads the models (about 1.1 GB; where each
+goes is in docs/install.md). The dataset regression also needs BASS2SHEET_EVAL_DATA=<BabySlakh directory>.
 """
 
 import json

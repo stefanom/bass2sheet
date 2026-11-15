@@ -125,3 +125,65 @@ def test_simplify_keeps_bar_and_beat_in_step_with_the_new_place():
     out = rhythm.simplify([_q(16, 4), _q(20, 3), _q(23, 5, 43), _q(28, 4)])
     moved = next(n for n in out if n["pitch"] == 43)
     assert (moved["grid_start"], moved["bar"], moved["beat"], moved["sixteenth"]) == (24, 2, 3, 1)
+
+
+def _beat_this(monkeypatch, beats, downbeats, fails_on=()):
+    """A stand-in where the Beat This! model is imported from. Returns the list of what it was made with."""
+    import sys
+    import types
+
+    made = []
+
+    class Audio2Beats:
+        def __init__(self, checkpoint_path, device, dbn):
+            made.append((checkpoint_path, device, dbn))
+            self.device = device
+
+        def __call__(self, mono, sr):
+            if self.device in fails_on:
+                raise RuntimeError("an operation this GPU does not have")
+            return list(beats), list(downbeats)
+
+    package, module = types.ModuleType("beat_this"), types.ModuleType("beat_this.inference")
+    module.Audio2Beats = Audio2Beats
+    package.inference = module
+    monkeypatch.setitem(sys.modules, "beat_this", package)
+    monkeypatch.setitem(sys.modules, "beat_this.inference", module)
+    return made
+
+
+def test_the_models_beats_are_kept_for_the_song_and_the_cpu_is_tried_when_the_gpu_fails(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    beats = 0.5 * np.arange(40)
+    made = _beat_this(monkeypatch, beats, beats[::4], fails_on=("mps",))
+    mono, kept = np.zeros(1000, np.float32), str(tmp_path / "beats-abc.npz")
+    found, down = rhythm.model_beats(mono, "mps", kept)
+    assert made == [("final0", "mps", False), ("final0", "cpu", False)]
+    assert found.dtype == float and (found == beats).all() and (down == beats[::4]).all()
+    found, down = rhythm.model_beats(mono, "mps", kept)
+    assert len(made) == 2 and (found == beats).all() and (down == beats[::4]).all()  # kept: the model is not asked
+    rhythm.model_beats(mono, "cuda")
+    assert made[-1] == ("final0", "cuda", False) and os.listdir(tmp_path) == ["beats-abc.npz"]  # nowhere to keep it
+    _beat_this(monkeypatch, beats, beats[::4], fails_on=("cpu",))
+    with pytest.raises(RuntimeError):  # on the CPU there is nothing else to try
+        rhythm.model_beats(mono, "cpu", str(tmp_path / "beats-other.npz"))
+    assert os.listdir(tmp_path) == ["beats-abc.npz"]
+
+
+def test_a_slow_song_tracked_in_eighths_keeps_its_tempo_and_its_downbeat():
+    import pytest
+    from songsynth import make_song
+
+    song = make_song(tempo=70.0, bars=8)
+    stems = song["stems"]
+    tempo, pulses, per_quarter, phase = rhythm.beats_and_downbeats(stems["drums"], stems["bass"], stems["harmony"])
+    assert per_quarter == 2 and tempo == pytest.approx(70, abs=1)  # the pulses are eighths; the tempo is the song's
+    assert np.median(np.diff(pulses)) == pytest.approx(60 / 70 / 2, abs=0.01)
+    bar = 4 * 60 / 70
+    off = (pulses[phase] - song["downbeats"][0] + bar / 2) % bar - bar / 2
+    assert abs(off) < 0.06  # beat 1 is on one of the song's downbeats
+    grid, origin = rhythm.beat_grid(pulses, per_quarter, phase, song["mix"].shape[1] / song["sr"])
+    assert np.median(np.diff(grid)) == pytest.approx(60 / 70 / 4, abs=0.005)  # sixteenths either way

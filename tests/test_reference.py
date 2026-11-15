@@ -260,3 +260,90 @@ def test_a_file_becomes_an_answer_key_of_a_song(prepared, song, tmp_path, capsys
         reference.add(prepared, "mix", path, part=7)
     saved = json.load(open(os.path.join(prepared, "mix", "reference", "some-tab.json")))
     assert saved["covered"] == key["covered"] and "when" in saved
+
+
+def _table(n, m, alike):
+    """How alike frame i of a file and frame j of a recording are: 1 for the pairs in `alike`, -0.5 for the rest."""
+    s = np.full((n, m), -0.5, np.float32)
+    for i, j in alike:
+        s[i, j] = 1.0
+    return s
+
+
+def test_the_alignment_read_as_plain_python_does_what_the_compiled_one_does():
+    """The alignment is compiled (numba) when it is first used, and what is compiled cannot be followed line by
+    line. Here the same function runs as the Python it is written in, on small tables, beside the compiled one."""
+    run = reference._side_by_side()
+    cases = dict(
+        same=_table(30, 30, [(k, k) for k in range(30)]),
+        recording_has_more=_table(30, 38, [(i, i if i < 10 else i + 8) for i in range(30)]),
+        file_has_more=_table(38, 30, [(i if i < 10 else i + 8, i) for i in range(30)]),
+        slower=_table(30, 40, [(i, i + i // 3) for i in range(30)]),  # a frame behind at every third step
+        part=_table(30, 60, [(i, i + 25) for i in range(5, 25)]),
+        nothing=_table(20, 20, []),
+    )
+    found = {}
+    for name, s in cases.items():
+        for jump in (3.0, 10.0):
+            pairs, score = run.py_func(s, np.float32(0.75), np.float32(jump))
+            compiled, compiled_score = reference.side_by_side(s, 0.75, jump)
+            assert pairs.tolist() == compiled.tolist() and float(score) == pytest.approx(compiled_score), (name, jump)
+            found[name, jump] = (pairs.tolist(), float(score))
+    assert found["same", 10.0] == ([[k, k] for k in range(30)], 30.0)
+    # a stretch one of the two lacks is jumped over when the jump is cheap: every frame placed, the jump paid once
+    pairs, score = found["recording_has_more", 3.0]
+    assert pairs == [[i, i if i < 10 else i + 8] for i in range(30)] and score == 27.0
+    pairs, score = found["file_has_more", 3.0]
+    assert pairs == [[i if i < 10 else i + 8, i] for i in range(30)] and score == 27.0
+    # ... and when it costs more than the short side is worth, only the longer side is kept
+    assert found["recording_has_more", 10.0] == ([[i, i + 8] for i in range(10, 30)], 20.0)
+    assert found["file_has_more", 10.0] == ([[i + 8, i] for i in range(10, 30)], 20.0)
+    pairs, score = found["slower", 10.0]  # a recording that runs slower is followed, at a cost for each slip
+    assert pairs == [[i, i + i // 3] for i in range(30)] and score == 30 - 9 * 0.75
+    assert found["part", 10.0] == ([[i, i + 25] for i in range(5, 25)], 20.0)  # a part is found where it lies
+    assert found["nothing", 10.0][1] == 0.0 and len(found["nothing", 10.0][0]) == 1
+
+
+def test_anything_but_midi_goes_through_musescore_and_what_it_cannot_read_is_refused(tmp_path, monkeypatch):
+    import stat
+    import sys
+
+    from bass2sheet import score
+
+    line = pretty_midi.PrettyMIDI(initial_tempo=100)
+    bass = pretty_midi.Instrument(program=33, name="Bass")
+    bass.notes = [pretty_midi.Note(100, 40 + k % 4, 0.6 * k, 0.6 * k + 0.5) for k in range(8)]
+    line.instruments.append(bass)
+    as_midi = str(tmp_path / "what musescore makes of it.mid")
+    line.write(as_midi)
+    program = str(tmp_path / "mscore")
+    with open(program, "w") as f:  # a stand-in: `mscore -o OUT.mid FILE`
+        f.write(
+            f"#!{sys.executable}\nimport shutil, sys\n"
+            "assert sys.argv[1] == '-o' and sys.argv[2].endswith('.mid'), sys.argv\n"
+            "if open(sys.argv[3], 'rb').read(4) != b'FICH':\n"
+            "    sys.exit('this is not a Guitar Pro file')\n"
+            f"shutil.copy({as_midi!r}, sys.argv[2])\n"
+        )
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(score, "MSCORE_CANDIDATES", [program])
+    tab = tmp_path / "song.gp5"
+    tab.write_bytes(b"FICHIER GUITAR PRO v5.00")
+    pm = reference.read(str(tab))
+    assert [n.pitch for n in pm.instruments[0].notes] == [40, 41, 42, 43] * 2 and reference.bass_track(pm)[0] == 0
+    other = tmp_path / "notes.gp5"
+    other.write_bytes(b"something else")
+    with pytest.raises(Bass2SheetError, match="MuseScore could not read notes.gp5: this is not a Guitar Pro file"):
+        reference.read(str(other))
+
+
+def test_a_song_without_an_answer_key_has_nothing_to_compare_or_report(prepared, tmp_path):
+    import shutil
+
+    work = str(tmp_path / "scores")
+    shutil.copytree(prepared, work)
+    shutil.rmtree(os.path.join(work, "mix", "reference"), ignore_errors=True)
+    assert reference.keys(work, "mix") == {} and reference.compare(work, "mix") == [] and reference.report(work) == ""
+    os.makedirs(os.path.join(work, "mix", "reference"))  # the folder is there and holds no key
+    open(os.path.join(work, "mix", "reference", "notes.txt"), "w").write("not a key")
+    assert reference.keys(work, "mix") == {} and reference.compare(work, "mix") == [] and reference.report(work) == ""
