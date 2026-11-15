@@ -221,7 +221,8 @@ def test_the_score_is_engraved_line_by_line_with_the_time_of_everything_in_it(wo
         assert line["bars"][0][3] <= ts[0] and ts[-1] < line["end"]
         assert line["bars"][0][1] < xs[0] and xs[-1] < line["bars"][-1][2]
     # every note the score writes is a mark, at the time of the sixteenth it is written on
-    written, tab = playalong.written(machine, copilot.read_json(os.path.join(workdir, "mix", "notes.json"))["notes"])
+    written = playalong.written(machine, copilot.read_json(os.path.join(workdir, "mix", "notes.json"))["notes"])
+    tab = copilot.tab_style(os.path.join(workdir, "mix"))
     events = [e for e in score.written_events(written, tab) if not e["grace"]]
     marks = [m for line in made["lines"] for m in line["marks"]]
     assert sorted(m[2] for m in marks if m[3] == "n") == pytest.approx(

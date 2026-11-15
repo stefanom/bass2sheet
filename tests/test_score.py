@@ -207,6 +207,64 @@ def test_tab_styles_low_uses_open_strings_and_position_keeps_the_hand_in_place()
         score.frets(line, "sideways")
 
 
+def test_the_easy_fingering_keeps_the_hand_where_it_is():
+    place = lambda places: " ".join("EADG"[s] + str(f) for s, f in places)  # noqa: E731
+    # a low F, its octave and back: the octave shape, one finger on the E string and one two frets up on the D
+    assert place(score.frets([29, 41, 29], "easy")) == "E1 D3 E1"
+    # G Bb C Bb G F G lies under one hand at the third fret; nearest the nut it takes three open strings
+    box = [43, 46, 48, 46, 43, 41, 43]
+    assert (
+        place(score.frets(box, "easy")) == "D5 G3 G5 G3 D5 D3 D5"
+        and place(score.frets(box, "low")) == "G0 G3 G5 G3 G0 D3 G0"
+    )
+    assert score.effort(score.frets(box, "easy")) == dict(notes=7, moves=0, frets=0, skips=0, open=0)
+    # a walk up and down an octave: with open strings where they save a stretch, or without any
+    walk = [40, 43, 45, 47, 48, 47, 45, 43, 40, 38, 36, 35, 33]
+    easy, closed, position = (score.frets(walk, style) for style in ("easy", "closed", "position"))
+    assert place(easy) == "D2 G0 G2 G4 G5 G4 G2 G0 D2 D0 A3 A2 A0"
+    assert place(closed) == "D2 D5 G2 G4 G5 G4 G2 D5 D2 A5 A3 A2 E5" and all(f > 0 for _, f in closed)
+    assert score.effort(easy)["moves"] == score.effort(closed)["moves"] == 0 < score.effort(position)["moves"]
+    for style in ("easy", "closed"):  # every note is where its pitch is, and the lowest E has only its open string
+        for (s, f), pitch in zip(score.frets(walk + [28], style), walk + [28]):
+            assert score.STRINGS[s] + f == pitch
+    assert score.frets([28, 28], "closed") == [(0, 0), (0, 0)] and score.frets([], "easy") == []
+    with pytest.raises(ValueError, match="expected one of easy, closed, low, position"):
+        score.frets(walk, "high")
+
+
+def test_a_bar_that_comes_again_is_fingered_the_same_way():
+    bar = [43, 46, 48, 46]  # G Bb C Bb, after a low F the first time and after a high run the second
+    song = [29, 29, 41, 41] + bar + [52, 55, 57, 55] + bar + [33, 33, 33, 33]
+    when, bars = [2 * k for k in range(len(song))], [k // 4 for k in range(len(song))]
+    placed = score.frets(song, "easy", starts=when, bars=bars)
+    assert placed[4:8] == placed[12:16]
+    for (s, f), pitch in zip(placed, song):
+        assert score.STRINGS[s] + f == pitch
+    # two notes played together are still placed where both fit
+    assert score.frets([36, 40], "easy", also=[[43], []])[0] == (1, 3)
+
+
+def test_what_a_fingering_asks_of_the_hand_is_counted():
+    # fret 1, fret 3 (the same hand), an open string (no hand), fret 8 (a move of four frets), fret 1 (four back)
+    places = [(0, 1), (2, 3), (3, 0), (3, 8), (0, 1)]
+    assert score.effort(places) == dict(notes=5, moves=2, frets=8, skips=2, open=1)
+    assert score.effort([]) == dict(notes=0, moves=0, frets=0, skips=0, open=0)
+    # where the hand is for each note: its first finger on the lowest fret of each stretch between two moves
+    assert score.hand([(0, 1), (0, 1), (2, 3), (3, 0), (2, 5), (3, 3), (3, 5), (2, 5), (0, 1)]) == [
+        1,
+        1,
+        1,
+        1,
+        3,
+        3,
+        3,
+        3,
+        1,
+    ]
+    assert score.hand([(3, 0), (2, 0)]) == [None, None] and score.hand([]) == []
+    assert score.hand([(3, 0), (2, 7), (3, 9)]) == [7, 7, 7]  # an open string before the first fretted note waits there
+
+
 def test_a_snippet_is_the_same_bars_with_the_same_fingering_and_no_title():
     notes = [_n(k * 4, 4, 40 + k % 5) for k in range(24)]  # six bars of quarter notes
     full = _xml(notes=notes, chords=[], check_bars={})

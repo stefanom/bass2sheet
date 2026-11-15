@@ -476,6 +476,33 @@ def test_a_chord_the_person_changed_is_in_the_song_from_then_on(workdir):
     )
 
 
+def test_the_song_is_put_on_the_neck_for_playing_unless_the_person_chooses_another_way(workdir):
+    from bass2sheet import score
+
+    desk = copilot.Desk(workdir, "mix")
+    seen = copilot_harmony.view(desk)
+    assert seen["tab"] == "easy" == copilot.tab_style(desk.folder)
+    # what each way asks of the hand over the whole song, for the page to say
+    assert [t["id"] for t in seen["tabs"]] == list(score.TAB_STYLES) and all(
+        t["notes"] == len(seen["bass"]) for t in seen["tabs"]
+    )
+    ways = {t["id"]: t for t in seen["tabs"]}
+    assert ways["closed"]["open"] < ways["low"]["open"] and ways["easy"]["moves"] <= ways["position"]["moves"]
+    easy = [(n["string"], n["fret"]) for n in seen["bass"]]
+    assert all(seen["strings"][s] + f == n["pitch"] for (s, f), n in zip(easy, seen["bass"]))
+    assert [n["hand"] for n in seen["bass"]] == score.hand(easy)  # where the hand is for each note
+
+    copilot_harmony.set_tab(desk.folder, "low")
+    low = copilot_harmony.view(desk)
+    assert low["tab"] == "low" == copilot.tab_style(desk.folder)
+    assert [(n["string"], n["fret"]) for n in low["bass"]] != easy and any(n["fret"] == 0 for n in low["bass"])
+    assert low["home"] == seen["home"] and low["chords"] == seen["chords"]  # nothing else changes
+    copilot_harmony.set_tab(desk.folder, None)
+    assert copilot_harmony.view(desk)["tab"] == "easy"
+    with pytest.raises(Bass2SheetError, match="easy, closed, low, position"):
+        copilot_harmony.set_tab(desk.folder, "high")
+
+
 def test_the_person_chooses_home_and_the_names_follow(workdir):
     desk = copilot.Desk(workdir, "mix")
     before = copilot_harmony.view(desk)
@@ -562,3 +589,9 @@ def test_the_server_gives_the_harmony_and_keeps_the_choice_of_home(served, workd
     assert status == 200 and fewer["fixed"] == 1 and not fewer["bars"][2]["yours"] and fewer["home"]["yours"]
     status, back = _json(served + "/api/harmony", dict(song="mix", home=None))
     assert status == 200 and back["home"] == seen["home"] and back["fixed"] == 1
+    # how the song is put on the neck: kept, and the chords and the home are left as they are
+    status, closed = _json(served + "/api/harmony", dict(song="mix", tab="closed"))
+    assert status == 200 and closed["tab"] == "closed" and closed["fixed"] == 1
+    assert copilot.tab_style(os.path.join(workdir, "mix")) == "closed"
+    assert _json(served + "/api/harmony", dict(song="mix", tab="high"))[0] == 400
+    assert _json(served + "/api/harmony?id=mix")[1]["tab"] == "closed"

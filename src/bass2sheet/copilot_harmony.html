@@ -42,6 +42,7 @@ button,select{font:inherit;color:inherit}
 select{min-height:36px;border-radius:18px;border:1px solid var(--line);background:var(--paper);padding:0 var(--s2)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:18px;overflow:hidden}
 .seg .btn{border:0;border-radius:0;min-height:34px}
+.seg .btn.mini{min-height:26px}
 /* the bar that stays in view: the chord that sounds, the part it is in, the neck */
 .now{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--line);margin:var(--s3) calc(-1*var(--s4)) 0;padding:6px var(--s4);display:flex;flex-wrap:wrap;gap:6px var(--s3);align-items:center;min-width:0}
 .here{display:flex;align-items:baseline;gap:var(--s2);flex:none;min-width:150px}
@@ -131,6 +132,7 @@ svg text{font-family:var(--sans);fill:var(--text)}
 .fret{stroke:#b9b4a9;stroke-width:1.4}
 .nut{stroke:#55514a;stroke-width:4}
 .inlay{fill:rgba(127,127,127,.22)}
+.handbox{fill:rgba(127,127,127,.12);stroke:rgba(127,127,127,.4);stroke-width:1;stroke-dasharray:3 3}
 .ghost{fill:var(--paper);stroke:#b3aea3;stroke-width:1.2}
 .shape{fill:none;stroke:var(--text-2);stroke-width:1.4;opacity:.5;stroke-linejoin:round;stroke-linecap:round}
 .tone circle{stroke-width:1.4;fill:var(--paper)}
@@ -221,6 +223,8 @@ svg text{font-family:var(--sans);fill:var(--text)}
     <div class="kbd">
       <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: where the notes of this bar are played, and the note that sounds"></svg>
       <div class="kside">
+        <div class="row" style="gap:6px"><span class="v-tag">Fingering</span><span class="seg" id="tabs"></span></div>
+        <p class="small muted" id="effort" style="margin:0"></p>
         <div class="v-tag" id="where">&nbsp;</div>
         <p class="small" id="lead">The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.</p>
       </div>
@@ -536,8 +540,14 @@ function paintNeck() {
   [0, 1, 2, 3].forEach(i => { s += `<line class="string" x1="10" x2="724" y1="${Y(i)}" y2="${Y(i)}" stroke-width="${3.4 - i * 0.6}"/><text class="t-sm" x="742" y="${Y(i) + 4}" style="font-size:11px">${L.STRING_NAMES[i]}</text>`; });
   single.concat(double).forEach(f => { s += `<text class="t-sm" x="${X(f).toFixed(1)}" y="126">${f}</text>`; });
   // only what is played: faintly, every place this part of the song uses; ringed and joined in the order they
-  // are played, the notes of this bar; filled, the note that sounds
+  // are played, the notes of this bar; filled, the note that sounds; and where the hand is: four frets from the
+  // first finger
   const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [], bar = L.shape(inBar);
+  const at = n && n.hand ? n.hand : (inBar.find(b => b.hand) || {}).hand;
+  if (at) {
+    const x0 = 48 + (at - 1) * W, x1 = 48 + Math.min(last, at + 3) * W;
+    s += `<rect class="handbox" x="${x0.toFixed(1)}" y="11" width="${(x1 - x0).toFixed(1)}" height="100" rx="9"><title>The hand: first finger at fret ${at}</title></rect><text class="t-sm" x="${(x0 + 4).toFixed(1)}" y="8" style="text-anchor:start;font-size:9.5px">hand</text>`;
+  }
   const here = new Set(bar.map(q => q.string + ":" + q.fret));
   if (p) L.shape(H.bass.filter(b => b.start >= p.start && b.start < p.end)).forEach(q => {
     if (!here.has(q.string + ":" + q.fret)) s += `<circle class="ghost" cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="6.5"><title>Played ${q.times} time${q.times > 1 ? "s" : ""} in this part</title></circle>`;
@@ -552,9 +562,30 @@ function paintNeck() {
   const what = { root: "the root", third: "the third", fifth: "the fifth", seventh: "the seventh", other: "a passing note" };
   const frets = bar.map(q => q.fret), span = frets.length ? (Math.min(...frets) === Math.max(...frets) ? `fret ${frets[0]}` : `frets ${Math.min(...frets)} to ${Math.max(...frets)}`) : "";
   $("lead").textContent = n && c
-    ? `The bass plays ${H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯")}, ${what[n.role] || "a note"} of ${L.flat(c.name)}: ${L.fretName(n.string, n.fret)}.`
+    ? `The bass plays ${H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯")}, ${what[n.role] || "a note"} of ${L.flat(c.name)}: ${L.fretName(n.string, n.fret)}.${n.hand ? ` The hand is at fret ${n.hand}.` : ""}`
     : bar.length ? `This bar is played on ${span}. Ringed: its notes, joined in the order they are played. Faint: the other places this part uses.`
     : "The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.";
+}
+
+/* ----- how the notes are put on the neck ----- */
+const TABS = {
+  easy: ["Fewest hand moves", "The hand moves as little as it can, and an open string is used where it saves a move"],
+  closed: ["No open strings", "Every note fretted where it can be: shapes you can move along the neck, at the price of more moves"],
+  low: ["Lowest frets", "Every note as near the nut as it goes, with open strings: where notes are easiest to find"],
+};
+function paintTabs() {
+  const el = $("tabs"), of = id => H.tabs.find(t => t.id === id), said = t => `${t.moves} hand move${t.moves === 1 ? "" : "s"}`;
+  el.innerHTML = Object.keys(TABS).map(id => `<button class="btn mini" type="button" data-tab="${id}" aria-pressed="${H.tab === id}" title="${TABS[id][1]}. In this song: ${said(of(id))}, ${of(id).skips} string skips, ${Math.round(100 * of(id).open / Math.max(1, of(id).notes))}% of the notes on open strings.">${TABS[id][0]}</button>`).join("");
+  el.querySelectorAll("button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  const now = of(H.tab) || of("easy"), others = Object.keys(TABS).filter(id => id !== H.tab).map(id => `${TABS[id][0].toLowerCase()}: ${of(id).moves}`).join(", ");
+  $("effort").textContent = `In this song: ${said(now)}, ${now.skips} string skips, ${Math.round(100 * now.open / Math.max(1, now.notes))}% open strings (${others}). The score's tab follows.`;
+}
+async function setTab(tab) {
+  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, tab }) });
+  const data = await r.json();
+  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  H = data;
+  paintAll();
 }
 
 /* ----- the maps ----- */
@@ -819,7 +850,7 @@ function paintAll() {
   $("to-score").href = "/score#" + encodeURIComponent(H.id);
   $("rough").hidden = H.fine;
   $("rough").textContent = "For this song the tool heard one chord a bar, major or minor. Its chords are rougher than its notes: trust the shape of the song more than any single chord.";
-  paintShort(); paintHomes(); paintStrip(); paintLoops(); paintProfile(); paintBass();
+  paintShort(); paintHomes(); paintTabs(); paintStrip(); paintLoops(); paintProfile(); paintBass();
   tick(true);
   document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
 }

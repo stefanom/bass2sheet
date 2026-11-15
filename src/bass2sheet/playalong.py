@@ -250,7 +250,7 @@ def grid_time(grid, i):
 
 
 def written(machine, notes):
-    """The person's notes as the score writes them (what copilot.sheet engraves), with the tab style."""
+    """The person's notes as the score writes them (what copilot.sheet engraves)."""
     from .rhythm import quantize, simplify
 
     settings = dict(DEFAULTS, **machine.get("settings", {}))
@@ -265,16 +265,17 @@ def written(machine, notes):
         for n in sorted(notes, key=lambda n: n["start"])
     ]
     out = quantize(out, np.array(machine["grid"]), machine["origin"])
-    return (simplify(out) if settings["rhythm"] == "simple" else out), settings["tab"]
+    return simplify(out) if settings["rhythm"] == "simple" else out
 
 
-def score_xml(machine, notes, bars):
+def score_xml(machine, notes, bars, tab=None):
     """The score to engrave for the page: (MusicXML with every line of `bars` bars on a page of its own and no
     title, the number of its first bar, the sixteenths counted from bar 1 where a note starts, those where one
-    sounds)."""
+    sounds). `tab` is how the notes are put on the neck (copilot.tab_style)."""
+    tab = tab or copilot.TAB
     if not notes:
         raise Bass2SheetError("there are no notes to play along with")
-    quantized, tab = written(machine, notes)
+    quantized = written(machine, notes)
     enters = max(1, min(n["grid_start"] // 16 + 1 for n in quantized))  # lines are counted from where the bass enters
     xml = score.musicxml(
         quantized,
@@ -464,7 +465,8 @@ def lines(workdir, song_id, bars=3, mscore=None):
     machine, mine = (copilot.read_json(os.path.join(folder, name)) for name in ("machine.json", "notes.json"))
     if machine is None or mine is None:
         raise Bass2SheetError(f"{song_id} is not prepared")
-    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars)
+    tab = copilot.tab_style(folder)
+    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab)
     grid = json.dumps([machine["origin"], machine["grid"]])  # the same score on another grid is played at other times
     key = hashlib.sha1("\n".join([ENGRAVING, str(DPI), style(), grid, xml]).encode()).hexdigest()[:10]
     out_dir = os.path.join(folder, "play", f"b{bars}")
@@ -483,7 +485,7 @@ def lines(workdir, song_id, bars=3, mscore=None):
         os.makedirs(out_dir, exist_ok=True)
         for fit in range(bars, 0, -1):
             if fit < bars:
-                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit)
+                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit, tab)
             made = engrave(xml, first_bar, machine["grid"], machine["origin"], starts, sounding, out_dir, ms, key)
             meant = xml.count('<print new-page="yes"/>') + 1
             if len(made["lines"]) - meant <= 0.1 * meant:

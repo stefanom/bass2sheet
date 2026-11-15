@@ -1,9 +1,12 @@
 """MusicXML (bass clef, written an octave up, plus 4-string tab) and PDF engraving through MuseScore's CLI."""
 
+import collections
 import os
 import shutil
 import subprocess
 from xml.sax.saxutils import escape
+
+import numpy as np
 
 from .common import FLATS, SHARPS, log
 
@@ -79,7 +82,22 @@ def rest_pieces(p, e):
     return out
 
 
-TAB_STYLES = ("low", "position")
+TAB_STYLES = ("easy", "closed", "low", "position")
+# What the fretting hand pays, for the `easy` style: the numbers are rules of thumb, in no unit but each other.
+EASY = dict(
+    shift=2.0,  # moving the hand at all
+    per_fret=0.35,  # and for every fret it moves
+    stretch=1.2,  # a fifth fret from the first finger
+    wide=0.3,  # the fourth fret near the nut, where frets are far apart
+    open=0.5,  # an open string in the middle of fretted notes
+    open_low=0.15,  # an open string with the hand at the nut
+    cross=(0.0, 0.15, 0.9, 1.8),  # going to the same string, the next one, one further, the furthest
+    barre=0.35,  # the same fret on the next string: one finger for two notes
+    moved=1.0,  # the same pitch again somewhere else
+    fret=0.03,  # every fret up the neck: of two places as easy, the lower
+    high=0.15,  # and every fret above the twelfth
+    again=0.8,  # what a bar gets for being fingered the way it is elsewhere in the song
+)
 
 
 def chord_frets(string, fret, also):
@@ -101,14 +119,152 @@ def chord_frets(string, fret, also):
     return out
 
 
-def frets(pitches, style="low", also=None):
-    """(string index, fret) per note: Viterbi over playable positions, each state remembering the fretting hand's
-    position (open strings leave it in place); stretches beyond 3 frets cost more.
+def _easy(pitches, opts, starts, bars, closed=False):
+    """The places that are easiest on the fretting hand. The hand has a position, the fret its first finger is
+    at, and reaches four frets from there (a fifth with a stretch); an open string needs no hand. What costs:
+    moving the hand, the more the further and the less time there is; crossing strings, the more the further;
+    a stretch; an open string among fretted notes; the same pitch somewhere else than a moment ago. Where the
+    song plays the same bar again it is fingered the same way, and a pitch that comes twice in a bar is played
+    in one place: the notes are placed once, each bar that comes more than once takes the fingering most of its
+    rounds got, and the notes are placed again with that in their favour. `closed` keeps off the open strings
+    wherever a fretted place will do: every shape can then be moved along the neck, at the price of more moves."""
+    free, free_low = (3.0, 3.0) if closed else (EASY["open"], EASY["open_low"])
+    positions = np.arange(1, MAX_FRET - 2)
+    states = []  # per note: string, fret and hand position of every way to play it
+    for places in opts:
+        rows = [(s, f, p) for s, f in places for p in (positions if f == 0 else range(max(1, f - 4), f + 1))]
+        rows = rows or [(s, f, max(1, min(f, MAX_FRET - 3))) for s, f in places]
+        states.append(np.array(rows))
 
-    `low` keeps to the first frets and open strings, where the notes are easiest to find. `position` keeps the
-    hand in one place: it does not favour low frets, and it frets a note rather than play it on an open string
-    unless that would mean a large shift. `also[k]` lists the pitches played together with note k: that note
-    then goes where they fit on the strings above it."""
+    def own(k, favoured=None):  # what a way to play note k costs wherever the hand comes from
+        s, f, p = states[k].T
+        reach = f - p
+        cost = np.where(
+            f == 0,
+            np.where(p <= 2, free_low, free),
+            EASY["fret"] * f
+            + EASY["high"] * np.maximum(0, f - 12)
+            + EASY["stretch"] * (reach >= 4)
+            + EASY["wide"] * ((reach == 3) & (p <= 3)),
+        )
+        if favoured is not None:
+            cost = cost - EASY["again"] * ((s == favoured[0]) & (f == favoured[1]))
+        return cost
+
+    def run(favoured):
+        total = own(0, favoured.get(0)) + 0.02 * states[0][:, 2]
+        back = []
+        for k in range(1, len(states)):
+            s0, f0, p0 = (states[k - 1][:, j][:, None] for j in range(3))
+            s, f, p = (states[k][:, j][None, :] for j in range(3))
+            # how little time there is to move the hand, from the sixteenths since the last note; after an open
+            # string, since the note before it: the hand is free while an open string sounds
+            gaps = (2.0, 4.0) if starts is None else (starts[k] - starts[k - 1], starts[k] - starts[max(0, k - 2)])
+            short, long = (min(3.0, max(0.5, 2.0 / max(float(gap), 0.5))) for gap in gaps)
+            hurry = np.where(f0 == 0, long, short)
+            moved = np.abs(p - p0)
+            step = np.where(moved > 0, (EASY["shift"] + EASY["per_fret"] * moved) * hurry, 0.0)
+            step = np.where((f == 0) & (moved > 0), np.inf, step)  # an open string leaves the hand where it is
+            step = step + np.take(EASY["cross"], np.abs(s - s0)) * (0.6 + 0.4 * hurry)
+            step = step + EASY["barre"] * ((f == f0) & (f > 0) & (np.abs(s - s0) == 1))
+            if pitches[k] == pitches[k - 1]:
+                step = step + EASY["moved"] * ((s != s0) | (f != f0))
+            through = total[:, None] + step
+            back.append(np.argmin(through, axis=0))
+            total = through[back[-1], np.arange(through.shape[1])] + own(k, favoured.get(k))
+        j = int(np.argmin(total))
+        path = [j]
+        for bk in reversed(back):
+            j = int(bk[j])
+            path.append(j)
+        path.reverse()
+        return [(int(states[k][j, 0]), int(states[k][j, 1])) for k, j in enumerate(path)]
+
+    first = run({})
+    if bars is None:
+        return first
+    rounds = collections.defaultdict(list)  # the notes of each bar, by what the bar holds
+    for k, bar in enumerate(bars):
+        rounds[bar].append(k)
+    same = collections.defaultdict(list)
+    for notes in rounds.values():
+        same[tuple(pitches[k] for k in notes)].append(notes)
+    favoured = {}
+    for held in same.values():
+        if len(held) > 1:
+            most = collections.Counter(tuple(first[k] for k in notes) for notes in held).most_common(1)[0][0]
+            for notes in held:
+                favoured.update(zip(notes, most))
+    for notes in rounds.values():  # and inside a bar a pitch that comes twice is played in one place
+        places = collections.defaultdict(collections.Counter)
+        for k in notes:
+            places[pitches[k]][favoured.get(k, first[k])] += 1
+        for k in notes:
+            if len(places[pitches[k]]) > 1:
+                favoured[k] = places[pitches[k]].most_common(1)[0][0]
+    return run(favoured) if favoured else first
+
+
+def effort(places):
+    """What a fingering asks of the fretting hand, counted, for comparing fingerings of the same notes: `moves`,
+    the times the hand has to move (it reaches four frets from its first finger, and an open string needs no
+    hand: the fewest moves that play the notes where they are put); `frets`, how far it moves in all; `skips`,
+    the string crossings that pass over a string; `open`, the notes on open strings; `notes`."""
+    moves = far = skips = 0
+    lo = hi = None  # where the first finger can be for the fretted notes since the last move
+    for k, (s, f) in enumerate(places):
+        if k and abs(s - places[k - 1][0]) >= 2:
+            skips += 1
+        if f == 0:
+            continue
+        if lo is None:
+            lo, hi = f - 3, f
+        elif max(lo, f - 3) <= min(hi, f):
+            lo, hi = max(lo, f - 3), min(hi, f)
+        else:
+            moves, far = moves + 1, far + (f - 3 - hi if f - 3 > hi else lo - f)
+            lo, hi = f - 3, f
+    return dict(notes=len(places), moves=moves, frets=far, skips=skips, open=sum(f == 0 for _, f in places))
+
+
+def hand(places):
+    """Where the fretting hand is for each note of a fingering: the fret of its first finger, which reaches four
+    frets from there. The hand stays where it is for as long as the notes allow (an open string needs no hand),
+    with the first finger on the lowest fret of each stretch. None for the notes before the first fretted one."""
+    out, run, lo, hi = [None] * len(places), [], None, None
+
+    def settle():
+        for k in run:
+            out[k] = max(1, lo)
+
+    for k, (_, f) in enumerate(places):
+        if f and lo is not None and (max(lo, f) - min(lo, f) > 3 or max(hi, f) - min(lo, f) > 3):
+            settle()
+            run, lo, hi = [], None, None
+        if f:
+            lo, hi = (f, f) if lo is None else (min(lo, f), max(hi, f))
+        run.append(k)
+    if lo is not None:
+        settle()
+    return out
+
+
+def frets(pitches, style="low", also=None, starts=None, bars=None):
+    """(string index, fret) per note.
+
+    `easy` is for playing: the hand moves as little as it can (see `_easy`). It is helped by `starts`, when each
+    note starts in sixteenths (a move is easier with time for it), and by `bars`, the bar each note is in (a bar
+    that comes again is fingered the same way). `closed` is the same without open strings, wherever a fretted
+    place will do.
+
+    The two others are a Viterbi over playable positions, each state remembering the last fret the hand was at
+    (open strings leave it in place); stretches beyond 3 frets cost more. `low` keeps to the first frets and
+    open strings, where the notes are easiest to find. `position` keeps the hand in one place: it does not
+    favour low frets, and it frets a note rather than play it on an open string unless that would mean a large
+    shift.
+
+    `also[k]` lists the pitches played together with note k: that note then goes where they fit on the strings
+    above it."""
     if style not in TAB_STYLES:
         raise ValueError(f"unknown tab style {style!r}; expected one of {', '.join(TAB_STYLES)}")
     if not pitches:
@@ -120,6 +276,8 @@ def frets(pitches, style="low", also=None):
     for k, extra in enumerate(also or []):
         if extra:
             opts[k] = [o for o in opts[k] if chord_frets(*o, extra) is not None] or opts[k]
+    if style in ("easy", "closed"):
+        return _easy(list(pitches), opts, starts, bars, closed=style == "closed")
 
     def place(f):  # what a fret costs wherever the hand is
         return 0.02 * f + 0.3 * max(0, f - 4) if low else 0.005 * f + (1.2 if f == 0 else 0.0)
@@ -179,7 +337,8 @@ def written_events(notes, tab_style="low"):
             end = nxt
         events.append(dict(nt, grace=False, g0=nt["grid_start"], g1=max(end, nt["grid_start"] + 1)))
     together = [e.get("also") or [] for e in events]
-    for e, (s, f) in zip(events, frets([e["pitch"] for e in events], tab_style, together)):
+    when, bars = [e["g0"] for e in events], [e["g0"] // 16 for e in events]
+    for e, (s, f) in zip(events, frets([e["pitch"] for e in events], tab_style, together, starts=when, bars=bars)):
         e["string"], e["fret"] = 4 - s, f  # MusicXML strings count from the highest (G = 1)
         if e.get("also"):  # the notes played with it: [pitch, string, fret], or without a place when none fits
             where = chord_frets(s, f, e["also"]) or [None] * len(e["also"])

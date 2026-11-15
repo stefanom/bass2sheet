@@ -1084,6 +1084,15 @@ def report(workdir):
 # ------------------------------------------------------------------------------------------------- the sheet
 
 
+TAB = "easy"  # how a song is fingered unless the person chose otherwise for it (score.TAB_STYLES)
+
+
+def tab_style(folder):
+    """How a song's notes are put on the neck, on its pages and in its score: for playing (`easy`), unless the
+    person chose another way for this song on its harmony page (kept in harmony.json)."""
+    return (read_json(os.path.join(folder, "harmony.json")) or {}).get("tab") or TAB
+
+
 def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     """Write the score from the person's notes: MusicXML, MIDI and, with MuseScore, the PDF and a picture of each
     page for the copilot's own page to show (`score_made`). The line under the title says how much of it they
@@ -1127,7 +1136,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
         desk.song.get("artist", ""),
         {},
         draft=False,
-        tab_style=tab or m["settings"]["tab"],
+        tab_style=tab or tab_style(desk.folder),
         bar_times=bar_times(grid, m["origin"]),
         subtitle=subtitle,
     )

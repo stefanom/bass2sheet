@@ -22,7 +22,7 @@ import numpy as np
 from . import copilot, repeats
 from .common import Bass2SheetError, atomic_write_text
 from .rhythm import spelling
-from .score import STRINGS, frets
+from .score import STRINGS, TAB_STYLES, effort, frets, hand
 
 PAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "copilot_harmony.html")
 
@@ -514,22 +514,56 @@ def _under(notes, start, end):
     return next((n for n in notes if start <= n["start"] < end), None)
 
 
-def _bass(machine, notes, chords, bars):
-    """The bass line against the chords: each note with where it is played on the neck, the chord it sounds
-    under, what it is to that chord, and the sixteenth of its bar it starts on."""
+def set_tab(folder, style):
+    """Keep how the person wants this song put on the neck (one of score.TAB_STYLES); None goes back to the way
+    every song gets (copilot.TAB). The song's score and its play-along page follow (copilot.tab_style)."""
+    if style is not None and style not in TAB_STYLES:
+        raise Bass2SheetError("a song is put on the neck in one of these ways: " + ", ".join(TAB_STYLES))
+    path = os.path.join(folder, "harmony.json")
+    saved = copilot.read_json(path) or {}
+    if style is None:
+        saved.pop("tab", None)
+    else:
+        saved["tab"] = style
+    atomic_write_text(path, json.dumps(saved))
+
+
+_FINGERED = {}  # the last fingerings worked out, so that a page asked for again does not wait for them
+
+
+def fingerings(machine, notes):
+    """The notes on the neck in each way there is (score.TAB_STYLES): {style: [(string, fret)]}."""
     grid = np.asarray(machine["grid"])
-    style = machine["settings"].get("tab", "low")
-    played = frets([int(n["pitch"]) for n in notes], style, also=[n.get("also", []) for n in notes])
+    when = [int(np.argmin(np.abs(grid - n["start"]))) - machine["origin"] for n in notes]
+    pitches, also = [int(n["pitch"]) for n in notes], [tuple(n.get("also", [])) for n in notes]
+    key = (tuple(pitches), tuple(when), tuple(also))
+    if key not in _FINGERED:
+        if len(_FINGERED) >= 8:
+            _FINGERED.pop(next(iter(_FINGERED)))
+        bar_of = [g // 16 for g in when]
+        _FINGERED[key] = {
+            style: frets(pitches, style, also=[list(a) for a in also], starts=when, bars=bar_of) for style in TAB_STYLES
+        }
+    return _FINGERED[key]
+
+
+def _bass(machine, notes, chords, bars, played):
+    """The bass line against the chords: each note with where it is played on the neck (`played`), where the
+    fretting hand is then, the chord the note sounds under, what it is to that chord, and the sixteenth of its
+    bar it starts on."""
+    grid = np.asarray(machine["grid"])
     starts = [c["start"] for c in chords]
     base = {}  # per chord: the pitch of the root the line stands on there
     out = []
-    for n, (string, fret) in zip(notes, played):
+    for n, (string, fret), at in zip(notes, played, hand(played)):
         k = int(np.searchsorted(starts, n["start"] + 0.03, side="right")) - 1
         under = chords[k] if k >= 0 and n["start"] + 0.03 < chords[k]["end"] else None
         bar = max(0, int(np.searchsorted(bars, n["start"] + 0.03, side="right")) - 1)
         slot = int(np.argmin(np.abs(grid - n["start"]))) - (machine["origin"] + 16 * bar)
         note = dict(start=round(n["start"], 3), end=round(n["end"], 3), pitch=int(n["pitch"]), string=string, fret=fret)
-        note.update(bar=bar + 1, slot=max(0, min(15, slot)), chord=k if under else None, degree=None, role=None)
+        note.update(
+            hand=at, bar=bar + 1, slot=max(0, min(15, slot)), chord=k if under else None, degree=None, role=None
+        )
         if under:
             root = under["root"]
             if k not in base:
@@ -631,7 +665,8 @@ def view(desk):
         )
         for part in parts(held)
     ]
-    bass = _bass(machine, notes, chords, bars)
+    tab, ways = copilot.tab_style(desk.folder), fingerings(machine, notes)
+    bass = _bass(machine, notes, chords, bars, ways[tab])
     runs = [c for k, c in enumerate(chords) if k == 0 or _same(c) != _same(chords[k - 1])]
     moves = collections.Counter((_same(a), _same(b)) for a, b in zip(runs, runs[1:]))
     motions = collections.Counter(
@@ -674,6 +709,8 @@ def view(desk):
         loops=_loops(song_parts, bass, len(bars)),
         bass=bass,
         strings=STRINGS,
+        tab=tab,  # how the notes are put on the neck, and what each way asks of the hand over the whole song
+        tabs=[dict(id=style, **effort(ways[style])) for style in TAB_STYLES],
         places=[dict(said(*key), seconds=round(s, 1), share=round(s / total, 3)) for key, s in spent.most_common()],
         moves=[dict(a=said(*a), b=said(*b), times=n) for (a, b), n in moves.most_common()],
         motions=[dict(up=up, name=MOTIONS[up], times=n) for up, n in motions.most_common()],

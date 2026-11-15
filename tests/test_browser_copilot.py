@@ -491,8 +491,9 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
     page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
     # the neck shows what is played and nothing else: this bar's four places, joined, and the note that sounds
-    assert page.locator("#neck .tone").count() == 4 and page.locator("#neck .shape").count() == 1
-    assert sorted(page.locator("#neck .tone text").all_text_contents()) == ["4", "5", "8", "R"]
+    places = page.evaluate("new Set(H.bass.filter(b => b.bar === S.bar + 1).map(b => b.string + ':' + b.fret)).size")
+    assert page.locator("#neck .tone").count() == places >= 4 and page.locator("#neck .shape").count() == 1
+    assert set(page.locator("#neck .tone text").all_text_contents()) == {"4", "5", "8", "R"}
     assert "The bass plays" in page.inner_text("#lead") and "string" in page.inner_text("#lead")
     page.wait_for_function("H.chords[S.chord].name === 'G'", timeout=20000)  # the song moves on, and the page with it
     assert page.inner_text("#here-name") == "G" and float(page.get_attribute("#strip-cursor", "x1")) > 0
@@ -514,6 +515,20 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     page.wait_for_function("S.chord >= 0 && H.chords[S.chord].name === 'D'")
     page.click("#play")
     page.wait_for_function("document.getElementById('au').paused")
+
+    # the fingering: for playing unless another way is picked; the neck follows, with the hand drawn on it
+    assert page.get_attribute("#tabs [data-tab='easy']", "aria-pressed") == "true" and "hand move" in page.inner_text(
+        "#effort"
+    )
+    assert page.locator("#neck .handbox").count() == 1
+    before = page.evaluate("H.bass.map(n => [n.string, n.fret])")
+    page.click("#tabs [data-tab='low']")
+    page.wait_for_function("H.tab === 'low'")
+    assert page.evaluate("H.bass.map(n => [n.string, n.fret])") != before
+    assert page.get_attribute("#tabs [data-tab='low']", "aria-pressed") == "true"
+    assert copilot.tab_style(os.path.join(site.workdir, song)) == "low"
+    page.click("#tabs [data-tab='easy']")
+    page.wait_for_function("H.tab === 'easy'")
 
     # home: the key with the same notes; the names follow, and the choice is kept
     before = page.evaluate("[H.home.name, H.chords[S.chord].numeral]")

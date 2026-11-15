@@ -294,7 +294,9 @@ class Handler(BaseHTTPRequestHandler):
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
                 if path == "/api/harmony":  # the person's home, or their chord for some bars; no note changes
-                    if "chords" in data:
+                    if "tab" in data:  # how the song is put on the neck: its score follows
+                        copilot_harmony.set_tab(desk.folder, data["tab"])
+                    elif "chords" in data:
                         bars, chord = data["chords"].get("bars"), data["chords"].get("chord")
                         copilot_harmony.set_chords(desk.folder, bars, None if chord is None else (chord[0], chord[1]))
                         desk.log(dict(kind="chord", song=desk.song_id, bars=bars, chord=chord))
