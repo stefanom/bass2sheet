@@ -8,8 +8,9 @@ new page.
 ## What it shows
 
 1. **The problem, and the result first.** The sheet the film ends up with: staff and tab.
-2. **One command.** `bass2sheet SONG -o sheet` runs while it is filmed (the wait is shown sped up, and the
-   picture says by how much); what it wrote; the report with the verdict and the quality gates; the PDF.
+2. **One command.** `uv run bass2sheet SONG -o sheet`, typed as the README's quick start has it, runs while it
+   is filmed (the wait is shown sped up, and the picture says by how much); what it wrote; the report with the
+   verdict and the quality gates; the PDF.
 3. **The copilot's first page.** The song is dropped on it and prepared, step by step (sped up, as the picture
    says). The song is prepared with a cache of its own, so every step runs as on a first time.
 4. **The song's page.** Play, stop at what is wrong, fix it. Five mistakes the tool really made on this song, each
@@ -55,6 +56,10 @@ played.
 - The scenes that change the song (`landing`, `song`, `sheet`, `play`) each start from the working directory as
   the scene before left it; a copy is kept after each in the work folder (`--work`, by default `dev/demo/work`,
   which git ignores: a filming's frames and the tool's own files for the song take about three gigabytes).
+- `--replay` films the command scene from its last real run, which the work folder keeps (`command.json`: what
+  the command printed and when; and the files it wrote): the same lines at the same moments, without the two
+  minutes on the GPU. For a change to the film's words or looks. A change to what the tool prints needs a real
+  run.
 - `--warm` is for trying a scene out: the command and the preparation use what the tool has kept of the song and
   take seconds. The film then shows a second run, not a first, so do not publish that.
 - `--gentle` runs the tool and the encoding at low priority on two threads.

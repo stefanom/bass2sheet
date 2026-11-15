@@ -233,7 +233,7 @@ async def film(c, names, lines):
         folder = os.path.join(c.work, "scenes", name)
         shutil.rmtree(folder, ignore_errors=True)
         print(f"filming {name}", flush=True)
-        before = forget(c) if name == "command" and not c.args.warm else None
+        before = forget(c) if name == "command" and not c.args.warm and not c.args.replay else None
         if name == "landing":
             fresh_scores(c)
         elif name not in ("command", "tests"):  # from where the scene before it left the working directory
@@ -296,6 +296,11 @@ def main():
         "--warm",
         action="store_true",
         help="for trying scenes out: let the tool use what it has kept of the song, so the command and the preparation take seconds (the film then shows a second run, not a first)",
+    )
+    ap.add_argument(
+        "--replay",
+        action="store_true",
+        help="film the command scene from its last real run, kept in the work folder (what it printed and when, and the files it wrote), without running the command again",
     )
     ap.add_argument(
         "--gentle",
