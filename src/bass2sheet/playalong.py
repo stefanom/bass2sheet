@@ -670,18 +670,34 @@ def get(handler, path, q):
 # ------------------------------------------------------------------------------------------------ the home network
 
 
-def from_this_machine(address):
-    """Whether a request's sender is the machine the server runs on: only then may it change anything."""
+_HOME = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]  # what routers give out
+
+
+def _ip(address):
     try:
         ip = ipaddress.ip_address(address.split("%")[0])
     except ValueError:
-        return False
-    ip = getattr(ip, "ipv4_mapped", None) or ip
-    return ip.is_loopback
+        return None
+    return getattr(ip, "ipv4_mapped", None) or ip
+
+
+def from_this_machine(address):
+    """Whether a request's sender is the machine the server runs on: only then may it change anything."""
+    ip = _ip(address)
+    return ip is not None and ip.is_loopback
+
+
+def on_this_network(address):
+    """Whether a request's sender is this machine or one on a home network with it. `--lan` is for the phone in
+    the same room: should the computer be on a network that gives it an address the whole internet can reach,
+    the songs are still not served to anyone further away."""
+    ip = _ip(address)
+    return ip is not None and (ip.is_loopback or ip.is_link_local or any(ip in net for net in _HOME))
 
 
 def addresses():
-    """This machine's addresses on the home network (private IPv4 addresses), the likeliest first."""
+    """This machine's addresses on a home network, the likeliest first. Not the address a phone's hotspot or
+    another IPv6-only network gives it for its own use (192.0.0.x): nothing else can reach it there."""
     found = []
     try:  # the address the machine would send from: no packet leaves
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -702,11 +718,8 @@ def addresses():
             pass
     out = []
     for a in found:
-        try:
-            ip = ipaddress.ip_address(a)
-        except ValueError:
-            continue
-        if ip.version == 4 and ip.is_private and not ip.is_loopback and not ip.is_link_local and a not in out:
+        ip = _ip(a)
+        if ip is not None and ip.version == 4 and any(ip in net for net in _HOME) and a not in out:
             out.append(a)
     return sorted(out, key=lambda a: not a.startswith("192.168."))
 
@@ -716,7 +729,8 @@ def announce(port):
     found = addresses()
     if not found:
         return [
-            "Listening on the network, but this machine has no home-network address: is it on Wi-Fi?",
+            "Listening on the network, but this machine has no home-network address: it is not on Wi-Fi, or it is "
+            "on a phone's hotspot, where the phone cannot reach it.",
             f"On this machine the play-along page is at http://localhost:{port}/play",
         ]
     lines_ = [f"On your phone, on the same Wi-Fi, open http://{found[0]}:{port}/play"]

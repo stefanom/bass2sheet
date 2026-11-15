@@ -405,6 +405,22 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
         ("", False),
     ):
         assert playalong.from_this_machine(address) is ours, address
+    for address, near in (
+        ("127.0.0.1", True),
+        ("::1", True),
+        ("192.168.4.25", True),
+        ("10.1.2.3", True),
+        ("172.20.10.2", True),  # a phone's hotspot
+        ("::ffff:192.168.1.20", True),
+        ("169.254.7.7", True),
+        ("192.0.0.2", False),  # what an IPv6-only network gives a machine for its own use
+        ("172.32.0.1", False),
+        ("100.64.0.9", False),
+        ("203.0.113.9", False),
+        ("2607:fb90::1", False),
+        ("nonsense", False),
+    ):
+        assert playalong.on_this_network(address) is near, address
     home = copilot_server.make_server(workdir, 0)
     assert home.server_address[0] == "127.0.0.1"  # this machine only, unless asked
     home.server_close()
@@ -429,6 +445,9 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
         assert not os.path.exists(os.path.join(workdir, "mix", "log.jsonl")) and seen == ["127.0.0.1"] * 4
         assert _status(url + "/play") == 200 and _status(url + "/api/play/songs") == 200  # looking is allowed
         assert _status(url + "/api/song?id=mix") == 200
+        monkeypatch.setattr(playalong, "on_this_network", lambda address: False)
+        for path in ("/play", "/api/play/songs", "/", "/api/song?id=mix", "/data/mix/audio/record.flac"):
+            assert _status(url + path) == 403, path  # from further away than the home network: nothing at all
         monkeypatch.undo()
         assert _status(url + "/api/act", fix) == 200  # from the machine itself: as before
         assert copilot.Desk(workdir, "mix").note(note["id"])["state"] == "fixed"
@@ -438,8 +457,8 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
 
 
 def test_serving_on_the_home_network_says_where_to_open_it(workdir, monkeypatch, capsys):
-    for a in playalong.addresses():  # whatever this machine has: private, never the loopback
-        assert a.count(".") == 3 and not a.startswith("127.")
+    for a in playalong.addresses():  # whatever this machine has: a home network's, never the loopback
+        assert playalong.on_this_network(a) and not playalong.from_this_machine(a) and not a.startswith("192.0.0.")
     monkeypatch.setattr(playalong, "addresses", lambda: ["192.168.1.20", "10.0.0.7"])
     said = playalong.announce(8770)
     assert said[0] == "On your phone, on the same Wi-Fi, open http://192.168.1.20:8770/play"

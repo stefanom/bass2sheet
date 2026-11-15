@@ -117,6 +117,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if not playalong.on_this_network(self.client_address[0]):  # with --lan: the home network, no further
+            return self.send_json(dict(error="this page is for the network it is on"), 403)
         try:
             if url.path == "/play" or url.path.startswith(("/play/", "/api/play/")):  # the play-along page
                 playalong.get(self, url.path, q)
