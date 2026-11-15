@@ -158,7 +158,7 @@ def test_check_passes_where_everything_is_there(clone):
     clone.environment()
     code, out, err = clone.run("--check")
     assert code == 0, err
-    assert out.strip().splitlines()[-1] == "Everything is there. Nothing was changed."
+    assert out.strip().splitlines()[-1] == "What is required is there. Nothing was changed."
     assert clone.called("uv sync") == ["uv sync --locked --check"]
     assert clone.called("doctor") == ["doctor -m bass2sheet.doctor"]  # it checks, it does not download
     clone.set("uv-check", 1)  # the environment has other packages than uv.lock lists

@@ -278,7 +278,7 @@ if [ "$check" -eq 1 ]; then
     told=1
     path_note
     say ""
-    say "Everything is there. Nothing was changed."
+    say "What is required is there. Nothing was changed."
     exit 0
 fi
 
