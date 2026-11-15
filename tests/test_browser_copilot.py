@@ -530,6 +530,54 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     assert page.locator("#roles .role").count() == 5 and "on their root" in page.inner_text("#bass-note")
 
 
+def test_a_chord_is_heard_changed_in_every_round_and_given_back_on_the_harmony_page(browse, site, song):
+    page = browse(f"{site.url}/harmony#{song}", ready="H !== null && document.querySelectorAll('#map .st').length > 20")
+    loop = page.evaluate("H.parts.find(p => p.size === 4)")
+    bar = loop["bar"] + 1  # the second bar of the first round: C
+    page.evaluate(f"document.getElementById('au').currentTime = H.bars[{bar - 1}].time + 0.3")
+    page.wait_for_function(f"S.bar === {bar - 1}")
+    page.click("#change")
+    assert page.inner_text("#edit-where").lower() == f"bar {bar} · part {loop['letter']}".lower()
+    assert page.inner_text("#edit-heard") == "The tool heard C." and page.is_disabled("#edit-here")
+    offered = page.locator("#edit-offers .chip b").all_inner_texts()
+    assert offered[0] == "C" and "Am" in offered and len(offered) == len(set(offered))
+
+    # a click on a chord plays the bar with it, in the keyboard sound, and changes nothing
+    page.locator("#edit-offers .chip", has_text="Am").click()
+    page.wait_for_function("S.trying !== null && !document.getElementById('au').paused && Keys.now === 'try'")
+    assert page.evaluate("Keys.voices.length") == 3 and page.evaluate("H.fixed") == 0
+    page.wait_for_function(
+        "S.trying === null && document.getElementById('au').paused && Keys.now === null", timeout=20000
+    )
+    assert page.inner_text("#edit-here") == "Change this bar to Am" and page.is_enabled("#edit-here")
+    assert page.inner_text("#edit-all") == f"Change all 3 bars like it in part {loop['letter']}"
+
+    page.click("#edit-all")
+    page.wait_for_function("H.fixed === 3")
+    assert (
+        page.inner_text("#edit-heard") == "You put Am here. The tool heard C." and page.inner_text("#here-name") == "Am"
+    )
+    assert copilot_harmony.read_fixes(os.path.join(site.workdir, song)) == {bar + 4 * k: [(9, "m")] for k in range(3)}
+    chips = page.locator(
+        f"#loops .verb[data-letter='{page.evaluate('H.parts.find(p => p.size === 4).letter')}'] .chip b"
+    )
+    assert chips.all_inner_texts() == ["Em", "Am", "G", "D"] and page.locator("#path .chip.yours").count() == 1
+    assert page.is_visible("#edit-back") and page.is_hidden("#edit-all")
+
+    page.click("#edit-back")  # this bar only: the two other rounds keep the person's chord
+    page.wait_for_function("H.fixed === 2")
+    assert page.inner_text("#edit-heard") == "The tool heard C." and page.inner_text("#here-name") == "C"
+    page.click("#edit-close")
+    assert page.is_hidden("#edit")
+
+    # the chords of the page in the keyboard sound, over the record, for as long as it plays
+    page.click("#chords")
+    page.click("#play")
+    page.wait_for_function("Keys.now !== null && Keys.now === 'c' + S.chord")
+    page.click("#play")
+    page.wait_for_function("document.getElementById('au').paused && Keys.now === null")
+
+
 def test_a_harmony_page_without_its_song_says_so(browse, site):
     page = browse(site.url + "/harmony", ready="!document.getElementById('error').hidden")
     assert "No song was named" in page.inner_text("#error")

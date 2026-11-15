@@ -442,6 +442,70 @@ def set_home(folder, home):
     atomic_write_text(path, json.dumps(saved))
 
 
+def read_fixes(folder):
+    """The chords the person put in place of the tool's, by bar (counted from 1): {bar: [(root, quality), ...]}.
+    One chord fills its bar; two share it half and half."""
+    saved = copilot.read_json(os.path.join(folder, "harmony.json")) or {}
+    return {int(bar): [(int(r) % 12, str(q)) for r, q in held] for bar, held in (saved.get("chords") or {}).items()}
+
+
+def set_chords(folder, bars, chord):
+    """Put a chord, (root, quality), in the place of what the tool heard in each of `bars` (counted from 1).
+    None takes the person's chord away again: the bar then has what the tool heard."""
+    if not (
+        isinstance(bars, list) and bars and all(isinstance(b, int) and not isinstance(b, bool) and b >= 1 for b in bars)
+    ):
+        raise Bass2SheetError("a chord is changed in one bar or more, counted from 1")
+    if chord is not None:
+        root, quality = chord
+        if not (isinstance(root, int) and not isinstance(root, bool) and 0 <= root < 12 and quality in TONES):
+            raise Bass2SheetError(
+                "a chord is one of the twelve notes with one of: " + ", ".join(q or "major" for q in TONES)
+            )
+    path = os.path.join(folder, "harmony.json")
+    saved = copilot.read_json(path) or {}
+    fixed = saved.setdefault("chords", {})
+    for bar in bars:
+        if chord is None:
+            fixed.pop(str(bar), None)
+        else:
+            fixed[str(bar)] = [[chord[0], chord[1]]]
+    atomic_write_text(path, json.dumps(saved))
+
+
+def with_fixes(machine, chords, fixes):
+    """The chords with the person's in place: in a bar the person fixed, their chord fills the bar and what the
+    tool heard there is cut away. Each chord says whose it is (`yours`)."""
+    grid, origin, length = machine["grid"], machine["origin"], machine["length"]
+    spans = []
+    for bar, held in sorted(fixes.items()):
+        i = origin + 16 * (bar - 1)
+        if 0 <= i < len(grid) and held:
+            t0, t1 = max(0.0, grid[i]), min(length, grid[i + 16] if i + 16 < len(grid) else length)
+            if t1 - t0 > 0.05:
+                spans.append((t0, t1, held))
+    out = []
+    for c in chords:
+        pieces = [(c["start"], c["end"])]
+        for t0, t1, _ in spans:
+            pieces = [(a, b) for lo, hi in pieces for a, b in ((lo, min(hi, t0)), (max(lo, t1), hi)) if b - a > 0.05]
+        out += [dict(c, start=round(a, 3), end=round(b, 3), yours=False) for a, b in pieces]
+    for t0, t1, held in spans:
+        each = (t1 - t0) / len(held)
+        for k, (root, quality) in enumerate(held):
+            mine = dict(start=round(t0 + k * each, 3), end=round(t0 + (k + 1) * each, 3), root=root, quality=quality)
+            out.append(dict(mine, score=1.0, yours=True))
+    return sorted(out, key=lambda c: c["start"])
+
+
+def _per_bar(chords, bars, bar_ends):
+    """What each bar holds: its chords in order, as (root, quality). A chord counts in a bar it fills a tenth of."""
+    return [
+        tuple((c["root"], c["quality"]) for c in chords if min(c["end"], t1) - max(c["start"], t0) > 0.1 * (t1 - t0))
+        for t0, t1 in zip(bars, bar_ends)
+    ]
+
+
 def _under(notes, start, end):
     """The bass note a chord stands on: the one sounding when the chord starts, else the first that starts in it."""
     for n in notes:
@@ -526,8 +590,9 @@ def view(desk):
         numeral=numeral(root, quality, home),
         job=job(root, quality, home),
     )
+    heard, fixes = chords_of(machine), read_fixes(desk.folder)
     chords, spent, played = [], collections.Counter(), collections.Counter()
-    for c in chords_of(machine):
+    for c in with_fixes(machine, heard, fixes):
         on = _under(notes, c["start"], c["end"])
         for n in notes:  # how long the bass spends on each part of the chord
             both = min(n["end"], c["end"]) - max(n["start"], c["start"])
@@ -552,11 +617,7 @@ def view(desk):
         maps[name] = dict(box=(760, 534) if name == "roads" else WHEEL["box"], spots=spots)
         for chord in chords:
             chord.setdefault("on", {})[name] = where[(chord["root"], chord["quality"])]
-    # what each bar holds: its chords in order (a chord counts in a bar it fills a tenth of), then the parts
-    held = [
-        tuple((c["root"], c["quality"]) for c in chords if min(c["end"], t1) - max(c["start"], t0) > 0.1 * (t1 - t0))
-        for t0, t1 in zip(bars, bar_ends)
-    ]
+    held, by_tool = _per_bar(chords, bars, bar_ends), _per_bar(heard, bars, bar_ends)  # then the parts
     song_parts = [
         dict(
             letter=part["letter"],
@@ -588,10 +649,25 @@ def view(desk):
         homes=[dict(root=h[0], major=h[1], name=key_name(h), found=h == found) for h in homes],
         names=names,
         bars=[
-            dict(bar=k + 1, time=round(t, 3), pattern=patterns[k]["pattern"] if k < len(patterns) else None)
+            dict(
+                bar=k + 1,
+                time=round(t, 3),
+                end=round(bar_ends[k], 3),
+                pattern=patterns[k]["pattern"] if k < len(patterns) else None,
+                holds=[said(*chord) for chord in held[k]],
+                heard=[said(*chord) for chord in by_tool[k]],  # what the tool heard there, whatever it holds now
+                yours=k + 1 in fixes,
+            )
             for k, t in enumerate(bars)
         ],
         chords=chords,
+        fixed=len(fixes),
+        qualities=list(TONES),
+        palette={  # every chord the page may offer in place of another, with its notes
+            f"{root},{quality}": dict(said(root, quality), tones=[(root + t) % 12 for t in tones(quality)])
+            for root in range(12)
+            for quality in TONES
+        },
         maps=maps,
         regions={does: dict(box=REGIONS[does]) for does in JOBS},
         parts=song_parts,

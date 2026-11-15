@@ -292,6 +292,63 @@ def test_the_tools_chords_become_stretches_of_time():
     assert copilot_harmony.chords_of(_machine([])) == [] and copilot_harmony.chords_of(_machine(None)) == []
 
 
+def test_the_persons_chord_takes_the_place_of_what_the_tool_heard_in_its_bar():
+    H = copilot_harmony
+    found = [
+        dict(bar=k, root=root, quality=q, score=0.8)
+        for k, (root, q) in enumerate([(E, "m"), (C, ""), (G, ""), (D, "")], 1)
+    ]
+    machine = _machine(found)
+    heard = H.chords_of(machine)
+    said = lambda chords: [(c["start"], c["end"], c["root"], c["quality"], c["yours"]) for c in chords]  # noqa: E731
+    assert said(H.with_fixes(machine, heard, {})) == [
+        (0.0, 2.0, E, "m", False),
+        (2.0, 4.0, C, "", False),
+        (4.0, 6.0, G, "", False),
+        (6.0, 8.0, D, "", False),
+    ]
+    fixed = H.with_fixes(machine, heard, {2: [(A, "m")]})
+    assert said(fixed)[1] == (2.0, 4.0, A, "m", True) and [c["yours"] for c in fixed] == [False, True, False, False]
+    assert fixed[1]["score"] == 1.0 and fixed[0]["score"] == 0.8
+    # two chords share their bar half and half; a bar past the end of the song is left out
+    two = H.with_fixes(machine, heard, {3: [(G, ""), (B, "dim")], 9: [(C, "")]})
+    assert said(two)[2:4] == [(4.0, 5.0, G, "", True), (5.0, 6.0, B, "dim", True)] and len(two) == 5
+    # a chord the tool held across the bar line is cut where the person's begins, and a bar it had nothing in is filled
+    long = [
+        dict(start=0.0, end=4.0, root=E, quality="m", score=0.7),
+        dict(start=6.0, end=8.0, root=D, quality="", score=0.7),
+    ]
+    assert said(H.with_fixes(machine, long, {2: [(C, "")], 3: [(G, "7")]})) == [
+        (0.0, 2.0, E, "m", False),
+        (2.0, 4.0, C, "", True),
+        (4.0, 6.0, G, "7", True),
+        (6.0, 8.0, D, "", False),
+    ]
+
+
+def test_the_persons_chords_are_kept_beside_the_song(tmp_path):
+    H, folder = copilot_harmony, str(tmp_path)
+    assert H.read_fixes(folder) == {}
+    H.set_chords(folder, [3, 7], (A, "m7"))
+    H.set_chords(folder, [4], (D, ""))
+    H.set_home(folder, (C, True))  # the home and the chords are kept apart in the one file
+    assert H.read_fixes(folder) == {3: [(A, "m7")], 7: [(A, "m7")], 4: [(D, "")]} and H.read_home(folder) == (C, True)
+    H.set_chords(folder, [7, 9], None)  # taken away again; a bar that had none is no matter
+    assert H.read_fixes(folder) == {3: [(A, "m7")], 4: [(D, "")]} and H.read_home(folder) == (C, True)
+    for bars, chord in (
+        ([], (C, "")),
+        ([0], (C, "")),
+        ([True], (C, "")),
+        ("3", (C, "")),
+        ([3], (12, "")),
+        ([3], (C, "minor")),
+        ([3], (True, "")),
+    ):
+        with pytest.raises(Bass2SheetError):
+            H.set_chords(folder, bars, chord)
+    assert H.read_fixes(folder) == {3: [(A, "m7")], 4: [(D, "")]}
+
+
 @pytest.fixture(scope="module")
 def prepared(song_files, tmp_path_factory):
     mix, stems = song_files
@@ -387,6 +444,38 @@ def test_the_song_is_given_in_parts_with_what_the_bass_plays_over_each(workdir):
     )
 
 
+def test_a_chord_the_person_changed_is_in_the_song_from_then_on(workdir):
+    desk = copilot.Desk(workdir, "mix")
+    before = copilot_harmony.view(desk)
+    loop = max(before["parts"], key=lambda p: p["bars"])
+    bars = [loop["bar"] + 1 + 4 * k for k in range(3)]  # the second bar of the loop, in each of its three rounds
+    assert all(before["bars"][b - 1]["holds"][0]["name"] == "C" and not before["bars"][b - 1]["yours"] for b in bars)
+    assert before["fixed"] == 0 and len(before["palette"]) == 12 * len(before["qualities"]) == 144
+    assert before["palette"]["9,m7"]["tones"] == [9, 0, 4, 7] and before["palette"]["9,m7"]["name"] == "Am7"
+
+    copilot_harmony.set_chords(desk.folder, bars, (A, "m"))
+    after = copilot_harmony.view(desk)
+    assert after["fixed"] == 3
+    for b in bars:
+        bar = after["bars"][b - 1]
+        assert bar["yours"] and bar["holds"][0]["name"] == "Am" and bar["heard"][0]["name"] == "C"
+    assert sum(c["yours"] for c in after["chords"]) == 3 and "yours" in after["chords"][0]
+    # everything that is said of the song follows: its loop, where it spends its time, the map
+    now = max(after["parts"], key=lambda p: p["bars"])
+    assert [bar[0]["name"] for bar in now["loop"]] == ["Em", "Am", "G", "D"] and now["bars"] == 12
+    assert "Am" in {p["name"] for p in after["places"]} and "C" not in {p["name"] for p in after["places"]}
+    assert any(s["name"] == "Am" and s["seconds"] > 0 for s in after["maps"]["roads"]["spots"])
+    assert after["home"] == before["home"] and desk.notes == copilot.Desk(workdir, "mix").notes  # and nothing else
+
+    copilot_harmony.set_chords(desk.folder, bars[:1], None)  # one bar back to what the tool heard
+    back = copilot_harmony.view(desk)
+    assert (
+        back["fixed"] == 2
+        and back["bars"][bars[0] - 1]["holds"][0]["name"] == "C"
+        and not back["bars"][bars[0] - 1]["yours"]
+    )
+
+
 def test_the_person_chooses_home_and_the_names_follow(workdir):
     desk = copilot.Desk(workdir, "mix")
     before = copilot_harmony.view(desk)
@@ -458,5 +547,18 @@ def test_the_server_gives_the_harmony_and_keeps_the_choice_of_home(served, workd
     assert _json(served + "/api/harmony?id=mix")[1]["home"] == after["home"]  # kept
     status, said = _json(served + "/api/harmony", dict(song="mix", home=[12, True]))
     assert status == 400 and "twelve notes" in said["error"]
+    # a chord of the person's for some bars: kept, logged, and the home is left as it is
+    _json(served + "/api/harmony", dict(song="mix", home=[other["root"], other["major"]]))
+    status, fixed = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3, 7], chord=[A, "m"])))
+    assert status == 200 and fixed["fixed"] == 2 and fixed["bars"][2]["yours"] and fixed["home"]["yours"]
+    assert copilot_harmony.read_fixes(os.path.join(workdir, "mix")) == {3: [(A, "m")], 7: [(A, "m")]}
+    with open(os.path.join(workdir, "mix", "log.jsonl")) as f:
+        logged = [json.loads(line) for line in f if '"chord"' in line]
+    assert logged[-1]["kind"] == "chord" and logged[-1]["bars"] == [3, 7] and logged[-1]["chord"] == [A, "m"]
+    status, said = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3], chord=[A, "minor"])))
+    assert status == 400 and "twelve notes" in said["error"]
+    assert _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[], chord=[A, "m"])))[0] == 400
+    status, fewer = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3], chord=None)))
+    assert status == 200 and fewer["fixed"] == 1 and not fewer["bars"][2]["yours"] and fewer["home"]["yours"]
     status, back = _json(served + "/api/harmony", dict(song="mix", home=None))
-    assert status == 200 and back["home"] == seen["home"]
+    assert status == 200 and back["home"] == seen["home"] and back["fixed"] == 1

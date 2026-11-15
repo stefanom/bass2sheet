@@ -60,6 +60,10 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .chip.rest{border-bottom-color:var(--rest)}.chip.drift{border-bottom-color:var(--drift)}.chip.pull{border-bottom-color:var(--pull)}
 .chip.again b,.chip.again i{opacity:.45}
 .chip.playing{background:var(--pull-soft);box-shadow:inset 0 0 0 1px var(--text)}
+.edit{flex:1 1 100%;display:flex;flex-direction:column;gap:6px;padding:var(--s2) var(--s3);border:1px solid var(--text);border-radius:var(--r);background:var(--card)}
+.edit select{min-height:28px;font-size:.875rem}
+.chip.pick{box-shadow:inset 0 0 0 2px var(--text)}
+.chip.yours b::after{content:" ✓";font-family:var(--sans);font-size:.65em;color:var(--text-2)}
 .kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
 .kside{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
 .v-tag{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--text-2)}
@@ -182,12 +186,37 @@ svg text{font-family:var(--sans);fill:var(--text)}
     <div class="transport">
       <button class="btn go" id="play" type="button">▶ Play</button>
       <button class="btn" id="loop" type="button" aria-pressed="false" title="Go round the part that is playing until you stop it">Loop this part</button>
+      <button class="btn" id="chords" type="button" aria-pressed="false" title="Play the chords the page names, in a plain keyboard sound, over what you hear: a wrong chord is heard at once">Hear the chords</button>
+      <button class="btn" id="change" type="button" title="Put another chord in the bar that sounds, after hearing the bar with it">Change this chord</button>
       <span class="seg" id="hear" title="What you hear">
         <button class="btn" type="button" data-hear="record" aria-pressed="true">Record</button>
         <button class="btn" type="button" data-hear="nobass" aria-pressed="false">Without bass</button>
         <button class="btn" type="button" data-hear="bass" aria-pressed="false">Bass alone</button>
       </span>
       <span class="muted small" id="clock">0:00</span>
+    </div>
+    <div class="edit" id="edit" hidden>
+      <div class="row">
+        <span class="v-tag" id="edit-where"></span>
+        <span class="small muted" id="edit-heard"></span>
+        <span class="grow"></span>
+        <button class="btn mini" id="edit-close" type="button">Close</button>
+      </div>
+      <div class="row">
+        <span class="small muted">Try:</span>
+        <span class="opts" id="edit-offers" style="margin:0"></span>
+        <span class="small muted">or</span>
+        <select id="edit-root" aria-label="The root of another chord"></select>
+        <select id="edit-quality" aria-label="The kind of that chord"></select>
+        <button class="btn mini" id="edit-try" type="button">▶ Hear the bar with it</button>
+      </div>
+      <div class="row">
+        <button class="btn mini" id="edit-hear" type="button">▶ Hear the bar as it is</button>
+        <button class="btn go" id="edit-here" type="button" disabled>Change this bar</button>
+        <button class="btn" id="edit-all" type="button" hidden></button>
+        <button class="btn" id="edit-back" type="button" hidden>Back to what the tool heard</button>
+        <span class="small muted" id="edit-note">Click a chord to hear this bar with it. Nothing changes until you say so.</span>
+      </div>
     </div>
     <div class="kbd">
       <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: where the notes of this bar are played, and the note that sounds"></svg>
@@ -319,6 +348,29 @@ const Harmony = {
     }
     return d;
   },
+  // the notes a chord is played with, as MIDI numbers: its root in the octave below middle C, the others above it
+  voicing(root, tones) {
+    const low = 48 + root;
+    return [low, ...tones.filter(pc => pc !== root).map(pc => low + ((pc - root + 12) % 12))].sort((a, b) => a - b);
+  },
+  // the bars (counted from 1) where the parts with one letter play bar k of their loop
+  rounds(parts, letter, k) {
+    const out = [];
+    for (const p of parts) if (p.letter === letter) for (let b = 0; b < p.bars; b++) if ((b + (p.skip || 0)) % p.size === k) out.push(p.bar + b);
+    return out;
+  },
+  // the chords to offer for a bar, each once: what the tool heard there, the chords of this song (the most used
+  // first), then the chords of the key
+  offers(heard, places, home, most = 12) {
+    const KEY = home.major ? [[0, ""], [2, "m"], [4, "m"], [5, ""], [7, ""], [9, "m"], [11, "dim"]] : [[0, "m"], [2, "dim"], [3, ""], [5, "m"], [7, "m"], [7, ""], [8, ""], [10, ""]];
+    const all = [...heard, ...places, ...KEY.map(([step, quality]) => ({ root: (home.root + step) % 12, quality }))];
+    const seen = new Set(), out = [];
+    for (const c of all) {
+      const key = c.root + "," + c.quality;
+      if (!seen.has(key) && out.length < most) { seen.add(key); out.push({ root: c.root, quality: c.quality }); }
+    }
+    return out;
+  },
   // "the 2nd fret of the A string", "the open E string"
   fretName(string, fret) {
     if (fret === 0) return `the open ${Harmony.STRING_NAMES[string]} string`;
@@ -362,7 +414,67 @@ const $ = id => document.getElementById(id), L = Harmony;
 const song = decodeURIComponent(location.hash.slice(1));
 const au = $("au");
 let H = null;                     // what the server says of the song
-const S = { view: "roads", hear: "record", loop: false, chord: -1, part: -1, note: -1, bar: -1, looping: null };
+const S = { view: "roads", hear: "record", loop: false, chord: -1, part: -1, note: -1, bar: -1, looping: null, chords: false, trying: null };
+const E = { bar: 0, pick: null };   // the bar whose chord is being changed (from 1; 0: none), and the chord tried
+const KINDS = { "": "major", m: "minor", dim: "diminished", aug: "augmented", sus4: "sus4", 6: "6", m6: "m6", 7: "7", maj7: "maj7", m7: "m7", m7b5: "m7♭5", dim7: "dim7" };
+// The chords in a plain keyboard sound, so that a chord can be heard against the record.
+const Keys = {
+  ctx: null, voices: [], now: null,
+  ready() {
+    if (!this.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      this.ctx = new Ctx();
+      this.out = this.ctx.createGain();
+      this.out.gain.value = 0.55;
+      const soft = this.ctx.createBiquadFilter();
+      soft.type = "lowpass";
+      soft.frequency.value = 1500;
+      this.out.connect(soft);
+      soft.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    return this.ctx;
+  },
+  play(chord, key) {
+    if (this.now === key) return;
+    this.stop();
+    const ctx = this.ready();
+    if (!ctx) return;
+    this.now = key;
+    const t = ctx.currentTime;
+    for (const midi of L.voicing(chord.root, chord.tones)) {
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.17, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.09, t + 0.7);
+      g.connect(this.out);
+      const oscs = [-3, 3].map(cents => {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+        o.detune.value = cents;
+        o.connect(g);
+        o.start(t);
+        return o;
+      });
+      this.voices.push({ g, oscs });
+    }
+  },
+  stop() {
+    if (this.ctx) {
+      const t = this.ctx.currentTime;
+      for (const v of this.voices) {
+        v.g.gain.cancelScheduledValues(t);
+        v.g.gain.setValueAtTime(Math.max(0.0001, v.g.gain.value), t);
+        v.g.gain.linearRampToValueAtTime(0.0001, t + 0.08);
+        v.oscs.forEach(o => o.stop(t + 0.1));
+      }
+    }
+    this.voices = [];
+    this.now = null;
+  },
+};
 const JOB = { rest: "Home · rest", drift: "Away · drift", pull: "Tension · pull" };
 const ARROW = '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0L10,5L0,10z" fill="context-stroke"/></marker></defs>';
 const NOTES = {
@@ -401,7 +513,12 @@ function paintPath() {
   const p = H.parts[S.part], el = $("path");
   if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; $("where").innerHTML = "&nbsp;"; return; }
   const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
-  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + p.loop.map((bar, i) => chip(bar, null, i, again(p.loop, i) + (i === k ? " playing" : ""))).join("");
+  const held = p.loop.map((bar, i) => {   // what this round's bars hold; the loop's own where the round has no such bar
+    const at = p.bar - 1 + (round - 1) * p.size + i - p.skip, inside = at >= p.bar - 1 && at < p.bar - 1 + p.bars;
+    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours } : { bar, yours: false };
+  });
+  const shown = held.map(h => h.bar);
+  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : ""))).join("");
   el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[L.barOf(p, round, +b.dataset.k)].time + 0.01, false); });
   const cur = el.querySelector(".playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -560,6 +677,75 @@ function paintBass() {
   $("bass-note").textContent = `How long the bass spends on each note of the chord it plays under. It starts ${Math.round(100 * H.on_root)}% of the chords on their root.` + (moves ? ` From one chord to the next the root moves most often ${moves}.` : "");
 }
 
+/* ----- changing a chord: hear the bar with another one, then put it there ----- */
+const sameHolds = (a, b) => JSON.stringify(a.holds.map(c => [c.root, c.quality])) === JSON.stringify(b.holds.map(c => [c.root, c.quality]));
+const named = c => H.palette[c.root + "," + c.quality];
+function alike(bar) {   // the bars of the parts with this part's letter that are at the same place in the loop and hold the same
+  const i = H.parts.findIndex(p => bar >= p.bar && bar < p.bar + p.bars);
+  if (i < 0) return [bar];
+  const p = H.parts[i], k = (bar - p.bar + p.skip) % p.size;
+  return L.rounds(H.parts, p.letter, k).filter(b => sameHolds(H.bars[b - 1], H.bars[bar - 1]));
+}
+function tryBar(chord) {   // the bar from the record, with a chord in the keyboard sound: the one given, or what the bar holds
+  const bar = H.bars[E.bar - 1], lead = Math.min(0.6, (bar.end - bar.time) / 4);
+  S.trying = { from: Math.max(0, bar.time - lead), at: bar.time, to: bar.end, chord: chord ? { root: chord.root, tones: named(chord).tones } : null };
+  S.looping = null;
+  Keys.stop();
+  au.currentTime = S.trying.from;
+  au.play();
+}
+function openEdit(bar) {
+  if (!H || bar < 1 || bar > H.bars.length) return;
+  au.pause();
+  E.bar = bar;
+  E.pick = null;
+  paintEdit();
+  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
+}
+function closeEdit() {
+  E.bar = 0;
+  S.trying = null;
+  $("edit").hidden = true;
+  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
+}
+function paintEdit() {
+  const el = $("edit");
+  el.hidden = !E.bar;
+  if (!E.bar) return;
+  const bar = H.bars[E.bar - 1], part = H.parts.find(p => E.bar >= p.bar && E.bar < p.bar + p.bars);
+  const say = list => list.map(c => L.flat(c.name)).join(" and ") || "no chord";
+  $("edit-where").textContent = `Bar ${E.bar}${part ? " · part " + part.letter : ""}`;
+  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : `The tool heard ${say(bar.heard)}.`;
+  const offers = L.offers(bar.heard, H.places, H.home);
+  $("edit-offers").innerHTML = offers.map((c, i) => {
+    const n = named(c), on = E.pick && E.pick.root === c.root && E.pick.quality === c.quality;
+    return `<button type="button" class="chip ${n.job}${on ? " pick" : ""}" data-i="${i}"><b>${L.esc(L.flat(n.name))}</b><i>${L.esc(L.flat(n.numeral))}</i></button>`;
+  }).join("");
+  $("edit-offers").querySelectorAll(".chip").forEach(b => { b.onclick = () => { E.pick = offers[+b.dataset.i]; paintEdit(); tryBar(E.pick); }; });
+  $("edit-root").innerHTML = H.names.map((n, r) => `<option value="${r}">${L.esc(L.flat(n))}</option>`).join("");
+  $("edit-quality").innerHTML = H.qualities.map(q => `<option value="${L.esc(q)}">${KINDS[q] || q}</option>`).join("");
+  const now = E.pick || bar.holds[0] || bar.heard[0];
+  if (now) { $("edit-root").value = now.root; $("edit-quality").value = now.quality; }
+  const differs = E.pick && !(bar.holds.length === 1 && bar.holds[0].root === E.pick.root && bar.holds[0].quality === E.pick.quality);
+  const like = alike(E.bar);
+  $("edit-here").disabled = !differs;
+  $("edit-here").textContent = E.pick ? `Change this bar to ${L.flat(named(E.pick).name)}` : "Change this bar";
+  $("edit-all").hidden = !(differs && like.length > 1);
+  $("edit-all").textContent = `Change all ${like.length} bars like it${part ? " in part " + part.letter : ""}`;
+  $("edit-all").title = "The bars at this place in every round of this part that hold the same chord: bars " + like.join(", ");
+  $("edit-back").hidden = !bar.yours;
+  $("edit-note").textContent = E.pick ? "" : "Click a chord to hear this bar with it. Nothing changes until you say so.";
+}
+async function setChords(bars, chord) {
+  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, chords: { bars, chord: chord ? [chord.root, chord.quality] : null } }) });
+  const data = await r.json();
+  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  H = data;
+  E.pick = null;
+  paintAll();
+  paintEdit();
+}
+
 /* ----- home ----- */
 function paintHomes() {
   const el = $("homes"), names = H.names;
@@ -584,7 +770,15 @@ function tick(force) {
   const chord = L.at(H.chords, t), part = L.at(H.parts, t), note = L.at(H.bass, t);
   let bar = S.bar;
   if (H.bars.length) { bar = 0; while (bar + 1 < H.bars.length && H.bars[bar + 1].time <= t) bar++; }
-  if (S.loop && S.looping && !au.paused && t >= S.looping.end - 0.02) { au.currentTime = S.looping.start; return tick(true); }
+  if (S.trying) {   // a bar is being tried: the record plays it, the keyboard holds the chord, then it stops
+    if (t >= S.trying.to - 0.02 || au.paused) { const done = S.trying; S.trying = null; Keys.stop(); if (!au.paused) au.pause(); au.currentTime = done.at + 0.01; return; }
+    if (t >= S.trying.at - 0.01) {
+      if (S.trying.chord) Keys.play(S.trying.chord, "try");
+      else if (chord >= 0) Keys.play(H.chords[chord], "c" + chord);
+    }
+  } else if (S.chords && !au.paused && chord >= 0) Keys.play(H.chords[chord], "c" + chord);
+  else Keys.stop();
+  if (!S.trying && S.loop && S.looping && !au.paused && t >= S.looping.end - 0.02) { au.currentTime = S.looping.start; return tick(true); }
   if (part >= 0 && (!S.looping || au.paused || !S.loop)) S.looping = H.parts[part];
   const moved = force || chord !== S.chord || part !== S.part;
   const barMoved = force || bar !== S.bar || part !== S.part, noteMoved = barMoved || note !== S.note || chord !== S.chord;
@@ -643,6 +837,14 @@ $("play").onclick = toggle;
 au.addEventListener("play", () => { $("play").textContent = "■ Stop"; $("map").dataset.live = "1"; run(); });
 au.addEventListener("pause", () => { $("play").textContent = "▶ Play"; $("map").dataset.live = "0"; tick(true); });
 au.addEventListener("seeked", () => tick(true));
+$("chords").onclick = () => { S.chords = !S.chords; $("chords").setAttribute("aria-pressed", S.chords); if (S.chords) Keys.ready(); tick(true); };
+$("change").onclick = () => openEdit(S.bar + 1);
+$("edit-close").onclick = closeEdit;
+$("edit-hear").onclick = () => tryBar(null);
+$("edit-try").onclick = () => { E.pick = { root: +$("edit-root").value, quality: $("edit-quality").value }; paintEdit(); tryBar(E.pick); };
+$("edit-here").onclick = () => setChords([E.bar], E.pick);
+$("edit-all").onclick = () => setChords(alike(E.bar), E.pick);
+$("edit-back").onclick = () => setChords([E.bar], null);
 $("loop").onclick = () => { S.loop = !S.loop; $("loop").setAttribute("aria-pressed", S.loop); S.looping = H && H.parts[S.part] || null; };
 $("hear").querySelectorAll("button").forEach(b => {
   b.onclick = () => {

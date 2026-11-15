@@ -68,4 +68,14 @@ const c = (numeral, job) => [{ numeral, job }];
 same(L.said([c("i", "rest"), c("i", "rest"), c("bVII", "drift"), c("bVII", "drift")]), { runs: [{ key: "i", bars: 2, job: "rest" }, { key: "bVII", bars: 2, job: "drift" }], each: 2 });
 same(L.said([c("I", "rest"), c("IV", "drift"), c("IV", "drift"), []]).each, 0);
 same(L.said([c("I", "rest").concat(c("V", "pull")), c("IV", "drift")]).runs.map(r => r.key), ["I V", "IV"]);
+// a chord in the keyboard sound: its root below middle C, the other notes above the root
+same([L.voicing(4, [4, 7, 11]), L.voicing(0, [0, 4, 7, 10]), L.voicing(11, [11, 2, 6]), L.voicing(9, [0, 4, 9])], [[52, 55, 59], [48, 52, 55, 58], [59, 62, 66], [57, 60, 64]]);
+// the bars where the parts with one letter play a bar of their loop: here the second bar of a loop of four
+const song = [{ letter: "A", bar: 1, bars: 8, size: 4, skip: 0 }, { letter: "B", bar: 9, bars: 4, size: 2, skip: 0 }, { letter: "A", bar: 13, bars: 6, size: 4, skip: 3 }];
+same([L.rounds(song, "A", 1), L.rounds(song, "A", 3), L.rounds(song, "B", 0), L.rounds(song, "C", 0)], [[2, 6, 15], [4, 8, 13, 17], [9, 11], []]);
+// the chords offered for a bar: what the tool heard, the song's own, then the chords of the key; each once
+const c2 = (root, quality) => ({ root, quality });
+same(L.offers([c2(4, "m")], [c2(0, ""), c2(4, "m"), c2(7, "")], { root: 0, major: true }).map(c => c.root + c.quality), ["4m", "0", "7", "2m", "5", "9m", "11dim"]);
+same(L.offers([], [], { root: 9, major: false }).map(c => c.root + c.quality), ["9m", "11dim", "0", "2m", "4m", "4", "5", "7"]);
+same(L.offers([c2(1, "7")], [c2(0, "")], { root: 0, major: true }, 3).length, 3);
 console.log("ok");
