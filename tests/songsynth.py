@@ -49,9 +49,21 @@ def _swell(hz, dur, level):
     return level * env * (np.sin(2 * np.pi * hz * t) + 0.3 * np.sin(4 * np.pi * hz * t))
 
 
-def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=0.0, taste=False, double_stops=False):
+def make_song(
+    tempo=120.0,
+    bars=12,
+    lead_in_s=1.0,
+    tail_s=1.5,
+    seed=0,
+    swing_ms=0.0,
+    taste=False,
+    double_stops=False,
+    chords=CHORDS,
+):
     """Returns dict(mix, stems={bass, drums, harmony}, notes=[(start, end, pitch)], beats, downbeats, tempo, sr).
     Audio arrays are stereo float32 (2, n). `swing_ms` delays every off-beat eighth of the bass (0 = straight).
+    `chords` is the loop the song goes round, one entry a bar: (root MIDI for the bass, chord tones for the pad),
+    or a list of two of them for a bar whose chord changes on beat 3. The bass's root need not be the chord's.
     With `taste` the song has two things that can be written either way: in two bars of three the second note,
     which repeats the first, has no pluck (the re-pluck policies differ on it), and in every other bar the last
     note comes a sixteenth early (the rhythm policies differ on that). With `double_stops` the note on beat 3
@@ -64,21 +76,24 @@ def make_song(tempo=120.0, bars=12, lead_in_s=1.0, tail_s=1.5, seed=0, swing_ms=
     for bar in range(bars):
         t_bar = lead_in_s + bar * 4 * beat
         downbeats.append(t_bar)
-        root, tones = CHORDS[bar % len(CHORDS)]
+        halves = chords[bar % len(chords)]
+        halves = halves if isinstance(halves, list) else [halves]
         for b in range(4):
             t = t_bar + b * beat
             beats.append(t)
             _place(drums, t, (0.9 * _kick()) if b % 2 == 0 else (0.5 * _snare(rng)))
             for h in range(2):
                 _place(drums, t + h * beat / 2, 0.12 * _hat(rng))
-        tt = np.arange(int(4 * beat * SR)) / SR
-        pad = sum(np.sin(2 * np.pi * 440 * 2 ** ((m - 69) / 12) * tt) for m in tones)
-        _place(harmony, t_bar, 0.05 * pad * np.minimum(1, tt / 0.02) * np.minimum(1, (4 * beat - tt) / 0.05))
+        held = 4 * beat / len(halves)  # how long each of the bar's chords lasts
+        tt = np.arange(int(held * SR)) / SR
+        for k, (_, tones) in enumerate(halves):
+            pad = sum(np.sin(2 * np.pi * 440 * 2 ** ((m - 69) / 12) * tt) for m in tones)
+            _place(harmony, t_bar + k * held, 0.05 * pad * np.minimum(1, tt / 0.02) * np.minimum(1, (held - tt) / 0.05))
         pattern = PATTERN[:-2] + [(12, 1, 7), (13, 3, 5)] if taste and bar % 2 else PATTERN
         for s16, len16, up in pattern:
             start = t_bar + s16 * beat / 4 + (swing_ms / 1000 if s16 % 4 == 2 else 0)
             dur = len16 * beat / 4 * 0.95
-            pitch = root + up
+            pitch = halves[s16 * len(halves) // 16][0] + up
             if taste and s16 == 4 and bar % 3:
                 _place(bass, start, _swell(440 * 2 ** ((pitch - 69) / 12), dur, 0.35))
             else:

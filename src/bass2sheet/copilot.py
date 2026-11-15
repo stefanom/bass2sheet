@@ -26,7 +26,7 @@ import time
 import numpy as np
 import soundfile as sf
 
-from . import judge, ownsound, together
+from . import harmony, judge, ownsound, together
 from . import repeats as repeats_
 from .common import DEFAULTS, LOWEST_NOTE, SR, Bass2SheetError, atomic_write_text, clock, note_name, step
 
@@ -217,6 +217,7 @@ def prepare(workdir, song, opts=None, say=None):
         tempo=float(heard["tempo"]),
         key=[heard["key"][0], int(heard["key"][1]), bool(heard["key"][2])],
         chords=heard["chords"],
+        harmony=heard.get("harmony"),  # the keys and chords over time (harmony.find)
         length=round(audio.n / SR, 3),
         picture=shown,
     )
@@ -1119,7 +1120,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     )
     xml = score.musicxml(
         notes,
-        m["chords"],
+        harmony.for_sheet(m),
         tuple(m["key"]),
         m["tempo"],
         float(grid[m["origin"]]),

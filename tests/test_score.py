@@ -3,7 +3,6 @@ import xml.dom.minidom
 import pytest
 
 from bass2sheet import score
-from bass2sheet.rhythm import TRIADS
 
 
 @pytest.mark.parametrize("p,e", [(p, e) for p in range(16) for e in range(p + 1, 17)])
@@ -159,8 +158,10 @@ def test_tab_staff_carries_string_and_fret():
         assert 1 <= string <= 4 and 0 <= fret <= score.MAX_FRET
 
 
-def test_triads_match_rhythm_module():
-    assert score.TRIADS == TRIADS
+def test_the_sheet_has_a_symbol_for_every_chord_the_finder_can_give():
+    from bass2sheet import harmony
+
+    assert set(score.KINDS) == set(harmony.QUALITIES)
 
 
 def test_find_mscore_rejects_a_missing_explicit_path(monkeypatch):

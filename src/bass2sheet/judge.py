@@ -30,7 +30,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from . import ownsound, render, score
+from . import harmony, ownsound, render, score
 from .common import (
     ALTERNATIVES,
     DEFAULTS,
@@ -165,7 +165,7 @@ def code_id():
     """A hash of the modules that decide what is heard in a song, so results kept from an older tool are not
     taken for the current one's."""
     h = hashlib.sha1()
-    for name in ("audio", "common", "notes", "pipeline", "pitch", "rhythm", "separate", "together"):
+    for name in ("audio", "common", "harmony", "notes", "pipeline", "pitch", "rhythm", "separate", "together"):
         with open(os.path.join(os.path.dirname(__file__), name + ".py"), "rb") as f:
             h.update(f.read())
     return h.hexdigest()[:8]
@@ -208,7 +208,8 @@ def load_song(audio_path, cache_dir=None, device=None, stems_dir=None, separator
 
 def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crepe_model="full", keep=None):
     """The notes heard in a song under `settings` (separator, replucks, together, beat_tracker), on their beat
-    grid, with the key and the chords, and the beat tracker that was used (with the setting "auto" that is the
+    grid, with the key, the chords (a triad per bar, and `harmony`: the keys and chords over time, see
+    harmony.find), and the beat tracker that was used (with the setting "auto" that is the
     built-in one where the beat model cannot be had), as plain data. Heavy the first time; with stems and pitch
     tracks in the cache it takes seconds. `keep` is a directory where results are kept between runs, by settings
     and by code_id()."""
@@ -238,7 +239,7 @@ def hear(audio_path, settings, cache_dir=None, device=None, stems_dir=None, crep
         audio_id,
         settings["beat_tracker"],
     )
-    found = {k: c[k] for k in ("notes", "grid", "origin", "tempo", "key", "chords", "beat_tracker")}
+    found = {k: c[k] for k in ("notes", "grid", "origin", "tempo", "key", "chords", "harmony", "beat_tracker")}
     heard = json.loads(json.dumps(found, default=lambda x: x.tolist()))  # numpy values to plain ones
     if keep:
         os.makedirs(keep, exist_ok=True)
@@ -260,6 +261,7 @@ def make_version(settings, heard):
         tempo=float(heard["tempo"]),
         key=[key[0], int(key[1]), bool(key[2])],
         chords=plain["chords"],
+        harmony=heard.get("harmony"),  # not in what was heard before there was harmony.py
     )
 
 
@@ -566,7 +568,7 @@ def write_audio(path, x, scale):
 def snippet_xml(v, bars):
     return score.musicxml(
         v["notes"],
-        v["chords"],
+        harmony.for_sheet(v),
         tuple(v["key"]),
         v["tempo"],
         bar_time(v, 1),
