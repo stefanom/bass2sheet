@@ -768,6 +768,40 @@ def test_score_snippets_follow_the_audio_and_are_engraved_once(built):
     judge.render_sheets(workdir, comps, drawer, quiet, force=True)  # leave the directory as it was
 
 
+def test_a_musescore_that_fails_leaves_the_passages_their_sound_and_says_why(built, tmp_path):
+    import re
+
+    from test_score import _mscore
+
+    workdir, drawer = built["workdir"], built["kw"]["mscore"]
+    comps = judge.load_comparisons(workdir)
+    scores = [c["id"] for c in comps if c["kind"] in ("writing", "tab")]
+    said, quiet = [], lambda _: 0
+    broken = _mscore(tmp_path, "sys.stderr.write('sandbox_extension: noise\\nno such font\\n')\nsys.exit(3)\n")
+    try:
+        for cid in scores:  # as when the passages were just built: nothing is drawn of them yet
+            folder = os.path.join(workdir, "media", cid)
+            for name in [f for f in os.listdir(folder) if f.endswith((".png", ".spos"))]:
+                os.remove(os.path.join(folder, name))
+        assert judge.render_sheets(workdir, comps, broken, said.append, force=True) == len(scores)
+        told = re.fullmatch(r"MuseScore wrote 0 of (\d+) score snippets \(exit 3\): no such font", said[0])
+        assert len(said) == 1 and told and int(told.group(1)) >= len(scores)
+        after = {c["id"]: c for c in judge.load_comparisons(workdir)}
+        for cid in scores:  # no score to show, and nothing that points to one; the two versions are still heard
+            c = after[cid]
+            assert c["sheets"] == {} and not any(k.endswith("_sheet") for k in c["media"])
+            assert all(os.path.exists(os.path.join(workdir, rel)) for rel in c["media"].values())
+        folder = os.path.join(workdir, "media", scores[0])
+        assert not [f for f in os.listdir(folder) if f.startswith(".snippet")]  # its style and its job are gone
+        stuck = _mscore(tmp_path, "time.sleep(30)\n")
+        jobs = [tuple(os.path.join(folder, f"A.{ext}") for ext in ("musicxml", "png", "spos"))]
+        assert judge.engrave_snippets(jobs, stuck, timeout=1) == "MuseScore timed out after 1 s"
+        assert judge.engrave_snippets([], stuck) is None  # nothing to draw: it is not started
+    finally:
+        judge.render_sheets(workdir, comps, drawer, quiet, force=True)  # leave the directory as it was
+    assert all(set(c["sheets"]) == {"A", "B"} for c in judge.load_comparisons(workdir) if c["id"] in scores)
+
+
 def test_building_again_adds_nothing_and_keeps_the_picks(built):
     workdir = built["workdir"]
     before = [c["id"] for c in judge.load_comparisons(workdir)]

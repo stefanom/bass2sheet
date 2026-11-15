@@ -163,7 +163,7 @@ How to reproduce these numbers, and what each dataset can and cannot tell you, i
 
 ```
 uv run pytest                 # the default tests: about 5 minutes, nothing needed beyond `uv sync`
-uv run pytest --cov           # the same, with what they reach of the code: about 96% of lines and branches
+uv run pytest --cov           # the same, with what they reach of the code: about 97% of lines and branches
 uv run pytest -m browser      # every page in a real browser (uv sync --group browser; uv run playwright install chromium)
 BASS2SHEET_FULL_E2E=1 uv run pytest -m full    # the real models: about 1 GB to download the first time
 ```

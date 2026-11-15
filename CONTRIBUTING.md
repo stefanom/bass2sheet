@@ -38,7 +38,7 @@ One file, or one test: `uv run pytest tests/test_copilot.py`, `uv run pytest -k 
 
 `uv run pytest --cov` prints, for each module, the lines and branches the tests did not reach (the settings are in `pyproject.toml`); `--cov-report=html` writes pages to browse into `build/coverage/html/`. The programs the code starts as processes of their own are counted too: a song prepared by `python -m bass2sheet.copilot_adding`, and `bp_runner.py`.
 
-The default tier reaches about 96% of the lines and branches, and no module less than 90%. CI fails below 95%: raise that number when the tests reach more, and do not lower it to let a change through. What the default tier cannot reach is what needs the real thing, and the full tier runs it: the separation models, the production pitch model, the Beat This! model and Basic Pitch.
+The default tier reaches about 97% of the lines and branches, and no module less than 90%. CI fails below 95%: raise that number when the tests reach more, and do not lower it to let a change through. What the default tier cannot reach is what needs the real thing, and the full tier runs it: the separation models, the production pitch model, the Beat This! model and Basic Pitch.
 
 A number is not the point. A test is worth having when it fails as soon as the behaviour it names breaks: before adding one for a line the report shows, say what a person would lose if that line were wrong.
 
