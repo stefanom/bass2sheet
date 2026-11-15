@@ -184,3 +184,49 @@ def test_note_names_parse_to_midi_numbers():
             note_number(bad)
     assert LOWEST_NOTE == 28 and seg_params("every").lowest == 28
     assert seg_params("every", lowest=23).lowest == 23 and seg_params("every", lowest=0).lowest == 0
+
+
+def test_cli_hands_the_choices_to_the_pipeline_and_its_exit_code_back(tmp_path, monkeypatch, capsys):
+    song = tmp_path / "Some Band - A Song [abc123].wav"
+    song.write_bytes(b"not read here")
+    calls = []
+    monkeypatch.setattr(pipeline, "run", lambda *a, **kw: calls.append((a, kw)) or pipeline.EXIT_FAILED_GATES)
+    asked = [str(song), "--lowest", "B0", "--rhythm", "simple", "--tab", "position", "--replucks", "clear"]
+    asked += ["--together", "single", "--notes", "muscriptor", "--strict", "--no-audio", "--no-pdf", "-v"]
+    assert cli.main(asked) == 2  # the gates failed: the command says so
+    (audio_path, out), kw = calls[0]
+    assert audio_path == str(song) and out == str(tmp_path / "Some Band - A Song bass")  # beside the song
+    chosen = dict(lowest=23, rhythm="simple", tab="position", replucks="clear", together="single", notes="muscriptor")
+    assert {k: kw[k] for k in chosen} == chosen
+    assert (kw["strict"], kw["renders"], kw["pdf"]) == (True, False, False)
+    assert cli.main([str(song), "-o", str(tmp_path / "out"), "--lowest", "none"]) == 2
+    (_, out), kw = calls[1]
+    assert out == str(tmp_path / "out") and kw["lowest"] == 0  # the notes as heard, however low
+    left = dict(replucks=None, together=None, rhythm=None, tab=None, notes=None, stems_dir=None, bass_stem=None)
+    assert {k: kw[k] for k in left} == left  # what is not said is left to the standing choices
+    assert (kw["strict"], kw["renders"], kw["pdf"], kw["separator"]) == (False, True, True, "auto")
+    assert cli.main([str(song), "--lowest", "H9"]) == 1 and len(calls) == 2
+    assert "bass2sheet: 'H9' is not a note name (examples: E1, Bb0, F#2)" in capsys.readouterr().err
+
+    def stopped(*a, **kw):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline, "run", stopped)
+    assert cli.main([str(song)]) == 130  # Ctrl-C ends it without a traceback
+
+
+def test_giving_gpu_memory_back_never_breaks_a_run(monkeypatch):
+    import torch
+
+    freed = []
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: freed.append("cuda"))
+    common.release_gpu_memory()
+    assert freed == ["cuda"]
+
+    def broken():
+        raise RuntimeError("the driver is gone")
+
+    monkeypatch.setattr(torch.cuda, "empty_cache", broken)
+    common.release_gpu_memory()  # housekeeping: what goes wrong in it is not the run's problem

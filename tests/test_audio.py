@@ -41,3 +41,30 @@ def test_validate_warns_about_mono_and_clipping():
     assert audio.validate(stereo)[1] == []
     clipped = np.clip(stereo * 20, -1, 1)
     assert any("clipped" in w for w in audio.validate(clipped)[1])
+
+
+def test_a_file_with_no_sound_in_it_is_refused_by_what_is_wrong_with_it(tmp_path):
+    import av
+
+    film = str(tmp_path / "silent film.mp4")
+    with av.open(film, "w") as container:
+        stream = container.add_stream("mpeg4", rate=5)
+        stream.width, stream.height, stream.pix_fmt = 32, 32, "yuv420p"
+        for _ in range(5):
+            frame = av.VideoFrame.from_ndarray(np.zeros((32, 32, 3), np.uint8), format="rgb24")
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    with pytest.raises(Bass2SheetError, match="silent film.mp4' has no audio track"):
+        audio.decode(film)
+    empty = str(tmp_path / "empty.wav")  # a file that says it is audio and holds none
+    sf.write(empty, np.zeros((0, 2), np.float32), SR)
+    with pytest.raises(Bass2SheetError, match="empty.wav' decoded to no audio"):
+        audio.decode(empty)
+    cut = str(tmp_path / "cut off.flac")  # half of a file: it opens, and breaks on the way
+    sf.write(cut, 0.3 * np.sin(np.arange(3 * SR) * 0.03), SR)
+    whole = open(cut, "rb").read()
+    open(cut, "wb").write(whole[: len(whole) // 2])
+    with pytest.raises(Bass2SheetError, match=r"decoding '.*cut off.flac' failed \(.*Invalid data"):
+        audio.decode(cut)

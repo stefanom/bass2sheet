@@ -54,3 +54,42 @@ def test_a_glide_is_followed_smoothly_and_out_of_range_bins_are_ignored():
     assert np.all(np.diff(m) > -0.05) and abs(m[0] - 40) < 0.2 and abs(m[-1] - 42) < 0.2
     p = _probs(30, [(0, 30, 33, 0.5), (0, 30, 12, 0.99), (0, 30, 90, 0.99)])  # 16 Hz and 1480 Hz: not a bass
     assert np.all(np.abs(_midi(pitch.decode_pitch(p)[0]) - 33) < 0.2)
+
+
+def test_the_cpu_tracks_the_pitch_when_the_gpu_cannot_and_what_the_models_gave_is_kept(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from bass2sheet.common import SR
+
+    asked = []
+
+    def crepe(mono, device, model):
+        asked.append((device, model))
+        if device != "cpu":
+            raise RuntimeError("an operation this GPU does not have")
+        return _probs(len(mono) // 441 + 1, [(0, 10**6, 40, 0.9)])
+
+    monkeypatch.setattr(pitch, "crepe_probabilities", crepe)
+    monkeypatch.setattr(pitch, "track_pyin", lambda mono: np.full(len(mono) // 441 + 1, 82.4))
+    mono = (0.3 * np.sin(2 * np.pi * 82.4 * np.arange(SR) / SR)).astype(np.float32)  # a second of the E2
+    feat = pitch.features(mono, str(tmp_path), "mps", "tiny")
+    assert asked == [("mps", "tiny"), ("cpu", "tiny")]
+    assert set(feat) == {"f0_c", "per_c", "f0_p", "rms_db", "onsets", "cqt", "stem_id"}
+    assert np.all(np.abs(_midi(feat["f0_c"]) - 40) < 0.2) and feat["per_c"].min() > 0.8
+    assert feat["cqt"][40 - 21, 20:80].min() > 10 * feat["cqt"][45 - 21, 20:80].max()  # row k is MIDI 21 + k
+    kept = os.listdir(tmp_path)
+    assert kept == [f"crepe-{feat['stem_id'][:16]}-tiny.npz"]  # by the track and the model
+    again = pitch.features(mono, str(tmp_path), "mps", "tiny")
+    assert len(asked) == 2 and (again["f0_c"] == feat["f0_c"]).all()  # no model is asked twice for a track
+    pitch.features(mono, str(tmp_path), "cpu", "full")
+    assert asked[-1] == ("cpu", "full") and len(os.listdir(tmp_path)) == 2  # the other model's is kept apart
+
+    def broken(mono, device, model):
+        raise RuntimeError("out of memory")
+
+    monkeypatch.setattr(pitch, "crepe_probabilities", broken)
+    with pytest.raises(RuntimeError, match="out of memory"):  # on the CPU there is nothing else to try
+        pitch.features(mono[: SR // 2], str(tmp_path), "cpu", "tiny")
+    assert len(os.listdir(tmp_path)) == 2

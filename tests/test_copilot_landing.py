@@ -172,7 +172,10 @@ def test_what_is_not_a_song_is_refused_and_nothing_of_it_is_kept(served, monkeyp
     monkeypatch.delenv("MUSCRIPTOR_GGUF", raising=False)
     song = open(mix, "rb").read()
     quiet = _wav(np.zeros((3 * SR, 2), np.float32))
+    opera = io.BytesIO()
+    sf.write(opera, np.zeros(21 * 60 * 2000, np.float32), 2000, format="WAV", subtype="PCM_U8")
     for name, body, notes, status, words in (
+        ("opera.wav", opera.getvalue(), "own", 413, "lasts 21:00; the tool takes songs up to 20 minutes"),
         ("notes.txt", b"hello", "own", 415, "not an audio file"),
         ("song.pdf", song, "own", 415, "not an audio file"),
         ("", song, "own", 415, "not an audio file"),
@@ -220,6 +223,33 @@ def test_a_file_is_kept_under_a_name_that_is_only_a_name():
     assert copilot_adding.safe_name("C:\\Music\\A <b>.Mp3") == "A b.mp3"
     assert copilot_adding.safe_name(".hidden.flac") == "hidden.flac" and copilot_adding.safe_name("...") == ""
     assert len(copilot_adding.safe_name("x" * 400 + ".ogg")) == 154
+
+
+def test_a_file_without_its_size_or_cut_off_on_the_way_is_refused(tmp_path):
+    adding = copilot_adding.Adding(str(tmp_path))
+    with pytest.raises(copilot_adding.Refused, match="the file came without its size") as e:
+        adding.accept("song.wav", None, io.BytesIO(b""))
+    assert e.value.status == 411
+    for _ in range(2):  # the second time it is not "already being prepared": the first left nothing behind
+        with pytest.raises(copilot_adding.Refused, match="song.wav did not arrive whole") as e:
+            adding.accept("song.wav", 5000, io.BytesIO(b"RIFF" + bytes(996)))  # a fifth of what was announced
+        assert e.value.status == 400
+    assert os.listdir(tmp_path / "uploads") == [] and adding.listing() == []
+    adding.close()
+
+
+def test_why_nothing_was_fetched_is_read_from_what_the_downloader_said():
+    why = copilot_adding.why_not
+    assert why("[download] An Opera does not pass filter (!is_live), skipping ..") == (
+        "it is a live stream, or lasts more than 20 minutes"
+    )
+    assert why("[download] File is larger than max-filesize (600 > 500). Aborting.") == (
+        "its audio is larger than 500 MB"
+    )
+    said = "[youtube] Extracting URL\nERROR: [youtube] one: Sign in\n\nERROR: [youtube] abc: Video unavailable\n"
+    assert why(said) == "[youtube] abc: Video unavailable"  # the last thing it called an error
+    assert why("  something odd happened \n\n") == "something odd happened"
+    assert why("") == "the downloader did not say why"
 
 
 # ---------------------------------------------------------------------------------------- a song is prepared
@@ -404,6 +434,199 @@ def test_a_link_that_cannot_be_fetched_says_why(served, tmp_path, monkeypatch):
         assert _post(url + "/api/adding", dict(id=f"link-{k}", do="remove"))[0] == 200
     assert _json(url + "/api/adding")["jobs"] == [] and os.listdir(os.path.join(workdir, "uploads")) == []
     assert list(copilot.load_songs(workdir)) == ["mix"]
+
+
+def _slow_downloader(tmp_path, monkeypatch, audio):
+    """A program in yt-dlp's place that can be made to wait: a link with `wait` in it is fetched only once the
+    file this returns exists, one with `slow` never, and one with `slides` comes as a file that is not audio."""
+    program, go = str(tmp_path / "yt-dlp"), str(tmp_path / "go")
+    with open(program, "w") as f:
+        f.write(
+            f"#!{sys.executable}\nimport os, shutil, sys, time\n"
+            "url, folder = sys.argv[-1], sys.argv[sys.argv.index('-P') + 1]\n"
+            "if 'slides' in url:\n"
+            "    open(os.path.join(folder, 'Slides [abc].pdf'), 'w').write('%PDF-1.4')\n"
+            "    sys.exit(0)\n"
+            f"while 'slow' in url or not os.path.exists({go!r}):\n"
+            "    time.sleep(0.05)\n"
+            f"shutil.copy({audio!r}, os.path.join(folder, 'Waited For [abc].wav'))\n"
+        )
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("BASS2SHEET_DOWNLOADER", program)
+    return go
+
+
+def _until(what, timeout=60):
+    until = time.time() + timeout
+    while time.time() < until:
+        if what():
+            return
+        time.sleep(0.05)
+    raise AssertionError("it did not happen")
+
+
+def test_a_link_being_fetched_is_not_taken_twice_and_can_be_given_up(served, tmp_path, monkeypatch):
+    url, workdir, mix = served
+    _slow_downloader(tmp_path, monkeypatch, mix)
+    link = "https://youtu.be/wait"
+    assert _post(url + "/api/link", dict(url=link)) == (200, dict(key="link-1"))
+    status, answer = _post(url + "/api/link", dict(url=link))
+    assert (status, answer["error"]) == (409, "that link is already being fetched")
+    _until(lambda: _json(url + "/api/adding")["jobs"][0]["steps"][0]["state"] == "running")
+    assert os.listdir(os.path.join(workdir, "uploads")) == [".link-1"]  # where it is fetched to
+    assert _post(url + "/api/adding", dict(id="link-1", do="remove"))[0] == 200  # "Cancel", while it is fetched
+    _until(lambda: _json(url + "/api/adding")["jobs"] == [] and os.listdir(os.path.join(workdir, "uploads")) == [])
+    assert list(copilot.load_songs(workdir)) == ["mix"]
+    assert _post(url + "/api/link", dict(url=link)) == (200, dict(key="link-2"))  # given up, it can be asked again
+    assert _post(url + "/api/adding", dict(id="link-2", do="remove"))[0] == 200
+
+
+def test_a_link_that_gives_no_audio_or_takes_too_long_says_so(served, tmp_path, monkeypatch):
+    url, workdir, mix = served
+    _slow_downloader(tmp_path, monkeypatch, mix)
+    assert _post(url + "/api/link", dict(url="https://youtu.be/slides"))[0] == 200
+    job, _ = _settled(url, "link-1")
+    assert job["state"] == "failed", job
+    assert job["error"] == "The audio came as Slides [abc].pdf, a kind of file the copilot does not take"
+    monkeypatch.setattr(copilot_adding, "FETCH_TIMEOUT", 1)
+    assert _post(url + "/api/link", dict(url="https://youtu.be/slow"))[0] == 200
+    job, _ = _settled(url, "link-2")
+    assert job["state"] == "failed" and job["error"].startswith("The audio could not be fetched: it took more than")
+    assert os.listdir(os.path.join(workdir, "uploads")) == []  # and nothing of either is kept
+
+
+def test_a_song_being_prepared_is_cancelled_and_nothing_of_it_is_left(served):
+    url, workdir, mix = served
+    assert _upload(url, "Given Up.wav", open(mix, "rb").read())[0] == 200
+    _until(lambda: _json(url + "/api/adding")["jobs"][0]["state"] == "running")
+    assert _post(url + "/api/adding", dict(id="given-up", do="remove"))[0] == 200  # "Cancel"
+    gone = lambda: (
+        not os.path.exists(os.path.join(workdir, "given-up")) and "given-up" not in copilot.load_songs(workdir)
+    )
+    _until(lambda: _json(url + "/api/adding")["jobs"] == [] and os.listdir(os.path.join(workdir, "uploads")) == [])
+    assert gone() and [s["id"] for s in _json(url + "/api/songs")] == ["mix"]
+    assert _upload(url, "Given Up.wav", open(mix, "rb").read(2000))[0] != 409  # it is not "already being prepared"
+
+
+def _program_for(adding, monkeypatch, tmp_path, body):
+    """Makes `adding` prepare its songs with a program that does `body` in place of the real preparation."""
+    program = str(tmp_path / "prepare")
+    say = f"say = lambda text: print('{copilot_adding.MARK}' + text, flush=True)"
+    with open(program, "w") as f:
+        f.write(f"#!{sys.executable}\nimport sys\n{say}\n{body}")
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(adding, "command", lambda job: [program])
+
+
+def _sent(adding, name):
+    song = _wav(np.zeros((11 * SR, 2), np.float32))
+    return adding.accept(name, len(song), io.BytesIO(song))
+
+
+def test_what_the_preparation_says_is_what_the_page_shows(tmp_path, monkeypatch):
+    adding = copilot_adding.Adding(str(tmp_path))
+    _program_for(
+        adding,
+        monkeypatch,
+        tmp_path,
+        'say(\'{"step": "reading", "state": "running"}\')\n'
+        "say('{this is not what was agreed')\n"  # a line it cannot read is passed over
+        "print('a line for the log, not for the page')\n"
+        'say(\'{"step": "reading", "state": "done", "seconds": 0.5, "length": 11.0}\')\n'
+        'say(\'{"step": "teleporting", "state": "running"}\')\n'  # a step the page does not know
+        'say(\'{"step": "pitch", "state": "running"}\')\n'
+        'say(\'{"step": "pitch", "state": "done", "pitched": 0.8}\')\n'  # no time: the page's own
+        'say(\'{"say": "Quiet: 31 notes"}\')\n',
+    )
+    job = _sent(adding, "Quiet.wav")
+    _until(lambda: job["state"] in ("done", "failed"))
+    shown = adding.listing()[0]
+    steps = {s["id"]: s for s in shown["steps"]}
+    assert shown["state"] == "done" and all(s["state"] == "done" for s in steps.values())
+    assert (steps["reading"]["seconds"], steps["reading"]["found"]) == (0.5, dict(length=11.0))
+    assert steps["pitch"]["found"] == dict(pitched=0.8) and steps["pitch"]["seconds"] is not None
+    assert steps["notes"]["seconds"] is None and "teleporting" not in steps  # never ran: kept from an earlier time
+    assert os.listdir(tmp_path / "uploads") == ["Quiet.wav"]  # its log is not kept when it went well
+    adding.close()
+
+
+def test_a_preparation_that_stops_leaves_its_last_words_and_the_next_song_is_prepared(tmp_path, monkeypatch):
+    adding = copilot_adding.Adding(str(tmp_path))
+    _program_for(
+        adding,
+        monkeypatch,
+        tmp_path,
+        'say(\'{"step": "isolating", "state": "running"}\')\n'
+        "sys.stderr.write('Traceback (most recent call last):\\nMemoryError: the model did not fit\\n')\n"
+        "sys.exit(3)\n",
+    )
+    job = _sent(adding, "Too Big.wav")
+    _until(lambda: job["state"] == "failed")
+    assert job["error"] == "MemoryError: the model did not fit"
+    states = {s["id"]: s["state"] for s in adding.listing()[0]["steps"]}
+    assert (states["reading"], states["isolating"], states["pitch"]) == ("waiting", "failed", "waiting")
+    assert sorted(os.listdir(tmp_path / "uploads")) == ["Too Big.wav", "too-big.log"]  # the log says where
+    _program_for(adding, monkeypatch, tmp_path, "sys.exit(9)\n")  # one that stops without a word
+    other = _sent(adding, "Silent End.wav")
+    _until(lambda: other["state"] == "failed")
+    assert other["error"] == "the preparation stopped (exit 9)"
+
+    def breaks(job):
+        raise RuntimeError("the disk is full")
+
+    monkeypatch.setattr(adding, "_prepare", breaks)  # whatever a song does to the worker, it stays up
+    adding.again("too-big")
+    _until(lambda: job["state"] == "failed" and job["error"] == "RuntimeError: the disk is full")
+    monkeypatch.undo()
+    _program_for(adding, monkeypatch, tmp_path, "sys.exit(0)\n")
+    adding.again("too-big")
+    _until(lambda: job["state"] == "done")
+    assert [j["state"] for j in adding.listing()] == ["done", "failed"]
+    adding.close()
+
+
+def test_the_preparing_program_says_how_it_went_whatever_happens(tmp_path, monkeypatch, capsys):
+    asked = []
+
+    def add(paths, workdir, **kw):
+        asked.append((paths, workdir, {k: v for k, v in kw.items() if k != "say"}))
+        with step("picture") as found:
+            found["columns"] = 2650
+        kw["say"]("Song: 61 notes, 2 of them doubted")
+
+    told = lambda: [json.loads(line[len(copilot_adding.MARK) :]) for line in capsys.readouterr().out.splitlines()]
+    monkeypatch.setattr(copilot, "add", add)
+    assert copilot_adding.main(["/scores", "/uploads/Song.wav", "own"]) == 0
+    assert asked == [(["/uploads/Song.wav"], "/scores", dict(settings=None, stems_dirs=None))]
+    events = told()
+    assert [(e.get("step"), e.get("state")) for e in events] == [
+        ("picture", "running"),
+        ("picture", "done"),
+        ("ready", "running"),  # what is left after the picture: writing it all down
+        (None, None),
+        ("ready", "done"),
+    ]
+    assert events[1]["columns"] == 2650 and events[3] == dict(say="Song: 61 notes, 2 of them doubted")
+    assert copilot_adding.main(["/scores", "/uploads/Song.wav", "muscriptor", "/stems"]) == 0
+    chosen = dict(settings=dict(notes="muscriptor"), stems_dirs={"/uploads/Song.wav": "/stems"})
+    assert asked[1] == (["/uploads/Song.wav"], "/scores", chosen)
+    told()
+
+    def refuses(*args, **kw):
+        raise Bass2SheetError("the audio is silent")
+
+    monkeypatch.setattr(copilot, "add", refuses)
+    assert copilot_adding.main(["/scores", "/uploads/Song.wav", "own"]) == 1
+    assert told() == [dict(error="the audio is silent")]
+
+    def breaks(*args, **kw):
+        raise ZeroDivisionError("division by zero")
+
+    monkeypatch.setattr(copilot, "add", breaks)
+    assert copilot_adding.main(["/scores", "/uploads/Song.wav", "own"]) == 1
+    said = capsys.readouterr()
+    assert said.out == copilot_adding.MARK + '{"error": "ZeroDivisionError: division by zero"}\n'  # for the page
+    assert "Traceback" in said.err and "breaks" in said.err  # for the log: where it happened
 
 
 def test_a_song_left_half_prepared_by_a_server_that_stopped_is_shown_to_try_again(prepared, tmp_path):
