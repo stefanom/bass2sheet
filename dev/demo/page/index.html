@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bass2sheet: the demo film</title>
+<meta name="description" content="A four-minute film: one song, from the recording to a bass sheet you fixed yourself, then to playing along.">
+<meta property="og:title" content="bass2sheet: from a song to a bass part you can read and play">
+<meta property="og:description" content="A four-minute film: one song, from the recording to a bass sheet you fixed yourself, then to playing along.">
+<meta property="og:type" content="video.other">
+<meta property="og:image" content="https://stefanom.github.io/bass2sheet/bass2sheet-demo-poster.jpg">
+<meta property="og:url" content="https://stefanom.github.io/bass2sheet/">
+<link rel="icon" href="data:,">
+<style>
+  :root { --ink: #1f2328; --soft: #59636e; --line: #d1d9e0; --blue: #0969da; --bg: #f6f8fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 30px; margin: 0; }
+  h1 + p { margin: 4px 0 20px; color: var(--soft); font-size: 18px; }
+  h2 { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); margin: 28px 0 8px; }
+  video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; border: 1px solid var(--line); }
+  a { color: var(--blue); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .row button, a.btn { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; text-decoration: none; }
+  .row button small { color: var(--soft); margin-right: 6px; font-variant-numeric: tabular-nums; }
+  a.btn.main { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  pre { margin: 8px 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .soft { color: var(--soft); }
+  .credit { white-space: pre-line; }
+</style>
+</head>
+<body>
+<main>
+  <h1>bass2sheet</h1>
+  <p>From a song to a bass part you can read and play.</p>
+
+  <video id="film" controls playsinline preload="metadata" poster="bass2sheet-demo-poster.jpg">
+    <source src="bass2sheet-demo.mp4" type="video/mp4">
+    Your browser does not play this film here. <a href="bass2sheet-demo.mp4">Download it</a>.
+  </video>
+  <div class="row" id="parts" aria-label="The parts of the film"></div>
+
+  <h2>What the film shows</h2>
+  <p>One song, end to end. A command takes the recording and writes a sheet, staff and tab, and says how far to trust it. The copilot's page then shows the notes on a picture of the isolated bass: you play the song, stop where a note is wrong and fix it, and the same fix is offered for the bars that repeat. The sheet is written from your notes. A page for a phone plays the record without its bass while the score moves along. The transcription is done by machine and makes mistakes; the person stays in charge.</p>
+
+  <h2>Try it</h2>
+<pre>git clone https://github.com/stefanom/bass2sheet.git &amp;&amp; cd bass2sheet
+./bootstrap
+uv run bass2sheet-copilot serve --dir scores</pre>
+  <div class="row">
+    <a class="btn main" href="https://github.com/stefanom/bass2sheet">The code, and how to run it</a>
+    <a class="btn" href="https://github.com/stefanom/bass2sheet/blob/main/docs/demo.md">How the film is made</a>
+    <a class="btn" href="https://github.com/stefanom/bass2sheet/releases/tag/demo-film">Download the film</a>
+  </div>
+
+  <h2>Credits</h2>
+  <p class="credit">"Hustle"
+Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons: By Attribution 4.0
+<a href="http://creativecommons.org/licenses/by/4.0/">http://creativecommons.org/licenses/by/4.0/</a></p>
+  <p class="soft">Test songs on screen: BabySlakh, from Slakh2100 (CC BY 4.0). The narration is a synthetic voice; every line is also a caption in the picture. bass2sheet is open source, under the MIT licence.</p>
+</main>
+<script>
+// The parts of the film, from the film's own list of lines (written beside the film when it is made): the first
+// line of each scene says when the scene starts. Without the list the film plays all the same.
+const PARTS = {o: "The problem", c: "One command", l: "Adding a song", s: "Fixing the notes", h: "The sheet", p: "Playing along", t: "How it is checked", e: "How to get it"};
+const clock = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+fetch("bass2sheet-demo.narration.json").then(r => r.ok ? r.json() : []).then(lines => {
+  const film = document.getElementById("film"), row = document.getElementById("parts"), seen = new Set();
+  for (const line of lines) {
+    const part = line.id[0];
+    if (seen.has(part) || !PARTS[part]) continue;
+    seen.add(part);
+    const at = Math.max(0, line.start - 0.6), b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<small>${clock(at)}</small>${PARTS[part]}`;
+    b.addEventListener("click", () => { film.currentTime = at; film.play(); });
+    row.appendChild(b);
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>

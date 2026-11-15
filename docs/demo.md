@@ -25,6 +25,26 @@ new page.
 8. **What the fixes are kept for, and how to get the tool.** `bass2sheet-copilot report` as it prints, then a
    card with the two commands, the licence and the song's credit.
 
+## Where it is
+
+The film is not in this repository: no film and no sound is. It is published in two places.
+
+- **[stefanom.github.io/bass2sheet](https://stefanom.github.io/bass2sheet/)** plays it. The page is `dev/demo/page/index.html`; the workflow `.github/workflows/demo-page.yml` publishes it together with the film, which it fetches from the release.
+- **The release [`demo-film`](https://github.com/stefanom/bass2sheet/releases/tag/demo-film)** holds the files: `bass2sheet-demo.mp4` (1920 by 1080), `bass2sheet-demo-small.mp4` (1280 by 720, under 10 MB), `bass2sheet-demo.srt` (the captions), `bass2sheet-demo.narration.json` (each line and when it is said; the page makes its list of parts from it) and `bass2sheet-demo-poster.jpg`.
+
+The README shows `docs/demo-poster.jpg`, a frame of the film with a play button on it, and links it to the page. GitHub plays a film inside a README only when the file was dragged into the README in GitHub's own editor in a browser; nothing that can be pushed does it.
+
+After the film has been made again:
+
+```
+python dev/demo/poster.py bass2sheet-demo.mp4 --out docs/demo-poster.jpg --plain bass2sheet-demo-poster.jpg
+gh release upload demo-film --clobber bass2sheet-demo.mp4 bass2sheet-demo-small.mp4 bass2sheet-demo.srt \
+    bass2sheet-demo.narration.json bass2sheet-demo-poster.jpg
+gh workflow run demo-page.yml
+```
+
+The song's credit has to stay with the film wherever it is shown: it is on the film's last card, on the page and in the release's notes.
+
 ## Making it
 
 ```

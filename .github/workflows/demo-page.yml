@@ -1,0 +1,50 @@
+name: Demo film page
+
+# Publishes the page that plays the demo film: https://stefanom.github.io/bass2sheet/ (docs/demo.md).
+# The film is not in the repository. Its files belong to the release "demo-film", and this job fetches them.
+# After a new film has been uploaded to that release, run this by hand: gh workflow run demo-page.yml
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - dev/demo/page/**
+      - .github/workflows/demo-page.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: publish the page
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Put the page and the film together
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir _site
+          cp dev/demo/page/index.html _site/
+          gh release download demo-film --dir _site \
+            --pattern bass2sheet-demo.mp4 \
+            --pattern bass2sheet-demo-poster.jpg \
+            --pattern bass2sheet-demo.narration.json
+          ls -l _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

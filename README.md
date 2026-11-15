@@ -2,6 +2,10 @@
 
 Turn a song into a bass part you can read and play. One command takes an audio file and writes a printable PDF with bass clef and tab, plus MusicXML, MIDI, listening files and a quality report that says how far to trust the result and which bars to check by ear.
 
+[![The demo film. This frame: the notes the tool heard, on a picture of the isolated bass, and one of them being dragged to where it belongs. Click to watch it.](docs/demo-poster.jpg)](https://stefanom.github.io/bass2sheet/)
+
+**See it work:** [a four-minute film](https://stefanom.github.io/bass2sheet/) takes one song from the recording to a sheet you fixed yourself, then to playing along. [What it shows and how it is made](docs/demo.md).
+
 ```
 bass2sheet "Artist - Title.mp3"
 ```
@@ -17,7 +21,7 @@ Feed it audio you have the rights to use. The commands read files and download n
 With [Homebrew](https://brew.sh) installed:
 
 ```
-git clone <this repository> && cd bass2sheet
+git clone https://github.com/stefanom/bass2sheet.git && cd bass2sheet
 ./bootstrap
 uv run bass2sheet "Artist - Title.mp3"
 uv run bass2sheet-copilot serve --dir scores

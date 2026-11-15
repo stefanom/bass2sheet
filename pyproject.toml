@@ -35,6 +35,10 @@ dependencies = [
   "beat-this",
 ]
 
+[project.urls]
+Repository = "https://github.com/stefanom/bass2sheet"
+Demo = "https://stefanom.github.io/bass2sheet/"
+
 [project.scripts]
 bass2sheet = "bass2sheet.cli:main"
 bass2sheet-eval = "bass2sheet.evaluate:main"
