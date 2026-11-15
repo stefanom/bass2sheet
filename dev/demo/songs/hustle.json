@@ -1,0 +1,26 @@
+{
+ "title": "Hustle",
+ "artist": "Kevin MacLeod",
+ "file": "Kevin MacLeod - Hustle.mp3",
+ "source": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Hustle.mp3",
+ "sha256": "8acbe21e78162eb14e75e914554d774585e6e7e9f29cc641047bccbd7b42dfd1",
+ "licence": "Creative Commons Attribution 4.0",
+ "licence_page": "https://incompetech.com/music/royalty-free/licenses/",
+ "credit": ["\"Hustle\"", "Kevin MacLeod (incompetech.com)", "Licensed under Creative Commons: By Attribution 4.0", "http://creativecommons.org/licenses/by/4.0/"],
+ "command": {"verdict": "WARN", "marked": 7},
+ "song": {
+  "listen_to": 2.45,
+  "extra": {"at": 0.2025, "pitch": "G1", "why": "the bass track is silent there: the first G has died away and the B has not begun"},
+  "drag": {"at": 1.526, "pitch": "C#2", "to": "D2", "why": "the partials of the tone there are those of D2, as in every other bar of the riff"},
+  "listen_on_to": 5.95,
+  "late": {"at": 4.117, "pitch": "G1", "bar": 3, "why": "G1 already sounds at the bar line; the tool held the B before it too long"},
+  "guess": {"at": 5.522, "pitch": "E2", "to": "D2", "why": "the partials there are those of D2"},
+  "offer": {"take": 8, "leave": 32},
+  "checked_at": 8.0,
+  "pair": {"at": 50.287, "pitch": "B1", "with": "D2", "listen": [49.95, 50.95], "sounds_at": 50.53, "why": "B1 sounds until 50.5 s and D2 from there on: one after the other, as in the bar before"},
+  "speed": 70
+ },
+ "play": {"until": 8.4},
+ "music": {"opening": 16.0, "ending": 72.0},
+ "sheet": {"again": {"at": 63.525, "pitch": "E2", "to": "D2", "why": "the bar that was left: the partials there are those of D2"}}
+}
