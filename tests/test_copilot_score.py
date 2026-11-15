@@ -164,6 +164,29 @@ def test_without_musescore_the_score_is_written_and_the_page_is_told_it_cannot_b
     assert not os.path.exists(os.path.join(workdir, "mix", "sheet", "bass.pdf"))  # not the PDF of another version
 
 
+def test_a_musescore_that_fails_is_said_on_the_page_and_the_score_as_it_was_is_not_passed_off_as_new(
+    served, tmp_path, monkeypatch
+):
+    url, workdir = served
+    _stand_in(tmp_path, monkeypatch)
+    _post(url + "/api/sheet", dict(song="mix"))
+    program = str(tmp_path / "broken-mscore")
+    with open(program, "w") as f:
+        f.write(f"#!{sys.executable}\nimport sys\nsys.stderr.write('no such font\\n')\nsys.exit(3)\n")
+    os.chmod(program, os.stat(program).st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(score, "MSCORE_CANDIDATES", [program])
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _post(url + "/api/sheet", dict(song="mix"))
+    assert e.value.code == 400
+    assert json.loads(e.value.read())["error"] == "the PDF was not written: MuseScore exited 3: no such font"
+    assert not os.path.exists(os.path.join(workdir, "mix", "sheet", "bass.pdf"))  # no PDF of another score
+    view = _json(url + "/api/score?song=mix")  # the score that was made before is still the song's score
+    assert view["made"]["version"] == 1 and [v["version"] for v in view["versions"]] == [1]
+    assert view["files"]["pdf"] == "/data/mix/sheet/v1/bass.pdf" and len(view["pages"]) == 3
+    assert _get(url + view["files"]["pdf"])[1].startswith(b"%PDF-")
+    assert _json(url + "/api/songs")[0]["score"]["fixes"] == 0  # and the first page still says a score is made
+
+
 @pytest.mark.skipif(score.find_mscore() is None, reason="MuseScore 4 is not installed")
 def test_musescore_draws_the_pages(prepared, tmp_path):
     workdir = os.path.join(str(tmp_path), "scores")

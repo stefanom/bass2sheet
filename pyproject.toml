@@ -56,9 +56,12 @@ markers = [
 filterwarnings = ["ignore::UserWarning", "ignore::DeprecationWarning", "ignore::FutureWarning"]
 
 # Coverage is measured with `pytest --cov` (see CONTRIBUTING.md). The programs the code starts as a process of their
-# own (a song prepared by `python -m bass2sheet.copilot_adding`) are measured too.
+# own (a song prepared by `python -m bass2sheet.copilot_adding`) are measured too. The package is named both ways:
+# as a package, for a run started from another folder, and as a folder, for bp_runner.py, which runs as a script
+# in a process that never imports the package.
 [tool.coverage.run]
 source_pkgs = ["bass2sheet"]
+source = ["src/bass2sheet"]
 branch = true
 parallel = true
 patch = ["subprocess"]

@@ -1044,3 +1044,82 @@ def test_a_song_that_was_judged_is_added_with_the_settings_its_picks_settled_on(
     assert prepared[0]["stems_dir"] == "/stems/of/it"  # and with the stems it was judged on
     assert prepared[1]["settings"] == dict(notes="own") and prepared[1]["stems_dir"] is None  # not judged: the defaults
     assert copilot.load_songs(where)["band-song"]["settings"]["tab"] == "position"
+
+
+def test_a_song_of_less_than_two_bars_has_no_repeats_and_is_fixed_all_the_same(workdir):
+    folder = os.path.join(workdir, "mix")
+    machine, mine = (json.load(open(os.path.join(folder, name))) for name in ("machine.json", "notes.json"))
+    cut = machine["origin"] + 32  # the grid ends before the second bar does
+    end = machine["grid"][cut - 1]
+    machine["grid"] = machine["grid"][:cut]
+    machine["notes"] = [n for n in machine["notes"] if n["end"] <= end]
+    mine["notes"] = [n for n in mine["notes"] if n["end"] <= end]
+    for name, data in (("machine.json", machine), ("notes.json", mine)):
+        json.dump(data, open(os.path.join(folder, name), "w"))
+    if os.path.exists(os.path.join(folder, "repeats.npz")):
+        os.remove(os.path.join(folder, "repeats.npz"))
+    d = _desk(workdir)
+    assert len(d.notes) >= 3 and d.repeats is None
+    assert d.public()["repeats"] == dict(bars=[], differences=[]) and d.differences() == [] and d.strips(bar=0) == []
+    n = dict(d.notes[0])
+    result = d.act(dict(kind="pitch", id=n["id"], pitch=n["pitch"] + 12))
+    assert d.note(n["id"])["pitch"] == n["pitch"] + 12 and result.get("offer", dict(type="alike"))["type"] == "alike"
+    with pytest.raises(Bass2SheetError, match="there is nothing to take from a repeat"):
+        d.act(dict(kind="repeats", items=[dict(source=0, bar=1, k0=0, k1=3)]))
+
+
+def test_a_note_unlike_the_songs_others_of_its_pitch_is_doubted_when_the_song_is_prepared(
+    taste_song_files, cache_dir, tmp_path, monkeypatch
+):
+    from bass2sheet import judge
+
+    mix, stems = taste_song_files
+    real = judge.hear
+
+    def one_wrong(*args, **kw):  # the tool hears one note a fourth too high
+        heard = real(*args, **kw)
+        notes = [dict(n, pitch=n["pitch"] + 5) if k == 20 else n for k, n in enumerate(heard["notes"])]
+        return dict(heard, notes=notes)
+
+    monkeypatch.setattr(judge, "hear", one_wrong)
+    workdir, said = str(tmp_path / "scores"), []
+    opts = dict(cache_dir=cache_dir, device="cpu", crepe_model=CREPE, defaults=dict(beat_tracker="librosa"))
+    copilot.add([mix], workdir, opts, stems_dirs={mix: stems}, say=said.append)
+    machine = json.load(open(os.path.join(workdir, "mix", "machine.json")))
+    doubted = [n for n in machine["notes"] if "doubt" in n]
+    assert [n["id"] for n in doubted] == ["m20"] and said[-1].endswith("1 of them doubted")
+    assert doubted[0]["doubt"]["better"] == doubted[0]["pitch"] - 5  # it sounds like the song's notes a fourth below
+    assert doubted[0]["doubt"]["explained"] < 0.5
+    shown = next(n for n in _desk(workdir).public()["notes"] if n["id"] == "m20")
+    assert shown["doubt"] == doubted[0]["doubt"] and shown["state"] == "machine"  # amber on the page
+
+
+def test_serve_names_the_test_songs_and_the_link_for_a_phone_when_it_listens_for_one(workdir, monkeypatch, capsys):
+    from http.server import ThreadingHTTPServer
+
+    from bass2sheet import playalong, testsongs
+
+    served = []
+
+    def forever(self):
+        served.append(self.server_address)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever", forever)
+    monkeypatch.setattr(playalong, "addresses", lambda: ["192.168.1.20"])
+    tests = dict(sets=dict(Tiny=dict(kind="slakh", about="", measure="f")), songs=dict(mix=dict(set="Tiny")))
+    json.dump(tests, open(os.path.join(workdir, "tests.json"), "w"))
+    assert testsongs.load(workdir)["songs"]
+    with ThreadingHTTPServer(("127.0.0.1", 0), copilot_server.Handler) as probe:
+        port = probe.server_address[1]
+    assert copilot.main(["serve", "--dir", workdir, "--port", str(port), "--lan"]) == 0
+    said = capsys.readouterr().out.splitlines()
+    key = open(os.path.join(workdir, "phone_key")).read().strip()
+    assert said[:3] == [
+        f"1 song. Open http://localhost:{port}",
+        f"To play along: http://localhost:{port}/play",
+        f"The test songs, to hear and to rate: http://localhost:{port}/tests",
+    ]
+    assert said[3] == f"On your phone, on the same Wi-Fi, open http://192.168.1.20:{port}/play?key={key}"
+    assert said[-2] == "Stop with Ctrl-C; your fixes are saved as you make them."
+    assert served == [("0.0.0.0", port)]  # on the network too, as asked

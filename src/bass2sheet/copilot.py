@@ -995,10 +995,6 @@ class Desk:
         ]
         return dict(bars=bars, differences=self.differences())
 
-    def deleted(self):
-        have = {n["id"] for n in self.notes} | {i for n in self.notes for i in n.get("merged", [])}
-        return sum(n["id"] not in have for n in self.machine["notes"])
-
 
 # --------------------------------------------------------------------------------- what the tool got wrong
 
@@ -1176,9 +1172,12 @@ def score_made(workdir, song_id, version=None):
     files in `sheet/v<version>`; the latest has them in `sheet` as well. None before a score is made, and for a
     version there is not."""
     folder = os.path.join(song_dir(workdir, song_id), "sheet")
-    return read_json(
-        os.path.join(folder, "sheet.json" if version is None else os.path.join(f"v{int(version)}", "sheet.json"))
-    )
+    if version is not None:
+        return read_json(os.path.join(folder, f"v{int(version)}", "sheet.json"))
+    made = read_json(os.path.join(folder, "sheet.json"))
+    if made is None:  # the last try broke off (MuseScore failed): the score last made is the latest version kept
+        return next(iter(score_versions(workdir, song_id)), None)
+    return made
 
 
 def score_versions(workdir, song_id):

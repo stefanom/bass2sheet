@@ -289,3 +289,70 @@ def test_a_note_that_sounds_like_another_pitch_is_shown_in_parentheses():
         [_n(0, 4, 33), dict(_n(4, 4, 36), own_sound=0.9)], [], ("C major", 0, True), 120.0, 0.0, "t", "a", {}, False
     )
     assert 'parentheses="yes"' not in plain and "(notes) uncertain" not in plain
+
+
+def _mscore(tmp_path, body):
+    """A program in MuseScore's place that does `body`."""
+    import os
+    import stat
+    import sys
+
+    path = str(tmp_path / "mscore")
+    with open(path, "w") as f:
+        f.write(f"#!{sys.executable}\nimport sys, time\n{body}")
+    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    return path
+
+
+def test_a_musescore_that_fails_or_hangs_is_an_error_in_words_and_its_style_is_not_left_behind(tmp_path):
+    import os
+
+    xml_path, pdf = str(tmp_path / "bass.musicxml"), str(tmp_path / "bass.pdf")
+    with open(xml_path, "w") as f:
+        f.write(_xml())
+    for stale in ("bass-1.svg", "bass-2.svg", "bass-old.svg"):  # pictures of the score as it was before
+        (tmp_path / stale).write_text("<svg/>")
+    broken = _mscore(tmp_path, "sys.stderr.write('sandbox_extension: noise\\nno such font\\n')\nsys.exit(3)\n")
+    assert score.engrave(xml_path, pdf, broken) == "MuseScore exited 3: no such font"
+    assert score.engrave_pages(xml_path, pdf, broken) == ("MuseScore exited 3: no such font", [])
+    silent = _mscore(tmp_path, "sys.exit(0)\n")  # it says it is done and wrote nothing
+    assert score.engrave(xml_path, pdf, silent) == "MuseScore exited 0: "
+    stuck = _mscore(tmp_path, "time.sleep(30)\n")
+    assert score.engrave(xml_path, pdf, stuck, timeout=0.5) == "MuseScore timed out after 0.5 s"
+    assert score.engrave_pages(xml_path, pdf, stuck, timeout=0.5) == ("MuseScore timed out after 0.5 s", [])
+    # nothing of the attempts is left, and the pictures of the earlier score are gone (the one not numbered stays)
+    assert sorted(os.listdir(tmp_path)) == ["bass-old.svg", "bass.musicxml", "mscore"]
+
+
+def test_the_pages_come_back_in_their_order_and_those_of_a_longer_score_are_gone(tmp_path):
+    import os
+
+    from conftest import mscore_stand_in
+
+    xml_path, pdf = str(tmp_path / "bass.musicxml"), str(tmp_path / "bass.pdf")
+    with open(xml_path, "w") as f:
+        f.write(_xml())
+    pages = (  # a stand-in that draws as many pages as its name says
+        "import json, os\n"
+        "for job in json.load(open(sys.argv[4])):\n"
+        "    for out in job['out']:\n"
+        "        if out.endswith('.pdf'):\n"
+        "            open(out, 'wb').write(b'%PDF-1.4')\n"
+        "        else:\n"
+        "            for k in range(int(os.path.basename(sys.argv[0]).split('-')[1])):\n"
+        "                open(f'{out[:-4]}-{k + 1}.svg', 'w').write('<svg/>')\n"
+    )
+    eleven = _mscore(tmp_path, pages)
+    os.rename(eleven, str(tmp_path / "mscore-11"))
+    error, drawn = score.engrave_pages(xml_path, pdf, str(tmp_path / "mscore-11"))
+    assert error is None and open(pdf, "rb").read(5) == b"%PDF-"
+    assert [os.path.basename(p) for p in drawn] == [f"bass-{k}.svg" for k in range(1, 12)]  # 10 after 9, not after 1
+    os.rename(str(tmp_path / "mscore-11"), str(tmp_path / "mscore-2"))
+    error, drawn = score.engrave_pages(xml_path, pdf, str(tmp_path / "mscore-2"))
+    assert error is None and [os.path.basename(p) for p in drawn] == ["bass-1.svg", "bass-2.svg"]
+    assert sorted(os.listdir(tmp_path)) == ["bass-1.svg", "bass-2.svg", "bass.musicxml", "bass.pdf", "mscore-2"]
+    program = mscore_stand_in(tmp_path)  # and the tests' own stand-in for MuseScore draws what is asked of it
+    assert score.find_mscore(program) == program  # the one that is named comes before the ones looked for
+    error, drawn = score.engrave_pages(xml_path, pdf, program)
+    assert error is None and [os.path.basename(p) for p in drawn] == ["bass-1.svg"]
+    assert "<svg" in open(drawn[0]).read() and score.engrave(xml_path, pdf, program) is None
