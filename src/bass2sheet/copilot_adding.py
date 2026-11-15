@@ -525,17 +525,18 @@ class Adding:
             os.remove(os.path.join(self.uploads, job["key"] + ".log"))
         if not job["path"]:  # a link that was never fetched: nothing was made
             return
+        folder = copilot.song_dir(self.workdir, job["id"])
+        if not os.path.exists(os.path.join(folder, "machine.json")):
+            songs = copilot.load_songs(self.workdir)
+            if songs.pop(job["id"], None) is not None:
+                atomic_write_text(os.path.join(self.workdir, "songs.json"), json.dumps(songs, indent=1))
+            shutil.rmtree(folder, ignore_errors=True)
+        # The file goes last. Stopped half way, what is left is a file nobody lists, and not a song in the list
+        # whose file is gone.
         if os.path.dirname(os.path.abspath(job["path"])) == os.path.abspath(self.uploads):
             for path in (job["path"], job["path"] + ".part"):
                 if os.path.exists(path):
                     os.remove(path)
-        folder = copilot.song_dir(self.workdir, job["id"])
-        if os.path.exists(os.path.join(folder, "machine.json")):
-            return
-        songs = copilot.load_songs(self.workdir)
-        if songs.pop(job["id"], None) is not None:
-            atomic_write_text(os.path.join(self.workdir, "songs.json"), json.dumps(songs, indent=1))
-        shutil.rmtree(folder, ignore_errors=True)
 
     def _interrupted(self):
         """Songs that came from the page and were never prepared, because the server stopped first: they are

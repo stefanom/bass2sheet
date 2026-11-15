@@ -304,9 +304,8 @@ def test_a_song_that_cannot_be_prepared_says_why_and_is_tried_again_or_removed(s
     job, _ = _settled(url, "nothing")
     assert job["state"] == "failed" and job["error"] == "the audio is silent"
     assert _post(url + "/api/adding", dict(id="nothing", do="remove"))[1]["jobs"] == []
-    until = time.time() + 30
-    while os.path.exists(kept) and time.time() < until:
-        time.sleep(0.1)
+    # Given up: the worker clears it away after the answer. Wait for all of it, not for its first sign.
+    _until(lambda: not os.path.exists(kept) and list(copilot.load_songs(workdir)) == ["mix"])
     assert os.listdir(os.path.join(workdir, "uploads")) == [] and list(copilot.load_songs(workdir)) == ["mix"]
     assert not os.path.exists(os.path.join(workdir, "nothing"))
     for data in (dict(id="nothing", do="again"), dict(id="mix", do="remove"), dict(id="mix", do="rename")):
@@ -458,7 +457,8 @@ def test_a_linked_song_that_cannot_be_prepared_is_tried_again_without_being_fetc
     assert (fetching["id"], fetching["state"], fetching["seconds"]) == ("fetching", "done", 0)  # it was there already
     assert len(open(log).read().splitlines()) == 1  # the link was asked for once, not twice
     assert _post(url + "/api/adding", dict(id="link-1", do="remove"))[1]["jobs"] == []
-    _until(lambda: not os.path.exists(kept))  # given up: what was fetched goes too
+    # given up: what was fetched goes too, and the song's line in the list
+    _until(lambda: not os.path.exists(kept) and list(copilot.load_songs(workdir)) == ["mix"])
     assert os.listdir(os.path.join(workdir, "uploads")) == [] and list(copilot.load_songs(workdir)) == ["mix"]
 
 

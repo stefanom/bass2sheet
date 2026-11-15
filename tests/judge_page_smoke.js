@@ -41,8 +41,29 @@ global.Audio = class {
 };
 global.requestAnimationFrame = () => {};
 const realFetch = fetch;
-global.fetch = (path, options) => realFetch(base + path, options);
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// The page's requests are counted, and an answer is read in full before the page gets it: "nothing on its way"
+// then means answered, whatever the machine's pace. (A fixed wait after each click failed on a slow machine.)
+let onTheWay = 0;
+global.fetch = async (path, options) => {
+  onTheWay++;
+  try {
+    const r = await realFetch(base + path, options);
+    return new Response(await r.text(), { status: r.status, headers: r.headers });
+  } finally {
+    setTimeout(() => { onTheWay--; }, 0);  // after the page has gone on, and perhaps asked for the next thing
+  }
+};
+// What a click set off is done when no request is on its way and none has been for a moment.
+const settled = async (quiet = 80, most = 30000) => {
+  const began = Date.now();
+  let since = began;
+  while (Date.now() - began < most) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    if (onTheWay) since = Date.now();
+    else if (Date.now() - since >= quiet) return;
+  }
+  throw new Error("the page did not come to rest");
+};
 const see = expr => vm.runInThisContext(expr);
 const hidden = id => els[id].classList.contains("hidden");
 const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, preventDefault() {} });
@@ -50,7 +71,7 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
 (async () => {
   const page = await (await realFetch(base + "/")).text();
   vm.runInThisContext(page.match(/<script>([\s\S]*)<\/script>/)[1]);
-  await sleep(300);
+  await settled();
 
   // the first comparison is on screen, and nothing on it says which version is which
   const first = see("current.id");
@@ -99,7 +120,7 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   // a pick is saved and only then are the versions named
   els.note.value = "too busy";
   kids.picks[0].onclick();
-  await sleep(300);
+  await settled();
   assert.ok(!hidden("reveal") && !hidden("next") && hidden("skip"));
   assert.ok(/A<\/b> was .+B<\/b> was /.test(els.reveal.html), els.reveal.html);
   assert.strictEqual(els.progress.textContent, "1 of 3 judged");
@@ -107,7 +128,7 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   // "neither is right" asks what is wrong: a reason is one click, and is saved with the pick as its note
   assert.ok(hidden("why"));
   kids.picks[3].onclick();
-  await sleep(300);
+  await settled();
   assert.ok(!hidden("why") && els.why.html.includes("What is wrong?"));
   assert.deepStrictEqual(kids.why.map(b => b.dataset.why), ["wrong notes", "too high", "too low", "extra notes", "missing notes", "wrong timing"]);
   await kids.why[1].onclick();
@@ -124,12 +145,12 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.ok(JSON.stringify(saved).includes("too busy, bar 2"));
   els.note.value = "too busy";
   kids.picks[0].onclick();                                       // back to A: the reasons go away
-  await sleep(300);
+  await settled();
   assert.ok(hidden("why"));
 
   // next, skip (the skipped one comes back after the rest), previous
   els.next.onclick();
-  await sleep(300);
+  await settled();
   const second = see("current.id");
   assert.notStrictEqual(second, first);
 
@@ -149,7 +170,7 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   key("s");
   assert.ok(played.some(src => src.endsWith("A_both.flac")), played.join(" "));
   els.skip.onclick();
-  await sleep(300);
+  await settled();
   const third = see("current.id");
   assert.ok(third !== first && third !== second);
   assert.deepStrictEqual(kids.players.map(b => b.dataset.name), ["record", "A"]);  // two fingerings sound alike
@@ -157,27 +178,27 @@ const key = k => handlers.keydown({ key: k, target: { tagName: "BODY" }, prevent
   assert.strictEqual(see("playing"), "A");
   key(" ");
   kids.picks[2].onclick();
-  await sleep(300);
+  await settled();
   els.next.onclick();
-  await sleep(300);
+  await settled();
   assert.strictEqual(see("current.id"), second);
   els.back.onclick();
-  await sleep(300);
+  await settled();
   assert.strictEqual(see("current.id"), first);
   assert.ok(!hidden("reveal") && els.note.value === "too busy");
 
   // the step bar jumps to a step and shows what is done
   kids.steps[5].onclick();
-  await sleep(300);
+  await settled();
   assert.strictEqual(see("current.id"), third);
   assert.ok(/class="step current done" data-step="tab">6 Place it on the neck<span>1\/1</.test(els.steps.html), els.steps.html);
   kids.steps[0].onclick();
-  await sleep(300);
+  await settled();
   assert.strictEqual(see("current.id"), first);
 
   // the picks so far
   els.toggleResults.onclick();
-  await sleep(300);
+  await settled();
   assert.ok(!hidden("results") && hidden("judging"));
   assert.ok(els.results.html.includes("too busy") && els.results.html.includes("No difference"));
   // nothing left to show while a step is being prepared: wait, and look again
