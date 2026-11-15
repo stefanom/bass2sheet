@@ -10,7 +10,7 @@ import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import copilot, copilot_adding, playalong, testsongs
+from . import copilot, copilot_adding, copilot_harmony, playalong, testsongs
 from .common import Bass2SheetError, PageServer
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
@@ -212,6 +212,9 @@ class Handler(BaseHTTPRequestHandler):
                     desk = self.desks.get(q.get("id", ""))
                     self.send_json(desk.public())
                 threading.Thread(target=self.warm, args=(desk,), daemon=True).start()
+            elif url.path == "/api/harmony":  # the song's chords against a home, for the harmony page
+                with self.desks.lock:
+                    self.send_json(copilot_harmony.view(self.desks.get(q.get("id", ""))))
             elif url.path == "/api/guesses":
                 with self.desks.lock:
                     self.send_json(dict(guesses=self.desks.get(q.get("song", "")).guesses(q.get("id", ""))))
@@ -290,6 +293,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(testsongs.rate_request(self.workdir, data))
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
+                if path == "/api/harmony":  # the person's choice of home; nothing of the notes changes
+                    home = data.get("home")
+                    copilot_harmony.set_home(desk.folder, None if home is None else (home[0], home[1]))
+                    return self.send_json(copilot_harmony.view(desk))
                 if path == "/api/act":
                     result = desk.act(data.get("action") or {})
                 elif path == "/api/checked":
