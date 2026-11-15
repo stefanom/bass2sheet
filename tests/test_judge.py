@@ -356,6 +356,144 @@ def test_serving_an_empty_directory_says_what_to_do(tmp_path):
         judge_server.make_server(str(tmp_path), 0)
 
 
+def _ask(url, method="GET", body=None, headers=None):
+    """(status, headers, body) of any request, a refused one too."""
+    req = urllib.request.Request(url, body, headers or {}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, dict(r.headers), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), e.read()
+
+
+def test_what_the_server_does_not_have_or_take_is_refused_with_a_reason(server):
+    url, workdir = server
+    media = url + "/media/song-one.separator.1/A.flac"
+    status, headers, body = _ask(media, headers={"Range": "bytes=2000-"})  # past the end of the file
+    assert (status, body, headers["Content-Range"]) == (416, b"", "bytes */1024")
+    status, headers, body = _ask(media, "HEAD")  # what a player asks first: the size, and nothing of the file
+    assert (status, body, headers["Content-Length"], headers["Accept-Ranges"]) == (200, b"", "1024", "bytes")
+    assert _ask(media, headers={"Range": "bytes=1000-5000"})[1]["Content-Range"] == "bytes 1000-1023/1024"
+    for path in ("/api/nothing", "/favicon.ico"):
+        status, _, body = _ask(url + path)
+        assert (status, json.loads(body)) == (404, dict(error="not found")), path
+    status, _, body = _ask(url + "/api/next", "POST", b"{}")
+    assert (status, json.loads(body)) == (404, dict(error="not found"))  # picks go to /api/judge and nowhere else
+    status, _, body = _ask(url + "/api/judge", "POST", b"this is not json")
+    assert status == 400 and json.loads(body)["error"]
+    status, _, body = _ask(url + "/api/judge", "POST", json.dumps(dict(id="song-one.tab.1", pick="C")).encode())
+    assert status == 400 and "unknown pick" in json.loads(body)["error"]
+    assert judge.load_judgments(workdir) == {}  # and none of it was taken for a pick
+    with pytest.raises(Bass2SheetError, match=r"cannot listen on port \d+ \(.*\); pick another with --port"):
+        judge_server.make_server(workdir, int(url.rsplit(":", 1)[1]))  # the port this server has
+
+
+def test_picks_that_come_in_while_a_step_is_prepared_are_looked_at_when_it_is_done(workdir, monkeypatch):
+    go, runs = threading.Event(), []
+
+    def advance(workdir, say=None):
+        runs.append(len(runs))
+        if not go.wait(30):
+            raise TimeoutError
+        if len(runs) == 2:
+            raise RuntimeError("the song's file is gone")
+
+    monkeypatch.setattr(judge, "advance", advance)
+    worker = judge_server.Worker(workdir)
+    worker.kick()
+    worker.kick()  # a pick during the run
+    worker.kick()  # and another: one more look is enough for both
+    assert worker.running and worker.again
+    assert judge_server.state(workdir, worker=worker)["preparing"] is True
+    go.set()
+    for _ in range(300):
+        if not worker.running:
+            break
+        threading.Event().wait(0.01)
+    assert not worker.running and runs == [0, 1]
+    # what went wrong there is shown on the page: the person cannot see the process
+    assert judge_server.state(workdir, worker=worker)["error"] == "RuntimeError: the song's file is gone"
+    worker.kick()
+    for _ in range(300):
+        if not worker.running:
+            break
+        threading.Event().wait(0.01)
+    assert runs == [0, 1, 2] and worker.error is None  # and gone again after a run that went well
+
+
+# ---------------------------------------------------------------------------------------------- the command line
+
+
+def test_the_command_line_reports_and_refuses_politely(workdir, tmp_path, monkeypatch, capsys):
+    from bass2sheet import score
+
+    assert judge.main(["report", "--dir", workdir]) == 0
+    assert "| Not judged yet | 1 |" in capsys.readouterr().out
+    assert judge.main(["build", "/nonexistent/song.mp3", "--dir", workdir]) == 1
+    assert capsys.readouterr().out == "bass2sheet-judge: no such file: /nonexistent/song.mp3\n"
+    empty = str(tmp_path / "nothing here yet")
+    assert judge.main(["build", "--dir", empty]) == 1
+    assert capsys.readouterr().out == "bass2sheet-judge: name at least one song to judge\n"
+    assert judge.main(["serve", "--dir", empty]) == 1
+    assert f"run `bass2sheet-judge build SONG... --dir {empty}` first" in capsys.readouterr().out
+    song = tmp_path / "Band - Song.wav"
+    song.write_bytes(b"")
+    assert judge.main(["build", str(song), "--choices", "tab,colour", "--dir", empty]) == 1
+    assert "unknown choice colour; the choices are separator, " in capsys.readouterr().out
+    assert not os.path.exists(empty)  # a refusal leaves nothing behind
+    monkeypatch.setattr(score, "MSCORE_CANDIDATES", [])  # a machine without MuseScore
+    assert judge.main(["sheets", "--dir", workdir]) == 0
+    assert capsys.readouterr().out == (
+        "MuseScore 4 not found: the comparisons have audio but no score snippets\n"
+        "score snippets engraved for 0 comparisons\n"
+    )
+
+
+def test_the_command_line_hands_each_command_what_it_was_given(tmp_path, monkeypatch, capsys):
+    song, where = tmp_path / "Band - Song.wav", str(tmp_path / "judging")
+    song.write_bytes(b"")
+    calls = []
+    monkeypatch.setattr(judge, "build", lambda *a, **kw: calls.append(("build", a, kw)) or 4)
+    monkeypatch.setattr(judge, "check", lambda workdir: calls.append(("check", workdir)))
+    monkeypatch.setattr(judge, "update", lambda workdir: calls.append(("update", workdir)))
+    asked = ["build", str(song), "--dir", where, "--per-song", "2", "--choices", "replucks,tab"]
+    assert judge.main(asked + ["--device", "cpu", "--cache-dir", "/cache", "--mscore", "/mscore"]) == 0
+    assert calls == [("build", ([str(song)], where, ["replucks", "tab"], 2, "/cache", "cpu"), dict(mscore="/mscore"))]
+    said = capsys.readouterr().out
+    assert said == f"4 new comparisons in {where}. Judge them with: bass2sheet-judge serve --dir {where}\n"
+    assert judge.main(["build", str(song), "--dir", where]) == 0
+    assert calls[1] == ("build", ([str(song)], where, None, 3, None, None), dict(mscore=None))  # every step, three each
+    assert judge.main(["check", "--dir", where]) == 0 and judge.main(["update", "--dir", where]) == 0
+    assert calls[2:] == [("check", where), ("update", where)]
+
+    def stopped(workdir):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(judge, "update", stopped)
+    assert judge.main(["update", "--dir", where]) == 130  # Ctrl-C ends it without a traceback
+
+
+def test_serve_says_where_the_page_is_and_stops_at_ctrl_c(workdir, monkeypatch, capsys):
+    from http.server import ThreadingHTTPServer
+
+    served = []
+
+    def forever(self):
+        served.append(self.server_address)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever", forever)
+    judge.record_judgment(workdir, judge.load_comparisons(workdir)[0], "A")
+    with ThreadingHTTPServer(("127.0.0.1", 0), judge_server.Handler) as probe:
+        port = probe.server_address[1]  # a port that is free
+    assert judge.main(["serve", "--dir", workdir, "--port", str(port)]) == 0
+    said = capsys.readouterr().out.splitlines()
+    assert said[0] == f"2 passages to judge (1 done). Open http://localhost:{port}"
+    assert said[1] == "Stop with Ctrl-C; your picks are saved as you make them."
+    assert served == [("127.0.0.1", port)]  # this machine only
+    judge_server.make_server(workdir, port).server_close()  # and the port is given back
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js to run the page's script")
 def test_the_page_script_works_against_the_server(server):
     url, workdir = server

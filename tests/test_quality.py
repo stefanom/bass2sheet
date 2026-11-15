@@ -150,3 +150,43 @@ def test_the_bass_tracks_own_sound_marks_the_note_that_is_unlike_the_others(song
     assert not any("sounds_like" in n for n in others) and min(n["own_sound"] for n in others) > 0.7
     why = [r for c in checks.values() for r in c["reasons"] if "sounds more like" in r]
     assert len(why) == 1 and why[0].startswith("the ") and checks[notes[20]["bar"]]["severity"] >= 2
+
+
+def test_the_second_models_notes_are_held_against_the_transcription(song):
+    import librosa
+    from conftest import note
+
+    from bass2sheet import render, rhythm
+    from bass2sheet.common import HOP, SR
+
+    stems = song["stems"]
+    mono = stems["bass"].mean(0)
+    feat = dict(
+        rms_db=librosa.amplitude_to_db(librosa.feature.rms(y=mono, frame_length=2048, hop_length=HOP)[0] + 1e-9),
+        cqt=np.abs(
+            librosa.cqt(mono, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_bins=72, bins_per_octave=12)
+        ),
+    )
+    grid, origin = np.arange(-1.0, 40, 0.125), 16
+    notes = rhythm.quantize([note(s, e, p) for s, e, p in song["notes"]], grid, origin)
+    synth = render.synth(notes, len(mono))
+
+    def gates_with(second):
+        gates, checks = Q.transcription_gates(stems, feat, notes, grid, origin, synth, second, None)
+        doubted = sorted(bar for bar, c in checks.items() if any("Basic Pitch hears" in r for r in c["reasons"]))
+        return {g.name: g for g in gates}, checks, doubted
+
+    same, _, doubted = gates_with([(s, e, p, 0.5) for s, e, p in song["notes"]])
+    assert (same["second_model_pitch"].value, same["second_model_pitch"].status) == (1.0, "pass")
+    assert (same["second_model_onsets"].value, same["second_model_onsets"].status) == (1.0, "pass")
+    assert same["second_model_pitch"].note == "" and doubted == []
+    # from bar 7 on the second model hears every note a fifth higher: half the song agrees, half does not
+    late = lambda s: s >= song["downbeats"][6]
+    other, checks, doubted = gates_with([(s, e, p + 7 * late(s), 0.5) for s, e, p in song["notes"]])
+    assert other["second_model_pitch"].value == pytest.approx(0.5, abs=0.02)
+    assert other["second_model_pitch"].status == "fail"
+    assert other["second_model_onsets"].value == pytest.approx(0.5, abs=0.02)  # a start counts with its note name
+    assert other["second_model_onsets"].status != "pass" and Q.verdict(list(other.values())) == "FAIL"
+    assert doubted == list(range(7, 13))  # the bars where they differ are the ones to check by ear
+    assert all("Basic Pitch hears different notes (0% agreement)" in checks[bar]["reasons"] for bar in doubted)
+    assert all(checks[bar]["severity"] >= 2 for bar in doubted)
