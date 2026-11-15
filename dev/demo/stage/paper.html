@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sheet</title>
+<link rel="stylesheet" href="stage.css">
+<style>
+  body { background: var(--desk); }
+  #tag { position: fixed; left: 24px; top: 18px; z-index: 2; padding: 5px 12px; border-radius: 8px; background: #fff; border: 1px solid var(--line); font-size: 15px; }
+  #tag b { font-weight: 600; }
+  #pages { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 26px 0 60px; will-change: transform; }
+  #pages img { display: block; width: 1080px; height: auto; background: #fff; box-shadow: 0 1px 8px rgba(31, 35, 40, .25); }
+</style>
+</head>
+<body>
+<div id="tag" class="hidden"></div>
+<div id="pages"></div>
+<script>
+// The pages of a score, one under the other, as the copilot's own score page lays them out. show([urls], "label")
+// puts them there; glide(y, seconds) moves down them.
+async function show(urls, tag) {
+  const el = document.getElementById("pages");
+  el.innerHTML = urls.map(u => `<img src="${u}" alt="">`).join("");
+  const t = document.getElementById("tag");
+  t.classList.toggle("hidden", !tag); t.innerHTML = tag || "";
+  await Promise.all([...el.querySelectorAll("img")].map(i => i.decode().catch(() => {})));
+  return el.scrollHeight;
+}
+function glide(y, seconds) {
+  const el = document.getElementById("pages");
+  el.style.transition = `transform ${seconds}s cubic-bezier(.45, .05, .55, .95)`;
+  el.style.transform = `translateY(${-y}px)`;
+}
+</script>
+</body>
+</html>

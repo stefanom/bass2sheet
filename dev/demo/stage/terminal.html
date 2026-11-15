@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>terminal</title>
+<link rel="stylesheet" href="stage.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; background: var(--desk); }
+  #win { width: 1300px; height: 610px; display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: #1f2328; box-shadow: 0 10px 40px rgba(31, 35, 40, .35); }
+  #bar { flex: none; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #30363d; color: #9aa4ae; font-size: 13px; }
+  #bar i { width: 12px; height: 12px; border-radius: 50%; background: #57606a; }
+  #bar span { margin-left: 10px; }
+  #out { flex: 1; overflow: hidden; padding: 16px 20px; font: 17px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #e6edf3; white-space: pre-wrap; word-break: break-word; }
+  .p { color: #7ee787; }
+  .w { color: #e3b341; }
+  .d { color: #9aa4ae; }
+  #cur { display: inline-block; width: 10px; height: 20px; margin-bottom: -3px; background: #e6edf3; }
+  #cur.off { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="win"><div id="bar"><i></i><i></i><i></i><span>Terminal</span></div><div id="out"></div></div>
+<script>
+// What a terminal shows, put there by the film: the command as it is typed, then what the command really printed,
+// line by line as it printed it. Nothing here is made up.
+const out = document.getElementById("out");
+let line = null;
+const esc = t => String(t).replace(/[&<>]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c]));
+const cursor = () => { const old = document.getElementById("cur"); if (old) old.remove(); const c = document.createElement("span"); c.id = "cur"; out.appendChild(c); };
+function prompt() { line = document.createElement("span"); out.insertAdjacentHTML("beforeend", `<span class="p">$ </span>`); out.appendChild(line); cursor(); }
+function type(text) { line.textContent += text; cursor(); }
+function enter() { out.appendChild(document.createTextNode("\n")); cursor(); }
+function print(text) {  // a line the command printed; the tool's own WARNING lines in its warning colour
+  const kind = / WARNING /.test(text) ? "w" : "";
+  const c = document.getElementById("cur"); if (c) c.remove();
+  out.insertAdjacentHTML("beforeend", `<span class="${kind}">${esc(text)}</span>\n`);
+  cursor();
+  while (out.scrollHeight > out.clientHeight && out.firstChild) out.removeChild(out.firstChild);
+}
+setInterval(() => { const c = document.getElementById("cur"); if (c) c.classList.toggle("off"); }, 530);
+</script>
+</body>
+</html>
