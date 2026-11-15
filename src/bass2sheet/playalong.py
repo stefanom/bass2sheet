@@ -25,17 +25,22 @@ machine it runs on (`from_this_machine`), so it can listen on the home network (
 import collections
 import functools
 import hashlib
+import hmac
+import http.cookies
 import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import struct
 import subprocess
 import tempfile
 import threading
+import time
 import zlib
+from urllib.parse import urlencode
 from xml.etree import ElementTree
 
 import numpy as np
@@ -639,7 +644,10 @@ def get(handler, path, q):
             with open(PAGE_PATH, "rb") as f:
                 return handler.send_body(f.read(), "text/html; charset=utf-8")
         if path == "/play/manifest.webmanifest":
-            return handler.send_body(json.dumps(MANIFEST).encode(), "application/manifest+json")
+            # On another device the app starts from the address it was added at: that one carries its key.
+            mine = from_this_machine(handler.client_address[0])
+            manifest = MANIFEST if mine else {k: v for k, v in MANIFEST.items() if k != "start_url"}
+            return handler.send_body(json.dumps(manifest).encode(), "application/manifest+json")
         icon_ = re.match(r"^/play/icon-(180|512)\.png$", path)
         if icon_:
             return handler.send_body(icon(int(icon_.group(1))), "image/png")
@@ -670,18 +678,34 @@ def get(handler, path, q):
 # ------------------------------------------------------------------------------------------------ the home network
 
 
-def from_this_machine(address):
-    """Whether a request's sender is the machine the server runs on: only then may it change anything."""
+_HOME = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]  # what routers give out
+
+
+def _ip(address):
     try:
         ip = ipaddress.ip_address(address.split("%")[0])
     except ValueError:
-        return False
-    ip = getattr(ip, "ipv4_mapped", None) or ip
-    return ip.is_loopback
+        return None
+    return getattr(ip, "ipv4_mapped", None) or ip
+
+
+def from_this_machine(address):
+    """Whether a request's sender is the machine the server runs on: only then may it change anything."""
+    ip = _ip(address)
+    return ip is not None and ip.is_loopback
+
+
+def on_this_network(address):
+    """Whether a request's sender is this machine or one on a home network with it. `--lan` is for the phone in
+    the same room: should the computer be on a network that gives it an address the whole internet can reach,
+    the songs are still not served to anyone further away."""
+    ip = _ip(address)
+    return ip is not None and (ip.is_loopback or ip.is_link_local or any(ip in net for net in _HOME))
 
 
 def addresses():
-    """This machine's addresses on the home network (private IPv4 addresses), the likeliest first."""
+    """This machine's addresses on a home network, the likeliest first. Not the address a phone's hotspot or
+    another IPv6-only network gives it for its own use (192.0.0.x): nothing else can reach it there."""
     found = []
     try:  # the address the machine would send from: no packet leaves
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -702,27 +726,126 @@ def addresses():
             pass
     out = []
     for a in found:
-        try:
-            ip = ipaddress.ip_address(a)
-        except ValueError:
-            continue
-        if ip.version == 4 and ip.is_private and not ip.is_loopback and not ip.is_link_local and a not in out:
+        ip = _ip(a)
+        if ip is not None and ip.version == 4 and any(ip in net for net in _HOME) and a not in out:
             out.append(a)
     return sorted(out, key=lambda a: not a.startswith("192.168."))
 
 
-def announce(port):
+COOKIE = "bass2sheet_key"
+WRONG, REST = 20, 600.0  # wrong keys in a row before no key is taken for a while, and for how long (seconds)
+OPEN = re.compile(r"^/play/(manifest\.webmanifest|icon-(180|512)\.png)$")  # fetched without the cookie; no song in them
+PAGES = ("/", "/play", "/play/", "/song", "/score", "/tests")
+REFUSAL = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bass2sheet</title><body style="font: 17px -apple-system, Helvetica, Arial, sans-serif; margin: 2em">
+<p><b>This page needs the link from your computer.</b></p>
+<p>On the computer bass2sheet runs on, open its first page. The link for a phone is at the top; it ends in a key
+of eight digits.</p>"""
+
+
+def phone_key(workdir):
+    """The key a device other than this machine has to show before it is served anything: eight digits, made once
+    and kept in the working directory, so that a link saved on a phone goes on working."""
+    path = os.path.join(workdir, "phone_key")
+    try:
+        with open(path) as f:
+            key = f.read().strip()
+        if re.fullmatch(r"\d{8}", key):
+            return key
+    except OSError:
+        pass
+    key = f"{secrets.randbelow(10**8):08d}"
+    os.makedirs(workdir, exist_ok=True)
+    atomic_write_text(path, key + "\n")
+    os.chmod(path, 0o600)
+    return key
+
+
+class Door:
+    """Who is let in from the network when the server listens on it (`serve --lan`). A home network's addresses
+    are every network's addresses, the office's and the cafe's too, and a laptop moves. So being on the network is
+    not enough: a device shows the key, once in the link it opens and from then on in a cookie."""
+
+    def __init__(self, key):
+        self.key, self.wrong, self.rests_until, self.lock = key, 0, 0.0, threading.Lock()
+
+    def knows(self, shown):
+        """Whether `shown` is the key. After WRONG wrong ones in a row no key is taken for REST seconds, the right
+        one included: nobody finds it by trying them all."""
+        with self.lock:
+            if time.monotonic() < self.rests_until:
+                return False
+            if hmac.compare_digest(str(shown).encode(), self.key.encode()):
+                self.wrong = 0
+                return True
+            self.wrong += 1
+            if self.wrong >= WRONG:
+                self.wrong, self.rests_until = 0, time.monotonic() + REST
+            return False
+
+
+def admit(handler, path, q):
+    """Whether a GET may be answered. This machine: always. Another one: only when the server was started to
+    listen on the network, the device is on a home network with it, and it shows the key, in the link or in the
+    cookie the link left. If not, the refusal has been sent and this is False."""
+    address = handler.client_address[0]
+    if from_this_machine(address):
+        return True
+    door = getattr(handler, "door", None)
+    if door is None or not on_this_network(address):
+        handler.send_json(dict(error="this page is for the network it is on"), 403)
+        return False
+    if OPEN.match(path):
+        return True
+    if "key" in q and door.knows(q["key"]):
+        kept = f"{COOKIE}={door.key}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax"
+        handler.also = {"Set-Cookie": kept}
+        return True
+    try:
+        held = http.cookies.SimpleCookie(handler.headers.get("Cookie", "")).get(COOKIE)
+    except http.cookies.CookieError:
+        held = None
+    if held is not None and hmac.compare_digest(held.value.encode(), door.key.encode()):
+        if path in ("/play", "/play/"):
+            # The key stays in the address: what the phone adds to its home screen starts from there, and an app
+            # on the home screen does not have the browser's cookies.
+            handler.send_response(302)
+            handler.send_header("Location", "/play?" + urlencode(dict(q, key=door.key)))
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return False
+        return True
+    if path in PAGES:
+        handler.send_body(REFUSAL.encode(), "text/html; charset=utf-8", 403)
+    else:
+        handler.send_json(dict(error="this device has not shown the key"), 403)
+    return False
+
+
+def links(port, key):
+    """Where a phone opens the play-along page: one link for each home-network address of this machine."""
+    return [f"http://{a}:{port}/play?key={key}" for a in addresses()]
+
+
+def phone(port, door):
+    """What the first page says about playing along on a phone: whether the server listens for one, and the links."""
+    return dict(on=door is not None, links=links(port, door.key) if door else [])
+
+
+def announce(port, key):
     """What `serve --lan` prints: where to open the play-along page on a phone."""
-    found = addresses()
+    found = links(port, key)
     if not found:
         return [
-            "Listening on the network, but this machine has no home-network address: is it on Wi-Fi?",
+            "Listening on the network, but this machine has no home-network address: it is not on Wi-Fi, or it is "
+            "on a phone's hotspot, where the phone cannot reach it.",
             f"On this machine the play-along page is at http://localhost:{port}/play",
         ]
-    lines_ = [f"On your phone, on the same Wi-Fi, open http://{found[0]}:{port}/play"]
-    lines_ += [f"  (or http://{a}:{port}/play)" for a in found[1:]]
+    lines_ = [f"On your phone, on the same Wi-Fi, open {found[0]}"]
+    lines_ += [f"  (or {a})" for a in found[1:]]
     lines_ += [
         "  Hold the phone sideways. Share > Add to Home Screen makes it an app that opens full screen.",
-        "  Anyone on this network can listen and read along; only this machine can change a score.",
+        "  The key at the end of the link lets that device in; any other device on the network is refused.",
+        "  A device that is let in can listen and read along; only this machine can change a score.",
     ]
     return lines_

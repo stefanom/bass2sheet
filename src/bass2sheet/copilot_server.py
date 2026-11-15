@@ -114,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
     workdir = "."
     desks = None
     adding = None
+    door = None  # playalong.Door when the server listens on the network: who is let in from there
+    also = {}  # headers for the answer being written, beside its own
     server_version = "bass2sheet-copilot"
 
     def log_message(self, fmt, *args):  # one person, one machine: no access log
@@ -124,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        for k, v in (extra or {}).items():
+        for k, v in {**self.also, **(extra or {})}.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -171,9 +173,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        self.also = {}
+        if not playalong.admit(self, url.path, q):  # another device: on a home network, and it shows the key
+            return
         try:
             if url.path == "/play" or url.path.startswith(("/play/", "/api/play/")):  # the play-along page
                 playalong.get(self, url.path, q)
+            elif url.path == "/api/phone":  # for the first page, on this machine: the link a phone opens
+                if not playalong.from_this_machine(self.client_address[0]):
+                    return self.send_json(dict(error="not found"), 404)
+                self.send_json(playalong.phone(self.server.server_address[1], self.door))
             elif url.path in PAGES:  # the songs; one song (an old link to /#song is sent on by the page); its score
                 with open(PAGES[url.path], "rb") as f:
                     self.send_body(f.read(), "text/html; charset=utf-8")
@@ -312,7 +321,9 @@ def make_server(workdir, port=8770, lan=False, stems_dir=None):
     if os.path.exists(workdir) and not os.path.isdir(workdir):
         raise Bass2SheetError(f"{workdir} is not a directory")
     adding = copilot_adding.Adding(workdir, stems_dir)
-    handler = type("CopilotHandler", (Handler,), dict(workdir=workdir, desks=Desks(workdir), adding=adding))
+    door = playalong.Door(playalong.phone_key(workdir)) if lan else None  # who is let in from the network
+    served = dict(workdir=workdir, desks=Desks(workdir), adding=adding, door=door)
+    handler = type("CopilotHandler", (Handler,), served)
     try:
         return ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), handler)
     except OSError as e:
@@ -328,7 +339,7 @@ def serve(workdir, port=8770, lan=False):
     print(f"To play along: http://localhost:{port}/play", flush=True)
     if testsongs.load(server.RequestHandlerClass.workdir)["songs"]:
         print(f"The test songs, to hear and to rate: http://localhost:{port}/tests", flush=True)
-    for line in playalong.announce(port) if lan else []:
+    for line in playalong.announce(port, server.RequestHandlerClass.door.key) if lan else []:
         print(line, flush=True)
     print("Stop with Ctrl-C; your fixes are saved as you make them.", flush=True)
     try:

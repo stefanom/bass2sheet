@@ -1,8 +1,10 @@
 """Play along: the record without its bass, the score cut into lines with the time of every bar and note, the
 page, and the home network (synthetic song, no models to fetch; MuseScore where it is installed)."""
 
+import http.client
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -296,6 +298,17 @@ def _get(url, headers=None):
         return r.status, dict(r.headers), r.read()
 
 
+def _fetch(port, path, headers=None):
+    """(status, headers, body) of a GET, redirects not followed."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
+    try:
+        conn.request("GET", path, headers=headers or {})
+        r = conn.getresponse()
+        return r.status, dict(r.getheaders()), r.read()
+    finally:
+        conn.close()
+
+
 def _status(url, data=None):
     req = urllib.request.Request(url, None if data is None else json.dumps(data).encode())
     try:
@@ -405,6 +418,22 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
         ("", False),
     ):
         assert playalong.from_this_machine(address) is ours, address
+    for address, near in (
+        ("127.0.0.1", True),
+        ("::1", True),
+        ("192.168.4.25", True),
+        ("10.1.2.3", True),
+        ("172.20.10.2", True),  # a phone's hotspot
+        ("::ffff:192.168.1.20", True),
+        ("169.254.7.7", True),
+        ("192.0.0.2", False),  # what an IPv6-only network gives a machine for its own use
+        ("172.32.0.1", False),
+        ("100.64.0.9", False),
+        ("203.0.113.9", False),
+        ("2607:fb90::1", False),
+        ("nonsense", False),
+    ):
+        assert playalong.on_this_network(address) is near, address
     home = copilot_server.make_server(workdir, 0)
     assert home.server_address[0] == "127.0.0.1"  # this machine only, unless asked
     home.server_close()
@@ -427,9 +456,42 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
         state = copilot.read_json(os.path.join(workdir, "mix", "notes.json"))
         assert all(n["state"] == "machine" for n in state["notes"]) and state["checked"] == []
         assert not os.path.exists(os.path.join(workdir, "mix", "log.jsonl")) and seen == ["127.0.0.1"] * 4
-        assert _status(url + "/play") == 200 and _status(url + "/api/play/songs") == 200  # looking is allowed
-        assert _status(url + "/api/song?id=mix") == 200
+        # As from another device on the network: nothing of a song without the key.
+        port, key = srv.server_address[1], playalong.phone_key(workdir)
+        assert re.fullmatch(r"\d{8}", key) and srv.RequestHandlerClass.door.key == key  # made once, and kept
+        assert os.stat(os.path.join(workdir, "phone_key")).st_mode & 0o777 == 0o600
+        songs_of = ("/api/play/songs", "/api/song?id=mix", "/data/mix/audio/record.flac", "/api/play/song?id=mix")
+        for path in ("/play", "/", "/song", "/api/phone", *songs_of):
+            assert _fetch(port, path)[0] == 403, path
+        assert b"needs the link from your computer" in _fetch(port, "/play")[2]
+        status, _, body = _fetch(port, "/play/manifest.webmanifest")  # what a phone fetches without its cookie
+        assert status == 200 and "start_url" not in json.loads(body)  # the app starts where it was added: with the key
+        assert _fetch(port, "/play/icon-180.png")[0] == 200
+        # With the key in the link it is let in, and given a cookie to come back with.
+        status, headers, body = _fetch(port, f"/play?key={key}")
+        assert status == 200 and b"<title>" in body and "HttpOnly" in headers["Set-Cookie"]
+        held = {"Cookie": headers["Set-Cookie"].split(";")[0]}
+        assert held["Cookie"] == f"{playalong.COOKIE}={key}"
+        for path in songs_of:
+            assert _fetch(port, path, held)[0] == 200, path  # looking and listening
+        status, headers, _ = _fetch(port, "/play?song=mix", held)  # the key goes back into the address
+        assert status == 302 and headers["Location"] == f"/play?song=mix&key={key}"
+        assert _fetch(port, "/api/phone", held)[0] == 404  # the link itself is told to this machine only
+        assert _fetch(port, "/api/play/songs", {"Cookie": f"{playalong.COOKIE}=nonsense"})[0] == 403
+        assert _status(url + "/api/act", fix) == 403  # and a device that is let in still changes nothing
+        # Nobody finds the key by trying them all.
+        door = srv.RequestHandlerClass.door
+        for k in range(playalong.WRONG):
+            assert _fetch(port, f"/play?key=x{k}")[0] == 403
+        assert _fetch(port, f"/play?key={key}")[0] == 403 and door.rests_until > 0  # resting: not the right one either
+        assert _fetch(port, "/api/play/songs", held)[0] == 200  # a device already let in is not shut out
+        door.rests_until = 0.0
+        assert _fetch(port, f"/play?key={key}")[0] == 200
+        monkeypatch.setattr(playalong, "on_this_network", lambda address: False)
+        for path in ("/play", f"/play?key={key}", "/api/play/songs", "/", "/api/song?id=mix", "/play/icon-180.png"):
+            assert _fetch(port, path, held)[0] == 403, path  # from further away than a home network: nothing at all
         monkeypatch.undo()
+        assert json.loads(_fetch(port, "/api/phone")[2])["on"] is True  # this machine: no key asked, and the link told
         assert _status(url + "/api/act", fix) == 200  # from the machine itself: as before
         assert copilot.Desk(workdir, "mix").note(note["id"])["state"] == "fixed"
     finally:
@@ -438,14 +500,20 @@ def test_only_the_machine_itself_may_change_a_score(workdir, monkeypatch):
 
 
 def test_serving_on_the_home_network_says_where_to_open_it(workdir, monkeypatch, capsys):
-    for a in playalong.addresses():  # whatever this machine has: private, never the loopback
-        assert a.count(".") == 3 and not a.startswith("127.")
+    for a in playalong.addresses():  # whatever this machine has: a home network's, never the loopback
+        assert playalong.on_this_network(a) and not playalong.from_this_machine(a) and not a.startswith("192.0.0.")
     monkeypatch.setattr(playalong, "addresses", lambda: ["192.168.1.20", "10.0.0.7"])
-    said = playalong.announce(8770)
-    assert said[0] == "On your phone, on the same Wi-Fi, open http://192.168.1.20:8770/play"
-    assert "http://10.0.0.7:8770/play" in said[1] and "only this machine can change a score" in said[-1]
+    said = playalong.announce(8770, "12345678")
+    assert said[0] == "On your phone, on the same Wi-Fi, open http://192.168.1.20:8770/play?key=12345678"
+    assert "http://10.0.0.7:8770/play?key=12345678" in said[1] and "only this machine can change a score" in said[-1]
+    assert "any other device on the network is refused" in said[-2]
+    door = playalong.Door("12345678")
+    assert playalong.phone(8770, door) == dict(on=True, links=[said[0].split()[-1], said[1].split()[-1].rstrip(")")])
+    assert playalong.phone(8770, None) == dict(on=False, links=[])
+    assert door.knows("12345678") and not door.knows("1234567") and not door.knows("") and door.knows("12345678")
     monkeypatch.setattr(playalong, "addresses", lambda: [])
-    assert "no home-network address" in playalong.announce(8770)[0]
+    assert "no home-network address" in playalong.announce(8770, "12345678")[0]
+    assert playalong.phone(8770, door) == dict(on=True, links=[])
     asked = []
     monkeypatch.setattr(copilot_server, "serve", lambda *args: asked.append(args))
     assert copilot.main(["serve", "--dir", workdir, "--port", "8799", "--lan"]) == 0

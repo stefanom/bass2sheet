@@ -13,6 +13,8 @@
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
   header { display: flex; align-items: baseline; gap: 14px; padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--line); }
+  #phone { margin-left: auto; }
+  #phone button { margin-left: 6px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font: inherit; cursor: pointer; }
   header b { font-size: 16px; }
   main { max-width: 1240px; margin: 0 auto; padding: 8px 24px 40px; }
   h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); margin: 26px 0 10px; scroll-margin-top: 12px; }
@@ -112,6 +114,7 @@
 <header>
   <b>bass2sheet · copilot</b>
   <span id="count" class="soft"></span>
+  <span id="phone" class="soft"></span>
 </header>
 <main>
   <ol id="path">
@@ -415,10 +418,22 @@ function wire() {
   setInterval(() => { if (way.jobs.some(j => j.state === "running")) showJobs(); }, 500);  // the running step's clock
 }
 
+// playing along: here, and on a phone when the copilot was started to listen for one (serve --lan)
+async function showPhone() {
+  const p = await api("/api/phone"), el = $("phone");
+  if (!p.on) { el.innerHTML = `<a href="/play">Play along</a>`; return; }
+  if (!p.links.length) { el.innerHTML = `<a href="/play">Play along</a> · for a phone, this computer has to be on the Wi-Fi the phone is on`; return; }
+  el.innerHTML = `<a href="/play">Play along</a> · on your phone, on the same Wi-Fi: <a href="${L.esc(p.links[0])}">${L.esc(p.links[0])}</a><button type="button">Copy</button>`;
+  el.querySelector("button").addEventListener("click", async e => {
+    try { await navigator.clipboard.writeText(p.links[0]); e.target.textContent = "Copied"; } catch (err) { e.target.textContent = "Select the link and copy it"; }
+  });
+}
+
 if (typeof document !== "undefined" && document.getElementById("songs")) {
   wire();
   loadSongs().catch(e => say(e.message, true));
   look();
+  showPhone().catch(() => {});
 }
 </script>
 </body>
