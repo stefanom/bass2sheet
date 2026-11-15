@@ -18,7 +18,7 @@ On a Mac it
        the second separation model, 336 MB, into ~/.cache/huggingface/hub
   5. runs the self-check (bass2sheet-doctor) and prints three commands to try.
 
-On Linux it lists the system packages to install by hand, then does steps 3 to 5. It needs uv.
+On Linux it lists the system packages to install by hand, then does steps 3 to 5. It needs uv and a C compiler.
 
 Options
   --check              change nothing: say what is there and what is not; exit code 0 when all of it is
@@ -301,7 +301,11 @@ cat <<'EOF'
 EOF
 if [ "$muscriptor" -eq 1 ]; then
     say ""
-    say "MuScriptor: cmake and ninja are installed. Building its program and getting its weights: docs/muscriptor.md."
+    if [ "$os" = "Darwin" ]; then
+        say "MuScriptor: cmake and ninja are installed. Building its program and getting its weights: docs/muscriptor.md."
+    else
+        say "MuScriptor: install cmake and ninja yourself (sudo apt install cmake ninja-build), then see docs/muscriptor.md."
+    fi
 fi
 path_note
 if [ "$undone" -eq 1 ]; then

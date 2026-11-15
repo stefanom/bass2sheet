@@ -254,6 +254,8 @@ def test_on_linux_it_lists_the_packages_and_does_the_python_part(tmp_path):
     assert clone.called("brew") == []
     assert clone.called("uv sync") == ["uv sync --locked --python 3.12"]
     assert clone.called("doctor") == ["doctor -m bass2sheet.doctor --fetch-models"]
+    code, out, err = clone.run("--with-muscriptor")  # nothing is installed for it here: it says what to install
+    assert code == 0 and "sudo apt install cmake ninja-build" in out and clone.called("brew") == []
     os.remove(clone.bin / "uv")
     code, out, err = clone.run()
     assert code == 1 and "uv is not installed" in err and "https://astral.sh/uv/install.sh" in err
