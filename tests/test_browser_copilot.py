@@ -305,7 +305,8 @@ def test_the_first_page_lists_the_songs_and_opens_one(browse, site, song):
     card = page.locator(f"#songs .song[data-id='{song}']")
     assert card.locator(".title").inner_text() == "A song of " + song.replace("-", " ")
     assert card.locator(".facts").inner_text() == "Not started"
-    assert card.locator(".foot a").all_inner_texts() == ["Fix the notes ›", "Make the score"]
+    assert card.locator(".foot a").all_inner_texts() == ["Fix the notes ›", "Make the score", "Harmony"]
+    assert card.locator(".foot a").nth(2).get_attribute("href") == f"/harmony#{song}"
     # every song has its picture, the whole song across (asked for all at once: none may be turned away)
     page.wait_for_function("[...document.querySelectorAll('#songs .song canvas')].every(c => c.dataset.drawn)")
     assert page.is_hidden("#link") and page.is_hidden("#empty") and page.is_hidden("#jobsTitle")
