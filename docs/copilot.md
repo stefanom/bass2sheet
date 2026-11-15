@@ -207,7 +207,7 @@ The score is the one "Make the sheet" writes, from your notes as they stand when
 
 The map's rules are rules of thumb from functional harmony, written down in `copilot_harmony.py` (`job`, `ring`, `bright`); they are not measured from anything. The look and the map come from the author's "Where next?", a map of harmony for improvising.
 
-The chords themselves are the tool's, and they are rougher than its notes: one chord a bar, major or minor, with the root right about half the time on the test songs ([evaluation.md](evaluation.md)). The loops still show, because the tool hears the same bar the same way each time; a single chord's name is the thing to doubt.
+The chords themselves are the tool's, and they are rougher than its notes: one chord a bar, major or minor, with the root right about three times in four on the real pop test songs. The loops still show, because the tool hears the same bar the same way each time; a single chord's name is the thing to doubt.
 
 ## The working directory
 
