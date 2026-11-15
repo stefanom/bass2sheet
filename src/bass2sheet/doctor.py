@@ -349,7 +349,8 @@ MODELS = [
         "Beat model",
         "Beat This!",
         81,
-        "the first song downloads it; with no network then, the built-in beat tracker is used",
+        "the first song downloads it. If that fails, `bass2sheet` goes on with its built-in beat tracker; "
+        "the copilot and the judging page have no other and cannot take a song",
         beat_files,
         fetch_beats,
         torch_checkpoints,

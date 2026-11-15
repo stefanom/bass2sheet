@@ -11,7 +11,7 @@ usage() {
 On a Mac it
   1. checks that Homebrew is there (it does not install Homebrew: it says how),
   2. installs what the Brewfile lists and is not there yet (brew bundle; nothing is upgraded),
-  3. creates the Python environment in .venv from uv.lock (about 0.5 GB of packages are downloaded),
+  3. creates the Python environment in .venv from uv.lock (435 MB of packages to download, 1.3 GB on disk),
   4. downloads the model files the default pipeline uses, 1.1 GB:
        the separation model, 699 MB, into ~/.cache/bass2sheet/models
        the beat model, 81 MB, into ~/.cache/torch/hub/checkpoints
@@ -24,7 +24,7 @@ Options
   --check              change nothing: say what is there and what is not; exit code 0 when all of it is
   --no-models          skip step 4; the first song then downloads the models itself
   --with-basic-pitch   also set up Basic Pitch, the second opinion behind two of the quality gates,
-                       in an environment of its own (.venv-bp, about 0.5 GB more)
+                       in an environment of its own (.venv-bp: 350 MB more to download, 1.5 GB on disk)
   --with-muscriptor    also install what MuScriptor's program needs to build (cmake, ninja);
                        building it and getting its weights stays with you: docs/muscriptor.md
   -h, --help           this text
@@ -278,11 +278,11 @@ fi
 cat <<'EOF'
 
   uv run bass2sheet "Artist - Title.mp3"
-      one song to a PDF, in a folder beside the song (a 4-minute song takes about 3 minutes)
+      one song to a PDF, in a folder beside the song (a 4-minute song takes a few minutes)
   uv run bass2sheet-copilot serve --dir scores
       the copilot: open http://localhost:8770, add a song on its first page and fix its notes
   uv run pytest
-      the tests (about 3 minutes)
+      the tests (3 to 5 minutes)
 EOF
 if [ "$muscriptor" -eq 1 ]; then
     say ""
