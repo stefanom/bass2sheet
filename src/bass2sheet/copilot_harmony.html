@@ -451,6 +451,7 @@ function paintMap() {
     const d = L.bow([spots[m.a].x, spots[m.a].y], [spots[m.b].x, spots[m.b].y], pad);
     if (!d) continue;
     const hot = m.a === from && m.b === cur, here = mine.has(m.a + ">" + m.b);
+    if (all.length > 14 && m.times === 1 && !hot && !here) continue;  // a busy map: a step taken once is left out
     const path = `<path class="trail${hot ? " last" : ""}" style="opacity:${hot ? 1 : here ? 0.7 : (0.1 + 0.3 * m.times / most).toFixed(2)}" marker-end="url(#ah)" d="${d}"><title>${m.times} time${m.times > 1 ? "s" : ""}</title></path>`;
     if (hot || here) top += path; else s += path;
   }
@@ -588,8 +589,8 @@ function paintShort() {
   for (const loop of loops) {
     if (lines.length >= 4 || (said / all >= 0.8 && lines.length)) break;
     const { runs, each } = L.said(loop.loop);
-    const chords = runs.map(r => `<span class="f-text">${L.esc(L.flat(r.key))}${each ? "" : `<i> ${r.bars}</i>`}</span>`).join(" – ");
-    lines.push(`<span class="line"><span class="mark">${loop.letter}</span><span class="loop">${chords}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars as numbered · "}${Math.round(100 * loop.bars / all)}% of the song</span></span>`);
+    const chords = runs.map(r => `<span class="f-text">${L.esc(L.flat(r.key))}${each ? "" : `<i> (${r.bars})</i>`}</span>`).join(" – ");
+    lines.push(`<span class="line"><span class="mark">${loop.letter}</span><span class="loop">${chords}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars in brackets · "}${Math.round(100 * loop.bars / all)}% of the song</span></span>`);
     said += loop.bars;
   }
   $("short").hidden = !lines.length;
