@@ -15,7 +15,7 @@ import urllib.request
 import pytest
 from conftest import mscore_stand_in
 
-from bass2sheet import copilot, copilot_server, score, testsongs
+from bass2sheet import copilot, copilot_harmony, copilot_server, score, testsongs
 from bass2sheet.common import atomic_write_text
 
 pytestmark = pytest.mark.browser
@@ -467,6 +467,70 @@ def test_the_play_along_page_loads_a_song_and_moves_from_line_to_line(browse, si
 
 
 # --------------------------------------------------------------------------------------------------- the test songs
+
+
+def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_home(browse, site, song):
+    page = browse(f"{site.url}/harmony#{song}", ready="H !== null && document.querySelectorAll('#map .st').length > 20")
+    assert "A song of" in page.inner_text("#title") and page.locator("#loops .verb").count() >= 1
+    # the song in short: its one loop, said as steps above home
+    assert page.locator("#short .line").count() == 1 and "a bar each" in page.inner_text("#short")
+    loop = page.evaluate("H.loops.find(l => l.size === 4)")
+    chips = page.locator(f"#loops .verb[data-letter='{loop['letter']}'] .chip")
+    assert chips.count() == 4 and [chips.nth(k).locator("b").inner_text() for k in range(4)] == ["Em", "C", "G", "D"]
+    assert chips.nth(0).locator("u").inner_text() == "R R 5 8 5 4"  # what the bass plays over the first chord
+
+    # a click on a chord of a loop goes there and plays: the chord, its job, the bar, the neck and the map follow
+    chips.nth(1).click()
+    page.wait_for_function("!document.getElementById('au').paused && S.chord >= 0 && H.chords[S.chord].name === 'C'")
+    page.wait_for_function("document.getElementById('play').textContent === '■ Stop'")
+    assert page.inner_text("#here-name") == "C"
+    assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")
+    assert "bar" in page.inner_text("#where").lower() and page.locator("#path .chip.playing b").inner_text() == "C"
+    assert page.locator("#map .st.cur").count() == 1
+    assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
+    page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
+    assert page.locator("#neck .tone").count() >= 6 and "The bass plays" in page.inner_text("#lead")
+    page.wait_for_function("H.chords[S.chord].name === 'G'", timeout=20000)  # the song moves on, and the page with it
+    assert page.inner_text("#here-name") == "G" and float(page.get_attribute("#strip-cursor", "x1")) > 0
+    page.click("#play")
+    page.wait_for_function(
+        "document.getElementById('au').paused && document.getElementById('play').textContent === '▶ Play'"
+    )
+
+    # the other two maps show the same chord
+    for view, spots in (("wheel", 36), ("semitones", 36), ("roads", 22)):
+        page.click(f"#lens-tabs [data-view='{view}']")
+        assert page.locator("#map .st").count() == spots and page.locator("#map .st.cur").count() == 1
+        assert page.locator("#map .st.cur").get_attribute("data-spot") == str(
+            page.evaluate(f"H.chords[S.chord].on.{view}")
+        )
+    # a click on a chord of the map goes to where the song is on it next
+    spot = page.evaluate("H.maps.roads.spots.findIndex(s => s.name === 'D')")
+    page.click(f"#map .st[data-spot='{spot}']")
+    page.wait_for_function("S.chord >= 0 && H.chords[S.chord].name === 'D'")
+    page.click("#play")
+    page.wait_for_function("document.getElementById('au').paused")
+
+    # home: the key with the same notes; the names follow, and the choice is kept
+    before = page.evaluate("[H.home.name, H.chords[S.chord].numeral]")
+    page.locator("#homes button[aria-pressed='false']").first.click()
+    page.wait_for_function(f"H.home.name !== {json.dumps(before[0])}")
+    after = page.evaluate("[H.home.name, H.chords[S.chord].numeral, H.home.yours]")
+    assert after[1] != before[1] and after[2] is True
+    assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")  # with a flat sign
+    assert copilot_harmony.read_home(os.path.join(site.workdir, song)) is not None
+    page.reload()
+    page.wait_for_function(
+        "H !== null && document.querySelectorAll('#map .st').length > 10"
+    )
+    assert page.evaluate("H.home.name") == after[0]
+    assert page.locator("#profile circle").count() == page.evaluate("H.chords.length")
+    assert page.locator("#roles .role").count() == 5 and "on their root" in page.inner_text("#bass-note")
+
+
+def test_a_harmony_page_without_its_song_says_so(browse, site):
+    page = browse(site.url + "/harmony", ready="!document.getElementById('error').hidden")
+    assert "No song was named" in page.inner_text("#error")
 
 
 def test_the_test_songs_page_plays_a_song_and_keeps_the_persons_answer(browse, site):

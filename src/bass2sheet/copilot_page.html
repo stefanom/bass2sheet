@@ -82,6 +82,7 @@
   <span id="progress" class="soft"></span>
   <button id="upto" title="Everything before the playhead that you played and left as it is counts as right from now on">Checked up to here</button>
   <span class="spacer"></span>
+  <a id="harmonylink" href="/harmony" title="The song as its chords: what each does, the loops the song is made of, what the bass plays over them" style="white-space:nowrap">Harmony</a>
   <span id="sheetlinks"></span>
   <button id="undo" title="Undo the last fix (Z)">Undo</button>
   <button id="sheet">Make the sheet</button>
@@ -382,6 +383,7 @@ async function load(id) {
   S = await api("/api/song?id=" + encodeURIComponent(id));
   location.hash = id;
   document.title = S.title + " · copilot";
+  $("harmonylink").href = "/harmony#" + encodeURIComponent(S.id);
   sel = null; many = []; selBar = null; selDiff = null; guesses = []; guessesFor = null; hideOffer(); closeDock(); tiles = []; picData = null; f0 = null; hover = null; A.rms.clear();
   A.record = A.bass = A.full = null; A.slow = {}; A.speed = 1; $("speed").value = "100";
   byPitch = Logic.indexNotes(S.notes);

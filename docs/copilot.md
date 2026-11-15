@@ -194,6 +194,21 @@ The score is the one "Make the sheet" writes, from your notes as they stand when
 - No count-in before a loop or before the song, and no click.
 - The phone needs the computer: nothing is kept on the phone, and a company laptop's firewall may not let the phone in at all.
 
+## The harmony of a song
+
+"Harmony" on a song's card, or at the top of its page, opens `http://localhost:8770/harmony#SONG`: the song as its chords. The page is for understanding a song before you play it, and for remembering it.
+
+- **The song in short**, under its title: the few loops that carry it, written as steps above home. `i – ♭VII – ♭VI – V, 2 bars each, 39% of the song` is most of what there is to remember of a verse.
+- **Home** is the note the song comes back to. The tool finds a key; a major key and a minor key share the same notes, and which of the two is home is heard, not counted. Pick the other one, or any key, and every name on the page follows. The choice is kept in `harmony.json` beside the song; nothing of your notes changes.
+- **The map** shows every chord by the job it does in the key: it rests (Home), drifts (Away) or pulls (Tension). Inside a region the darker, flatter chords are on the left and the brighter ones on the right; the row facing the middle is in the key, the next is one step outside it, the rim is far outside. Filled circles are the chords of this song, and the arrows are the steps it takes, bolder where it takes them often. Two more views of the same chords: **Wheel**, the circle of fifths with home at the top, and **Semitones**, the twelve notes in order, which a bass player reads as frets. Click a chord to go to where the song is on it next.
+- **The bar that stays at the top** has the chord that sounds with its name, its step and its job; the loop of the part that is playing, one box a bar; Play, "Loop this part", and what you hear (the record, the record without its bass, the bass alone). Under it is **the bass neck**: the notes of the chord on all four strings up to the 12th fret, the roots ringed darker, and the note the bass plays as a filled dot, with the fret and string in words beside it.
+- **The song in parts** cuts the song into the loops it goes round and the passages between them. A part is boxed like a rehearsal mark, so that part A is not read as the chord A. Each loop is shown once, with how often it goes round and where; under each chord is what the bass plays in that bar as steps of the chord (`R R 5 8 5 4`: root, root, fifth, octave, fifth, fourth). "Play it" goes to the part.
+- **The profile** draws how far from rest the song is from start to end: flat stretches at home, the climbs before a return. **What the bass plays** says how long the bass spends on roots, fifths, thirds, sevenths and passing notes, how many chords it starts on their root, and how the roots move.
+
+The map's rules are rules of thumb from functional harmony, written down in `copilot_harmony.py` (`job`, `ring`, `bright`); they are not measured from anything. The look and the map come from the author's "Where next?", a map of harmony for improvising.
+
+The chords themselves are the tool's, and they are rougher than its notes: one chord a bar, major or minor, with the root right about half the time on the test songs ([evaluation.md](evaluation.md)). The loops still show, because the tool hears the same bar the same way each time; a single chord's name is the thing to doubt.
+
 ## The working directory
 
 ```
@@ -204,6 +219,7 @@ scores/
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
   <song>/reference/     answer keys: somebody's transcription of the song, lined up with the recording
+  <song>/harmony.json   the home you chose for the song on its harmony page, if you chose one
   tests.json, ratings.json, ratings.jsonl   in a directory of test songs: what they are, and your answers
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need

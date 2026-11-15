@@ -269,7 +269,7 @@ function showSongs() {
           <div class="facts">${L.progress(s)}</div>
           <div class="soft">${L.count(s.notes, "note")} · ${L.whose(s.finder)}${L.bars(s.beats)}${s.score ? " · score made " + L.when(s.score.when, new Date()) : ""}</div>
         </div></a>
-      <div class="foot"><a class="btn main" href="/song#${id}">${begun ? "Carry on with the notes" : "Fix the notes"} ›</a><a class="btn" href="/score#${id}">${s.score ? "See the score" : "Make the score"}</a></div>
+      <div class="foot"><a class="btn main" href="/song#${id}">${begun ? "Carry on with the notes" : "Fix the notes"} ›</a><a class="btn" href="/score#${id}">${s.score ? "See the score" : "Make the score"}</a><a class="btn" href="/harmony#${id}" title="The song as its chords: what each does, the loops the song is made of, what the bass plays over them">Harmony</a></div>
     </div>`;
   }).join("");
   document.querySelectorAll("#songs .song").forEach(a => drawStrip(a.querySelector("canvas"), a.dataset.id));

@@ -17,7 +17,7 @@ PAGE_PATH = os.path.join(os.path.dirname(__file__), "copilot_page.html")
 LANDING_PATH = os.path.join(os.path.dirname(__file__), "copilot_landing.html")
 SCORE_PATH = os.path.join(os.path.dirname(__file__), "copilot_score.html")
 SCORE_PANEL_PATH = os.path.join(os.path.dirname(__file__), "copilot_score_panel.js")
-PAGES = {"/": LANDING_PATH, "/song": PAGE_PATH, "/score": SCORE_PATH}
+PAGES = {"/": LANDING_PATH, "/song": PAGE_PATH, "/score": SCORE_PATH, "/harmony": copilot_harmony.PAGE_PATH}
 LOCAL = ("127.0.0.1", "localhost", "::1")  # where a page that may change things here is served from
 SERVED = re.compile(
     r"^(audio/(record|bass)\.flac|picture\.bin|pitch\.bin|sheet/(v\d+/)?bass(\.pdf|\.musicxml|-\d+\.svg)"

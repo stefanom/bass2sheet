@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Harmony · bass2sheet</title>
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --rest:#8a5a2b;--drift:#3d5f8f;--pull:#c8452c;
+  --rest-soft:rgba(138,90,43,.13);--drift-soft:rgba(61,95,143,.13);--pull-soft:rgba(200,69,44,.13);
+  --ink-soft:rgba(127,127,127,.16);--trail:#1c1c1e;
+  --paper:#ffffff;--text:#1c1c1e;--text-2:#5f6368;--card:#fbfaf8;--line:rgba(0,0,0,.14);--blue:#0a66d8;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--r:10px;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--paper);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.top{display:flex;align-items:center;gap:14px;padding:8px var(--s4);border-bottom:1px solid var(--line);font-size:14px}
+.top .grow{flex:1}
+main{max-width:1280px;margin:0 auto;padding:0 var(--s4) 96px}
+h1{font-family:var(--serif);font-weight:400;font-size:2rem;line-height:1.1;margin:var(--s4) 0 2px;letter-spacing:-.01em}
+h3{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2);margin:0 0 var(--s2);font-weight:600}
+p{margin:0 0 var(--s3)}
+.dek{color:var(--text-2);margin:0}
+.muted{color:var(--text-2)}
+.small{font-size:.8125rem}
+.card{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:var(--s4)}
+.card + .card{margin-top:var(--s4)}
+.row{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.grow{flex:1 1 auto}
+button,select{font:inherit;color:inherit}
+.btn{min-height:36px;padding:0 var(--s3);border-radius:18px;border:1px solid var(--line);background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--ink-soft)}
+.btn[aria-pressed=true]{background:var(--text);color:var(--paper);border-color:var(--text)}
+.btn.go{border-color:var(--pull);color:var(--pull)}
+.btn.mini{min-height:26px;padding:0 10px;font-size:.75rem;border-radius:13px}
+select{min-height:36px;border-radius:18px;border:1px solid var(--line);background:var(--paper);padding:0 var(--s2)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.seg .btn{border:0;border-radius:0;min-height:34px}
+/* the bar that stays in view: the chord that sounds, the part it is in, the neck */
+.now{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--line);margin:var(--s3) calc(-1*var(--s4)) 0;padding:6px var(--s4);display:flex;flex-wrap:wrap;gap:6px var(--s3);align-items:center;min-width:0}
+.here{display:flex;align-items:baseline;gap:var(--s2);flex:none;min-width:150px}
+.here-name{font-family:var(--serif);font-size:1.9rem;line-height:1}
+.here-num{font-family:var(--serif);font-style:italic;color:var(--text-2)}
+.job{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:2px 8px;border-radius:10px;color:#fff;white-space:nowrap}
+.job.rest{background:var(--rest)}.job.drift{background:var(--drift)}.job.pull{background:var(--pull)}
+.path{display:flex;gap:6px;overflow-x:auto;padding:3px 2px;scrollbar-width:thin;flex:1 1 0;min-width:0;align-items:center}
+.mark{flex:none;display:inline-block;min-width:1.5em;text-align:center;font-weight:700;font-size:.9375rem;line-height:1.35;padding:0 5px;border:1.5px solid var(--text);border-radius:3px}
+.path .mark{margin-right:2px}
+.transport{display:flex;gap:6px;flex:none;align-items:center}
+.chip{flex:none;display:grid;justify-items:center;min-width:46px;padding:3px 8px;border-radius:8px;border:1px solid var(--line);border-bottom-width:3px;background:transparent;cursor:pointer;line-height:1.15}
+.chip b{font-family:var(--serif);font-weight:400;font-size:1.05rem;white-space:nowrap}
+.chip i{font-size:.6875rem;color:var(--text-2);font-style:normal;white-space:nowrap}
+.chip u{font-size:.625rem;color:var(--text-2);text-decoration:none;white-space:nowrap;letter-spacing:.02em;min-height:1.1em}
+.chip.rest{border-bottom-color:var(--rest)}.chip.drift{border-bottom-color:var(--drift)}.chip.pull{border-bottom-color:var(--pull)}
+.chip.again b,.chip.again i{opacity:.45}
+.chip.playing{background:var(--pull-soft);box-shadow:inset 0 0 0 1px var(--text)}
+.kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
+.kside{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
+.v-tag{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--text-2)}
+#neck{display:block;flex:0 1 700px;min-width:0;height:auto}
+#lead{min-height:1.4em;margin:0}
+/* the map on the left stays in view while the parts scroll on the right */
+.work{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:var(--s4);align-items:start;margin-top:var(--s4)}
+.leftcol{position:sticky;top:calc(var(--nowh,190px) + 10px)}
+#map{display:block;width:100%;height:auto;max-height:calc(100vh - var(--nowh,190px) - 130px);min-height:240px}
+.lens-help{margin-top:var(--s2)}
+.lens-help summary{cursor:pointer;font-size:.8125rem;color:var(--text-2)}
+.lens-help p{margin:var(--s2) 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:var(--s3);font-size:.8125rem;color:var(--text-2)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:baseline}
+.bg-rest{background:var(--rest)}.bg-drift{background:var(--drift)}.bg-pull{background:var(--pull)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);margin-top:var(--s4)}
+.two .card + .card{margin-top:0}
+/* the song in parts */
+#strip,#profile{display:block;width:100%;height:auto;cursor:pointer}
+.verb{border-top:1px solid var(--line);padding:var(--s3) 0}
+.verb:first-child{border-top:0}
+.verb-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--s2)}
+.verb-h .mark{align-self:center}
+.verb-h span:not(.mark){font-size:.8125rem;color:var(--text-2)}
+.verb.on .verb-h .mark{background:var(--text);color:var(--paper)}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s2)}
+.verb .said{margin:var(--s2) 0 0}
+.role{display:grid;grid-template-columns:86px 1fr 44px;gap:var(--s2);align-items:center;font-size:.8125rem;margin-bottom:4px}
+.role .bar{height:10px;border-radius:5px;background:var(--ink-soft);overflow:hidden}
+.role .bar i{display:block;height:100%;background:var(--text);opacity:.7}
+.role b{font-weight:400;text-align:right;font-variant-numeric:tabular-nums}
+/* svg */
+svg text{font-family:var(--sans);fill:var(--text)}
+.t-num{font-family:var(--serif);font-size:15px;text-anchor:middle}
+.t-sm{font-size:10.5px;text-anchor:middle;fill:var(--text-2);paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round}
+.t-zone{font-size:12px;letter-spacing:.14em;text-anchor:middle;font-weight:700}
+.t-mark{font-size:11px;font-weight:700;text-anchor:middle}
+.zone{stroke-width:1.2;stroke-dasharray:3 4}
+.st{cursor:pointer}
+.st circle{fill:var(--paper);stroke:var(--line);stroke-width:1.2}
+.st.in circle{stroke-width:2}
+.st.rest.in circle{stroke:var(--rest)}.st.drift.in circle{stroke:var(--drift)}.st.pull.in circle{stroke:var(--pull)}
+.st.used.rest circle{fill:var(--rest-soft);stroke:var(--rest);stroke-width:2.2}
+.st.used.drift circle{fill:var(--drift-soft);stroke:var(--drift);stroke-width:2.2}
+.st.used.pull circle{fill:var(--pull-soft);stroke:var(--pull);stroke-width:2.2}
+.st.cur.rest circle{fill:var(--rest);stroke:var(--rest)}.st.cur.drift circle{fill:var(--drift);stroke:var(--drift)}.st.cur.pull circle{fill:var(--pull);stroke:var(--pull)}
+.st.cur .t-num{fill:var(--paper)}
+.st.cur .t-sm{fill:var(--text);font-weight:700}
+.st.dim{opacity:.3}
+.st.spare{opacity:.5}
+.st.spare circle{stroke-width:1.2}
+@keyframes ping{from{stroke-width:14px;stroke-opacity:.35}to{stroke-opacity:1}}
+#map[data-live="1"] .st.cur circle{animation:ping .5s ease-out}
+.trail{fill:none;stroke:var(--trail);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.trail.last{stroke-width:3}
+.flow{fill:none;stroke:var(--text-2);stroke-width:5;opacity:.32;stroke-linecap:round}
+.grid-l{stroke:var(--line);stroke-width:1;fill:none}
+.f-rest{fill:var(--rest)}.f-drift{fill:var(--drift)}.f-pull{fill:var(--pull)}.f-none{fill:var(--text-2)}
+.s-rest{stroke:var(--rest)}.s-drift{stroke:var(--drift)}.s-pull{stroke:var(--pull)}
+.part{fill:var(--ink-soft);stroke:var(--paper);stroke-width:1.5}
+.part.alt{fill:rgba(127,127,127,.07)}
+.part.on{fill:var(--pull-soft);stroke:var(--text);stroke-width:1.2}
+.cursor{stroke:var(--pull);stroke-width:2}
+.string{stroke:#8d887e;stroke-linecap:round}
+.fret{stroke:#b9b4a9;stroke-width:1.4}
+.nut{stroke:#55514a;stroke-width:4}
+.inlay{fill:rgba(127,127,127,.22)}
+.tone circle{stroke-width:1.4;fill:var(--paper)}
+.tone.rest circle{stroke:var(--rest);fill:color-mix(in srgb,var(--rest) 22%,#fff)}
+.tone.drift circle{stroke:var(--drift);fill:color-mix(in srgb,var(--drift) 22%,#fff)}
+.tone.pull circle{stroke:var(--pull);fill:color-mix(in srgb,var(--pull) 22%,#fff)}
+.tone.root circle{stroke-width:2.6}
+.tone text,.sound text{font-size:11px;text-anchor:middle}
+.sound circle{stroke:#fff;stroke-width:1.5}
+.sound text{fill:#fff;font-weight:700}
+#error{margin:var(--s6) 0;color:var(--pull)}
+.short{margin:var(--s3) 0 0;display:flex;flex-wrap:wrap;gap:6px var(--s4);align-items:baseline}
+.short .line{display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap}
+.short .loop{font-family:var(--serif);font-size:1.2rem}
+.short .loop i{font-style:normal;color:var(--text-2);font-family:var(--sans);font-size:.75rem}
+@media (max-width:900px){
+  .work{display:block}
+  .leftcol{position:static}
+  #map{max-height:none}
+  .rightcol{margin-top:var(--s4)}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .here-name{font-size:1.5rem}
+  .path{order:3;flex-basis:100%}
+  .kbd{display:block}
+  #neck{width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <a href="/">‹ Songs</a>
+  <b>bass2sheet · harmony</b>
+  <span class="grow"></span>
+  <a id="to-notes" href="/">Fix the notes</a>
+  <a id="to-score" href="/">The score</a>
+  <a href="/play">Play along</a>
+</header>
+<main>
+  <h1 id="title">&nbsp;</h1>
+  <p class="dek">The song as its chords: what each one does, the few loops the song is made of, and what the bass plays over them.</p>
+  <div class="short" id="short" hidden></div>
+  <p id="error" hidden></p>
+
+  <div class="now" id="now">
+    <div class="here">
+      <span class="here-name" id="here-name">–</span>
+      <span class="here-num" id="here-num"></span>
+      <span class="job" id="here-job" hidden></span>
+    </div>
+    <div class="path" id="path"></div>
+    <div class="transport">
+      <button class="btn go" id="play" type="button">▶ Play</button>
+      <button class="btn" id="loop" type="button" aria-pressed="false" title="Go round the part that is playing until you stop it">Loop this part</button>
+      <span class="seg" id="hear" title="What you hear">
+        <button class="btn" type="button" data-hear="record" aria-pressed="true">Record</button>
+        <button class="btn" type="button" data-hear="nobass" aria-pressed="false">Without bass</button>
+        <button class="btn" type="button" data-hear="bass" aria-pressed="false">Bass alone</button>
+      </span>
+      <span class="muted small" id="clock">0:00</span>
+    </div>
+    <div class="kbd">
+      <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: the notes of the chord, and the note that sounds"></svg>
+      <div class="kside">
+        <div class="v-tag" id="where">&nbsp;</div>
+        <p class="small" id="lead">The neck shows the notes of the chord that sounds, on all four strings, and the note the bass plays.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="leftcol">
+      <div class="card lens">
+        <div class="row" style="margin-bottom:var(--s2)">
+          <span class="seg" id="lens-tabs">
+            <button class="btn" type="button" data-view="roads" aria-pressed="true">Roads</button>
+            <button class="btn" type="button" data-view="wheel" aria-pressed="false">Wheel</button>
+            <button class="btn" type="button" data-view="semitones" aria-pressed="false">Semitones</button>
+          </span>
+          <span class="grow"></span>
+          <span class="legend"><span><i class="bg-rest"></i>rest</span><span><i class="bg-drift"></i>drift</span><span><i class="bg-pull"></i>pull</span></span>
+        </div>
+        <svg id="map" viewBox="0 0 760 534"></svg>
+        <details class="lens-help"><summary>How to read this map</summary><p class="small muted" id="lens-note"></p></details>
+        <p class="small muted" id="rough" style="margin:var(--s2) 0 0" hidden></p>
+      </div>
+    </div>
+    <div class="rightcol">
+      <div class="card">
+        <h3>Home</h3>
+        <div class="row" id="homes"></div>
+        <p class="small muted" style="margin:var(--s2) 0 0">Home is the note the song comes back to. Two keys share the same notes, a major one and a minor one: if the numerals read oddly, try the other.</p>
+      </div>
+      <div class="card">
+        <h3>The song in parts</h3>
+        <svg id="strip" viewBox="0 0 500 50"></svg>
+        <p class="small muted" id="parts-note" style="margin:var(--s2) 0 0"></p>
+        <div id="loops"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3>The profile: distance from rest</h3>
+      <svg id="profile" viewBox="0 0 600 200"></svg>
+      <p class="small muted" id="profile-note" style="margin:var(--s2) 0 0"></p>
+    </div>
+    <div class="card">
+      <h3>What the bass plays</h3>
+      <div id="roles"></div>
+      <p class="small" id="bass-note" style="margin:var(--s3) 0 0"></p>
+    </div>
+  </div>
+  <audio id="au" preload="auto"></audio>
+</main>
+
+<script id="logic">
+// What the page works out, apart from the page itself, so that it can be tested without a browser.
+const Harmony = {
+  DEGREES: ["R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"],
+  STRING_NAMES: ["E", "A", "D", "G"],
+  esc: s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])),
+  flat: s => String(s).replace(/b(?=[IViv1-9])/g, "♭").replace(/([A-G])b/g, "$1♭").replace(/([A-G])#/g, "$1♯").replace(/^#/, "♯"),
+  clock: t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0"),
+  // the stretch (a chord, a part, a bass note) that holds time t, or -1: they are in time order and do not overlap
+  at(list, t) {
+    let lo = 0, hi = list.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t < list[mid].start) hi = mid - 1; else if (t >= list[mid].end) lo = mid + 1; else return mid;
+    }
+    return -1;
+  },
+  // the chord before chord i that sits on another spot of the map: where the step into chord i comes from
+  before(chords, i, view) {
+    for (let k = i - 1; k >= 0; k--) if (chords[k].on[view] !== chords[i].on[view]) return k;
+    return -1;
+  },
+  // every step the song takes on a map, once: from which spot to which, and how often
+  moves(chords, view, from = 0, to = Infinity) {
+    const seen = new Map();
+    for (let i = 1; i < chords.length; i++) {
+      const a = chords[i - 1].on[view], b = chords[i].on[view];
+      if (a === b || chords[i].start < from || chords[i].start >= to) continue;
+      const key = a + ">" + b;
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+    return [...seen].map(([key, times]) => ({ a: +key.split(">")[0], b: +key.split(">")[1], times }));
+  },
+  // the next time the song is on a spot, from time t on and then from the start: the number of that chord
+  next(chords, view, spot, t) {
+    const later = chords.findIndex(c => c.on[view] === spot && c.start > t + 0.05);
+    return later >= 0 ? later : chords.findIndex(c => c.on[view] === spot);
+  },
+  // an arrow from a to b that stops short of both (pad), slightly bowed so that it does not hide behind the
+  // chords it passes; null when the two are too close for one
+  bow(a, b, pad) {
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (d < 2 * pad + 4) return null;
+    const u = [(b[0] - a[0]) / d, (b[1] - a[1]) / d], bend = Math.min(34, d * 0.16);
+    const A = [a[0] + u[0] * pad, a[1] + u[1] * pad], B = [b[0] - u[0] * (pad + 3), b[1] - u[1] * (pad + 3)];
+    const C = [(A[0] + B[0]) / 2 + u[1] * bend, (A[1] + B[1]) / 2 - u[0] * bend];
+    const f = p => p[0].toFixed(1) + "," + p[1].toFixed(1);
+    return `M${f(A)}Q${f(C)} ${f(B)}`;
+  },
+  // a slice of a ring around (cx, cy), from turn i0 to i1 (twelfths of the circle, 0 at the top) between two radii
+  wedge(i0, i1, r0, r1, cx, cy) {
+    const P = (i, r) => { const a = (i * 30 - 90) * Math.PI / 180; return (cx + r * Math.cos(a)).toFixed(1) + "," + (cy + r * Math.sin(a)).toFixed(1); };
+    return `M${P(i0, r0)}L${P(i0, r1)}A${r1},${r1} 0 0 1 ${P(i1, r1)}L${P(i1, r0)}A${r0},${r0} 0 0 0 ${P(i0, r0)}Z`;
+  },
+  // where a chord's notes are on the neck: every place up to the 12th fret, with what the note is to the chord
+  neck(tones, root, strings, last = 12) {
+    const out = [];
+    strings.forEach((open, string) => {
+      for (let fret = 0; fret <= last; fret++) {
+        const pc = (open + fret) % 12;
+        if (tones.includes(pc)) out.push({ string, fret, degree: Harmony.DEGREES[(pc - root + 12) % 12] });
+      }
+    });
+    return out;
+  },
+  // the profile as a line of steps: each chord holds its distance from rest for as long as it lasts
+  steps(chords, X, Y) {
+    let d = "", last = null;
+    for (const c of chords) {
+      const x0 = X(c.start).toFixed(1), x1 = X(c.end).toFixed(1), y = Y(c.far).toFixed(1);
+      d += (last === null ? "M" : "L") + x0 + "," + y + "L" + x1 + "," + y;
+      last = c;
+    }
+    return d;
+  },
+  // "the 2nd fret of the A string", "the open E string"
+  fretName(string, fret) {
+    if (fret === 0) return `the open ${Harmony.STRING_NAMES[string]} string`;
+    const th = fret % 10 === 1 && fret !== 11 ? "st" : fret % 10 === 2 && fret !== 12 ? "nd" : fret % 10 === 3 && fret !== 13 ? "rd" : "th";
+    return `the ${fret}${th} fret of the ${Harmony.STRING_NAMES[string]} string`;
+  },
+  // which round of a part time t falls in, and which bar of the loop: [round from 1, bar of the loop from 0]
+  round(part, bars, t) {
+    let bar = part.bar - 1;
+    while (bar + 1 < part.bar - 1 + part.bars && bars[bar + 1].time <= t) bar++;
+    const k = bar - (part.bar - 1);
+    return [Math.floor(k / part.size) + 1, k % part.size, bar];
+  },
+  // a loop said short: each chord once with how many bars it lasts, "i – ♭VII – ♭VI – V", and that count when
+  // every chord lasts the same ("2 bars each"; 0 when they differ, and then each chord carries its own)
+  said(loop) {
+    const runs = [];
+    for (const bar of loop) {
+      const key = bar.map(c => c.numeral).join(" ") || "–", last = runs[runs.length - 1];
+      if (last && last.key === key) last.bars++; else runs.push({ key, bars: 1, job: bar[0] ? bar[0].job : "none" });
+    }
+    const each = runs.every(r => r.bars === runs[0].bars) ? runs[0].bars : 0;
+    return { runs, each };
+  },
+  // "bars 1–24, 97–120"
+  spans(parts) {
+    return "bars " + parts.map(p => p.bar + "–" + (p.bar + p.bars - 1)).join(", ");
+  },
+};
+if (typeof module !== "undefined") module.exports = Harmony;
+</script>
+
+<script id="app">
+const $ = id => document.getElementById(id), L = Harmony;
+const song = decodeURIComponent(location.hash.slice(1));
+const au = $("au");
+let H = null;                     // what the server says of the song
+const S = { view: "roads", hear: "record", loop: false, chord: -1, part: -1, note: -1, bar: -1, looping: null };
+const JOB = { rest: "Home · rest", drift: "Away · drift", pull: "Tension · pull" };
+const ARROW = '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0L10,5L0,10z" fill="context-stroke"/></marker></defs>';
+const NOTES = {
+  roads: "Roads: three regions for the three jobs a chord can do. The usual trip runs Home → Away → Tension → Home; the arrows are the steps this song takes, bolder where it takes them often. Inside each region, darker (flatter) chords sit on the left and brighter (sharper) ones on the right. Each region has three rows: the one facing the middle of the map is in the key, the next is one step outside it (borrowed chords and the dominants of other chords), and the rim is far outside. Filled circles are the chords of this song. Click one to hear where the song goes there.",
+  wheel: "Wheel: the circle of fifths with home at the top. Majors outside, the minor chords with the same notes inside them, diminished chords at the hub. The shaded wedge is the key; the dashed wedge is the other mode on the same home, which songs borrow from. Neighbours are close; the far side is a tritone away.",
+  semitones: "Semitones: the twelve notes in order round the circle, home at the top, each step clockwise a semitone up. The three chords on one note sit on one spoke: major outside, minor inside it, diminished at the hub. A bass player reads it as the neck: one step round is one fret.",
+};
+
+function seek(t, play) {
+  S.looping = null;  // going somewhere by hand: the part to go round is the one landed in
+  au.currentTime = Math.max(0, Math.min(H.length - 0.05, t));
+  if (play && au.paused) au.play();
+  tick(true);
+}
+function toggle() { if (au.paused) au.play(); else au.pause(); }
+
+/* ----- the chord that sounds, the part's loop as chips, the neck ----- */
+function paintHere() {
+  const c = H.chords[S.chord], job = $("here-job");
+  $("here-name").textContent = c ? L.flat(c.name) : "–";
+  $("here-num").textContent = c ? L.flat(c.numeral) : "";
+  job.hidden = !c;
+  if (c) {
+    job.className = "job " + c.job;
+    job.textContent = (c.far === 0 ? "home" : JOB[c.job]) + (c.ring ? (c.ring === 1 ? " · outside the key" : " · far out") : "");
+  }
+}
+function chip(bar, line, k, extra = "") {
+  const first = bar[0] || { name: "–", numeral: "", job: "none" };
+  const name = bar.map(c => L.flat(c.name)).join(" ") || "–", num = bar.map(c => L.flat(c.numeral)).join(" ");
+  const bass = line ? line.notes.map(n => L.flat(n.degree || "·")).join(" ") : "";
+  return `<button type="button" class="chip ${first.job}${extra}" data-k="${k}"><b>${L.esc(name)}</b><i>${L.esc(num)}</i>${line ? `<u title="What the bass plays in this bar, as steps of the chord">${L.esc(bass)}</u>` : ""}</button>`;
+}
+const again = (loop, k) => (k > 0 && JSON.stringify(loop[k]) === JSON.stringify(loop[k - 1]) ? " again" : "");
+function paintPath() {
+  const p = H.parts[S.part], el = $("path");
+  if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; $("where").innerHTML = "&nbsp;"; return; }
+  const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil(p.bars / p.size);
+  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + p.loop.map((bar, i) => chip(bar, null, i, again(p.loop, i) + (i === k ? " playing" : ""))).join("");
+  el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[p.bar - 1 + (round - 1) * p.size + +b.dataset.k].time + 0.01, false); });
+  const cur = el.querySelector(".playing");
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
+  $("where").textContent = `Part ${p.letter} · ${rounds > 1 ? `round ${round} of ${rounds} · ` : ""}bar ${S.bar + 1}`;
+}
+function paintNeck() {
+  const c = H.chords[S.chord], n = H.bass[S.note];
+  const X = f => (f === 0 ? 24 : 48 + (f - 0.5) * 56), Y = s => 22 + (3 - s) * 26;   // the G string on top, as in tab
+  let s = `<line class="nut" x1="48" x2="48" y1="14" y2="108"/>`;
+  for (let f = 1; f <= 12; f++) s += `<line class="fret" x1="${48 + f * 56}" x2="${48 + f * 56}" y1="16" y2="106"/>`;
+  [3, 5, 7, 9].forEach(f => { s += `<circle class="inlay" cx="${X(f)}" cy="61" r="5"/>`; });
+  s += `<circle class="inlay" cx="${X(12)}" cy="35" r="5"/><circle class="inlay" cx="${X(12)}" cy="87" r="5"/>`;
+  [0, 1, 2, 3].forEach(i => { s += `<line class="string" x1="10" x2="724" y1="${Y(i)}" y2="${Y(i)}" stroke-width="${3.4 - i * 0.6}"/><text class="t-sm" x="742" y="${Y(i) + 4}" style="font-size:11px">${L.STRING_NAMES[i]}</text>`; });
+  [3, 5, 7, 9, 12].forEach(f => { s += `<text class="t-sm" x="${X(f)}" y="126">${f}</text>`; });
+  if (c) L.neck(c.tones, c.root, H.strings).forEach(p => {
+    s += `<g class="tone ${c.job}${p.degree === "R" ? " root" : ""}"><circle cx="${X(p.fret)}" cy="${Y(p.string)}" r="10.5"/><text x="${X(p.fret)}" y="${Y(p.string) + 4}">${L.flat(p.degree)}</text></g>`;
+  });
+  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret)}" y="${Y(n.string) + 4}">${L.flat((n.degree || "").replace(/[↑↓]/, "")) || "·"}</text></g>`;
+  $("neck").innerHTML = s;
+  const what = { root: "the root", third: "the third", fifth: "the fifth", seventh: "the seventh", other: "a passing note" };
+  $("lead").textContent = n && c
+    ? `The bass plays ${H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯")}, ${what[n.role] || "a note"} of ${L.flat(c.name)}: ${L.fretName(n.string, n.fret)}.`
+    : c ? `${L.flat(c.name)}: its notes on the neck. The darker rings are its root.` : "The neck shows the notes of the chord that sounds, on all four strings, and the note the bass plays.";
+}
+
+/* ----- the maps ----- */
+function paintMap() {
+  const M = H.maps[S.view], spots = M.spots, roads = S.view === "roads", pad = roads ? 22 : 25;
+  const c = H.chords[S.chord], cur = c ? c.on[S.view] : -1, prev = c ? L.before(H.chords, S.chord, S.view) : -1;
+  const from = prev >= 0 ? H.chords[prev].on[S.view] : -1, part = H.parts[S.part];
+  let s = ARROW;
+  if (roads) {
+    const TITLE = { drift: ["AWAY · DRIFT", 21], pull: ["TENSION · PULL", 21], rest: ["HOME · REST", 526] };
+    for (const [job, z] of Object.entries(H.regions)) {
+      const [x, y, w, h] = z.box;
+      s += `<rect class="zone s-${job}" x="${x}" y="${y}" width="${w}" height="${h}" rx="34" fill="var(--${job}-soft)"/><text class="t-zone f-${job}" x="${x + w / 2}" y="${TITLE[job][1]}">${TITLE[job][0]}</text>`;
+    }
+    [["M306,310Q246,288 224,234", "leave", 236, 286], ["M272,244Q380,280 488,244", "build", 380, 284], ["M536,234Q514,288 454,310", "resolve", 524, 286]].forEach(([d, word, tx, ty]) => {
+      s += `<path class="flow" marker-end="url(#ah)" d="${d}"/><text class="t-sm" x="${tx}" y="${ty}" style="font-style:italic;font-size:11.5px">${word}</text>`;
+    });
+    s += ["In every region:", "← darker · brighter →", "row facing the middle: in the key", "next row: one step outside it", "rim: far outside"].map((t, i) => `<text class="t-sm" x="10" y="${392 + i * 16}" style="text-anchor:start${i ? "" : ";font-weight:700"}">${t}</text>`).join("");
+  } else if (S.view === "wheel") {
+    const other = H.home.major ? -3 : 3;
+    s += `<path d="${L.wedge(-1.5, 1.5, 62, 206, 300, 215)}" fill="var(--ink-soft)"/><path d="${L.wedge(other - 1.5, other + 1.5, 62, 206, 300, 215)}" class="grid-l" stroke-dasharray="4 4"/>`;
+    s += `<text class="t-sm" x="60" y="20" style="text-anchor:start">← flatter, darker</text><text class="t-sm" x="540" y="20" style="text-anchor:end">sharper, brighter →</text>`;
+  } else {
+    s += `<circle class="grid-l" cx="300" cy="215" r="180"/><circle class="grid-l" cx="300" cy="215" r="130"/><circle class="grid-l" cx="300" cy="215" r="86"/>`;
+    s += `<text class="t-sm" x="540" y="20" style="text-anchor:end">a semitone up →</text>`;
+  }
+  // the steps of the whole song, faint; those of the part that is playing, darker; the one into the sounding chord, bold
+  const all = L.moves(H.chords, S.view), most = Math.max(1, ...all.map(m => m.times));
+  const mine = new Set(part ? L.moves(H.chords, S.view, part.start, part.end).map(m => m.a + ">" + m.b) : []);
+  let top = "";
+  for (const m of all) {
+    const d = L.bow([spots[m.a].x, spots[m.a].y], [spots[m.b].x, spots[m.b].y], pad);
+    if (!d) continue;
+    const hot = m.a === from && m.b === cur, here = mine.has(m.a + ">" + m.b);
+    const path = `<path class="trail${hot ? " last" : ""}" style="opacity:${hot ? 1 : here ? 0.7 : (0.1 + 0.3 * m.times / most).toFixed(2)}" marker-end="url(#ah)" d="${d}"><title>${m.times} time${m.times > 1 ? "s" : ""}</title></path>`;
+    if (hot || here) top += path; else s += path;
+  }
+  s += top;
+  spots.forEach((p, i) => {
+    const used = p.seconds > 0, isCur = i === cur, faded = !used && !isCur && p.ring > 0, spare = !used && !isCur && p.ring === 0;
+    const label = L.flat(roads ? p.numeral : p.name.replace(/dim$/, "°")), big = roads ? (label.length > 3 ? 10.5 : 14) : (p.r >= 22 ? 13 : p.r >= 19 ? 11 : 9.5);
+    s += `<g class="st ${p.job}${p.ring === 0 ? " in" : ""}${used ? " used" : ""}${isCur ? " cur" : ""}${faded ? " dim" : ""}${spare ? " spare" : ""}" data-spot="${i}"><title>${L.esc(L.flat(p.name))} · ${L.esc(L.flat(p.numeral))}${used ? " · " + L.clock(p.seconds) + " of the song" : " · not in this song"}</title><circle cx="${p.x}" cy="${p.y}" r="${p.r}"/><text class="t-num" x="${p.x}" y="${p.y + (roads ? 5 : 4)}" style="font-size:${big}px">${L.esc(label)}</text>${roads ? `<text class="t-sm" x="${p.x}" y="${p.y + p.r + 12}">${L.esc(L.flat(p.name))}</text>` : ""}</g>`;
+  });
+  const map = $("map");
+  map.setAttribute("viewBox", `0 0 ${M.box[0]} ${M.box[1]}`);
+  map.dataset.live = au.paused ? "0" : "1";
+  map.innerHTML = s;
+  map.querySelectorAll(".st").forEach(g => {
+    g.onclick = () => { const k = L.next(H.chords, S.view, +g.dataset.spot, au.currentTime); if (k >= 0) seek(H.chords[k].start + 0.01, true); };
+  });
+  $("lens-note").textContent = NOTES[S.view];
+}
+
+/* ----- the song in parts ----- */
+const X500 = t => 500 * t / H.length, X600 = t => 600 * t / H.length;
+function paintStrip() {
+  let s = "", seen = {};
+  H.parts.forEach((p, i) => {
+    const x = X500(p.start), w = Math.max(2, X500(p.end) - x);
+    seen[p.letter] = seen[p.letter] === undefined ? Object.keys(seen).length : seen[p.letter];
+    s += `<g data-part="${i}"><title>Part ${p.letter} · bars ${p.bar}–${p.bar + p.bars - 1}</title><rect class="part${seen[p.letter] % 2 ? " alt" : ""}${i === S.part ? " on" : ""}" x="${x.toFixed(1)}" y="3" width="${w.toFixed(1)}" height="28" rx="4"/>${w > 13 ? `<text class="t-mark" x="${(x + w / 2).toFixed(1)}" y="21">${p.letter}</text>` : ""}</g>`;
+  });
+  s += `<text class="t-sm" x="1" y="45" style="text-anchor:start">0:00</text><text class="t-sm" x="499" y="45" style="text-anchor:end">${L.clock(H.length)}</text>`;
+  s += `<line class="cursor" id="strip-cursor" x1="0" x2="0" y1="0" y2="34"/>`;
+  $("strip").innerHTML = s;
+}
+function paintLoops() {
+  const by = {};
+  H.parts.forEach(p => { (by[p.letter] = by[p.letter] || []).push(p); });
+  const cur = H.parts[S.part];
+  const order = [...new Set(H.parts.map(p => p.letter))];
+  $("loops").innerHTML = [...H.loops].sort((a, b) => order.indexOf(a.letter) - order.indexOf(b.letter)).map(loop => {
+    const mine = by[loop.letter], rounds = Math.round(loop.rounds * 10) / 10;
+    const what = loop.size === loop.bars ? `${loop.bars} bar${loop.bars > 1 ? "s" : ""}, once through` : `${loop.size} bar${loop.size > 1 ? "s" : ""}, ${rounds} times round`;
+    return `<div class="verb${cur && cur.letter === loop.letter ? " on" : ""}" data-letter="${loop.letter}">
+      <div class="verb-h"><span class="mark">${loop.letter}</span><span>${what} · ${L.spans(mine)}</span><span class="grow"></span><button type="button" class="btn mini" data-play="${loop.letter}">▶ Play it</button></div>
+      <div class="opts">${loop.loop.map((bar, k) => chip(bar, loop.bass[k], k, again(loop.loop, k))).join("")}</div>
+      ${loop.same ? '<p class="small muted said">The bass plays the same shape over every chord of this part.</p>' : ""}
+    </div>`;
+  }).join("");
+  $("loops").querySelectorAll("[data-play]").forEach(b => {
+    b.onclick = () => { const p = by[b.dataset.play].find(q => q.start > au.currentTime) || by[b.dataset.play][0]; seek(p.start + 0.01, true); };
+  });
+  $("loops").querySelectorAll(".verb").forEach(v => v.querySelectorAll(".chip").forEach(b => {
+    b.onclick = () => { const p = by[v.dataset.letter][0]; seek(H.bars[p.bar - 1 + +b.dataset.k].time + 0.01, true); };
+  }));
+  const loops = H.loops.filter(l => l.size < l.bars), inLoops = loops.reduce((n, l) => n + l.bars, 0);
+  $("parts-note").textContent = H.bars.length
+    ? `${H.loops.length} different part${H.loops.length > 1 ? "s" : ""}. ${Math.round(100 * inLoops / H.bars.length)}% of the song's bars go round a loop. Under each chord: what the bass plays in that bar, as steps of the chord (R is its root).`
+    : "";
+}
+
+/* ----- the profile, and the bass ----- */
+function paintProfile() {
+  const top = Math.max(4.4, ...H.chords.map(c => c.far)), Y = v => 176 - v * (140 / top);
+  let s = `<line class="grid-l" x1="0" x2="600" y1="${Y(0)}" y2="${Y(0)}"/><text class="t-sm" x="2" y="${Y(0) + 13}" style="text-anchor:start">home</text><text class="t-sm" x="2" y="31" style="text-anchor:start">far from rest</text>`;
+  H.parts.forEach(p => {
+    const x = X600(p.start), w = X600(p.end) - x;
+    s += `<line class="grid-l" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="18" y2="${Y(0)}"/>${w > 13 ? `<text class="t-mark" x="${(x + w / 2).toFixed(1)}" y="13">${p.letter}</text>` : ""}`;
+  });
+  if (H.chords.length) {
+    const d = L.steps(H.chords, X600, Y), a = H.chords[0], z = H.chords[H.chords.length - 1];
+    s += `<path d="${d}L${X600(z.end).toFixed(1)},${Y(0)}L${X600(a.start).toFixed(1)},${Y(0)}Z" fill="var(--ink-soft)"/><path d="${d}" fill="none" stroke="var(--text)" stroke-width="1.2"/>`;
+    H.chords.forEach(c => { s += `<circle class="f-${c.job}" cx="${X600(c.start).toFixed(1)}" cy="${Y(c.far).toFixed(1)}" r="2.4"><title>${L.esc(L.flat(c.name))} · ${L.esc(L.flat(c.numeral))} · bar ${c.bar}</title></circle>`; });
+  }
+  s += `<line class="cursor" id="profile-cursor" x1="0" x2="0" y1="18" y2="${Y(0)}"/>`;
+  $("profile").innerHTML = s;
+  const time = { rest: 0, drift: 0, pull: 0 };
+  H.places.forEach(p => { time[p.job] += p.share; });
+  const peak = H.chords.reduce((a, c) => (!a || c.far > a.far ? c : a), null);
+  $("profile-note").textContent = peak
+    ? `The song spends ${Math.round(100 * time.rest)}% of its time at rest, ${Math.round(100 * time.drift)}% away and ${Math.round(100 * time.pull)}% in tension. Its furthest point is ${L.flat(peak.name)} (${L.flat(peak.numeral)}), first in bar ${peak.bar}. Click anywhere to go there.`
+    : "The tool heard no chords in this song.";
+}
+function paintBass() {
+  const NAMES = { root: "Root", fifth: "Fifth", third: "Third", seventh: "Seventh", other: "Passing notes" };
+  $("roles").innerHTML = Object.entries(H.roles).map(([r, share]) => `<div class="role"><span>${NAMES[r]}</span><span class="bar"><i style="width:${(100 * share).toFixed(1)}%"></i></span><b>${Math.round(100 * share)}%</b></div>`).join("");
+  const moves = H.motions.slice(0, 3).map(m => `${m.name} (${m.times})`).join(", ");
+  $("bass-note").textContent = `How long the bass spends on each note of the chord it plays under. It starts ${Math.round(100 * H.on_root)}% of the chords on their root.` + (moves ? ` From one chord to the next the root moves most often ${moves}.` : "");
+}
+
+/* ----- home ----- */
+function paintHomes() {
+  const el = $("homes"), names = H.names;
+  el.innerHTML = H.homes.map(h => `<button type="button" class="btn" data-root="${h.root}" data-major="${h.major ? 1 : 0}" aria-pressed="${h.root === H.home.root && h.major === H.home.major}">${L.esc(L.flat(h.name))}${h.found ? ' <span class="small" style="opacity:.7">found</span>' : ""}</button>`).join("")
+    + `<select id="other-home" aria-label="Another home"><option value="">another…</option>${[1, 0].map(major => Array.from({ length: 12 }, (_, r) => `<option value="${r},${major}">${L.esc(L.flat(names[r]))} ${major ? "major" : "minor"}</option>`).join("")).join("")}</select>`;
+  el.querySelectorAll("button").forEach(b => { b.onclick = () => setHome([+b.dataset.root, b.dataset.major === "1"]); });
+  $("other-home").onchange = e => { if (e.target.value) { const [r, m] = e.target.value.split(","); setHome([+r, m === "1"]); } };
+}
+async function setHome(home) {
+  const found = H.homes.find(h => h.found), same = found && found.root === home[0] && found.major === home[1];
+  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, home: same ? null : home }) });
+  const data = await r.json();
+  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  H = data;
+  paintAll();
+}
+
+/* ----- time ----- */
+function tick(force) {
+  if (!H) return;
+  const t = au.currentTime;
+  const chord = L.at(H.chords, t), part = L.at(H.parts, t), note = L.at(H.bass, t);
+  let bar = S.bar;
+  if (H.bars.length) { bar = 0; while (bar + 1 < H.bars.length && H.bars[bar + 1].time <= t) bar++; }
+  if (S.loop && S.looping && !au.paused && t >= S.looping.end - 0.02) { au.currentTime = S.looping.start; return tick(true); }
+  if (part >= 0 && (!S.looping || au.paused || !S.loop)) S.looping = H.parts[part];
+  const moved = force || chord !== S.chord || part !== S.part;
+  const barMoved = force || bar !== S.bar || part !== S.part, noteMoved = force || note !== S.note || chord !== S.chord;
+  Object.assign(S, { chord, part, note, bar });
+  if (moved) { paintHere(); paintMap(); }
+  if (barMoved) paintPath();
+  if (noteMoved) paintNeck();
+  if (force || moved) {
+    document.querySelectorAll("#strip .part").forEach((r, i) => r.classList.toggle("on", i === part));
+    const p = H.parts[part];
+    document.querySelectorAll("#loops .verb").forEach(v => v.classList.toggle("on", !!p && v.dataset.letter === p.letter));
+  }
+  for (const [id, x] of [["strip-cursor", X500(t).toFixed(1)], ["profile-cursor", X600(t).toFixed(1)]]) { const c = $(id); if (c) { c.setAttribute("x1", x); c.setAttribute("x2", x); } }
+  $("clock").textContent = `${L.clock(t)} / ${L.clock(H.length)}`;
+}
+function run() { tick(false); if (!au.paused) requestAnimationFrame(run); }
+
+function paintShort() {
+  // the loops that carry the song: the ones that go round, the longest first, until four fifths of the song is said
+  const loops = H.loops.filter(l => l.size < l.bars).sort((a, b) => b.bars - a.bars), all = H.bars.length || 1;
+  let said = 0;
+  const lines = [];
+  for (const loop of loops) {
+    if (lines.length >= 4 || (said / all >= 0.8 && lines.length)) break;
+    const { runs, each } = L.said(loop.loop);
+    const chords = runs.map(r => `<span class="f-text">${L.esc(L.flat(r.key))}${each ? "" : `<i> ${r.bars}</i>`}</span>`).join(" – ");
+    lines.push(`<span class="line"><span class="mark">${loop.letter}</span><span class="loop">${chords}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars as numbered · "}${Math.round(100 * loop.bars / all)}% of the song</span></span>`);
+    said += loop.bars;
+  }
+  $("short").hidden = !lines.length;
+  $("short").innerHTML = `<span class="muted small">In ${L.esc(L.flat(H.home.name))}:</span>` + lines.join("");
+}
+
+function paintAll() {
+  document.title = `${H.title} · harmony · bass2sheet`;
+  $("title").textContent = H.title + (H.artist ? " · " + H.artist : "");
+  $("to-notes").href = "/song#" + encodeURIComponent(H.id);
+  $("to-score").href = "/score#" + encodeURIComponent(H.id);
+  $("rough").hidden = H.fine;
+  $("rough").textContent = "For this song the tool heard one chord a bar, major or minor. Its chords are rougher than its notes: trust the shape of the song more than any single chord.";
+  paintShort(); paintHomes(); paintStrip(); paintLoops(); paintProfile(); paintBass();
+  tick(true);
+  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
+}
+
+async function start() {
+  if (!song) { $("error").hidden = false; $("error").textContent = "No song was named. Pick one from the list of songs."; return; }
+  const r = await fetch("/api/harmony?id=" + encodeURIComponent(song));
+  const data = await r.json();
+  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  H = data;
+  au.src = H.audio[S.hear];
+  paintAll();
+}
+$("play").onclick = toggle;
+au.addEventListener("play", () => { $("play").textContent = "■ Stop"; $("map").dataset.live = "1"; run(); });
+au.addEventListener("pause", () => { $("play").textContent = "▶ Play"; $("map").dataset.live = "0"; tick(true); });
+au.addEventListener("seeked", () => tick(true));
+$("loop").onclick = () => { S.loop = !S.loop; $("loop").setAttribute("aria-pressed", S.loop); S.looping = H && H.parts[S.part] || null; };
+$("hear").querySelectorAll("button").forEach(b => {
+  b.onclick = () => {
+    const t = au.currentTime, playing = !au.paused;
+    S.hear = b.dataset.hear;
+    $("hear").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    au.src = H.audio[S.hear];
+    au.addEventListener("loadedmetadata", () => { au.currentTime = t; if (playing) au.play(); }, { once: true });
+  };
+});
+$("lens-tabs").querySelectorAll("button").forEach(b => {
+  b.onclick = () => { S.view = b.dataset.view; $("lens-tabs").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); paintMap(); };
+});
+const jump = svg => e => { const box = svg.getBoundingClientRect(); seek(H.length * (e.clientX - box.left) / box.width, false); };
+$("strip").onclick = jump($("strip"));
+$("profile").onclick = jump($("profile"));
+document.addEventListener("keydown", e => {
+  if (e.key === " " && !/^(BUTTON|SELECT|INPUT|SUMMARY)$/.test(e.target.tagName)) { e.preventDefault(); toggle(); }
+});
+window.addEventListener("resize", () => document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px"));
+start();
+</script>
+</body>
+</html>
