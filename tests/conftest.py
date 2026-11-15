@@ -75,3 +75,81 @@ def note(start, end, pitch, **kw):
     d = dict(start=start, end=end, pitch=pitch, agree=1.0, flag=None)
     d.update(kw)
     return d
+
+
+# ------------------------------------------------------------------------------------------ the pages in a browser
+
+
+@pytest.fixture(scope="session")
+def browser():
+    """A browser without a window to open the pages in: the Chromium Playwright installs (`playwright install
+    chromium`), else the Chrome or the Edge that is on the machine. BASS2SHEET_TEST_BROWSER=chrome asks for one of
+    them by name. The tests that need it are skipped where there is no Playwright or no such browser."""
+    if os.environ.get("BASS2SHEET_TEST_BARE") == "1":
+        pytest.skip("a machine with nothing but `uv sync` on it has no browser to drive")
+    sync_api = pytest.importorskip("playwright.sync_api", reason="Playwright is not installed: uv sync --group browser")
+    named = os.environ.get("BASS2SHEET_TEST_BROWSER")
+    channels = [None if named == "chromium" else named] if named else [None, "chrome", "msedge"]
+    # no GPU: what is drawn is the same on every machine; sound may start without a click having asked for it
+    args = ["--disable-gpu", "--autoplay-policy=no-user-gesture-required"]
+    with sync_api.sync_playwright() as playwright:
+        found, why = None, []
+        for channel in channels:
+            try:
+                found = playwright.chromium.launch(
+                    headless=True, args=args, **({"channel": channel} if channel else {})
+                )
+                break
+            except Exception as e:  # not installed
+                why.append(f"{channel or 'chromium'}: {str(e).splitlines()[0]}")
+        if found is None:
+            pytest.skip("no browser to drive (uv run playwright install chromium): " + "; ".join(why))
+        yield found
+        found.close()
+
+
+# What a test waits for before it aims at something on a page: `__quiet(ms)` is true once the page has asked the
+# server for nothing for that long. An answer can lay the page out again (a row of buttons, a list under the
+# timeline), and what was aimed at before it came is somewhere else after.
+QUIET = """(() => {
+  const ask = window.fetch;
+  let open = 0, since = performance.now();
+  window.fetch = function (...args) {
+    open++;
+    const done = () => { if (--open === 0) since = performance.now(); };
+    const answer = ask.apply(this, args);
+    answer.then(done, done);
+    return answer;
+  };
+  window.__quiet = ms => open === 0 && performance.now() - since >= ms;
+})()"""
+
+
+@pytest.fixture
+def browse(browser):
+    """Opens pages: browse(address, ready=a condition in the page's own words to wait for). Every test starts
+    from a browser that remembers nothing. When the test is over, no page may have said anything was wrong: an
+    error on its console (a request refused is one) or an error in its script fails the test."""
+    context = browser.new_context(viewport=dict(width=1440, height=900))
+    context.set_default_timeout(30000)
+    context.add_init_script(QUIET)
+    wrong = []
+
+    def open_page(address, ready=None, size=None):
+        page = context.new_page()
+        if size:
+            page.set_viewport_size(dict(width=size[0], height=size[1]))
+        page.on(
+            "console",
+            lambda m: wrong.append(f"console: {m.text} ({m.location.get('url', '')})") if m.type == "error" else None,
+        )
+        page.on("pageerror", lambda e: wrong.append(f"script: {e}"))
+        page.goto(address)
+        if ready:
+            page.wait_for_function(ready)
+        return page
+
+    open_page.wrong = wrong
+    yield open_page
+    context.close()
+    assert not wrong, wrong

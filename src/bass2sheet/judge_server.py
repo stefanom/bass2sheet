@@ -236,6 +236,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bass2sheet · judging</title>
+<link rel="icon" href="data:,">
 <style>
   :root { --ink:#1c1f24; --soft:#5d6570; --line:#d9dde3; --bg:#f6f7f9; --card:#fff; --go:#1f6feb; --on:#0b5d2a; --warn:#9a6700; }
   * { box-sizing: border-box; }
