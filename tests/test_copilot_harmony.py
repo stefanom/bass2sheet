@@ -308,8 +308,11 @@ def test_the_chords_heard_eighth_by_eighth_are_taken_as_they_are():
         (1.0, 2.0, C, "maj7", 0.41, E),
         (4.0, 8.0, G, "", 0.8, None),
     ]
-    # a song in which no chord was heard has none: the chord a bar of long ago is not what the page falls back on
-    assert H.chords_of(dict(machine, harmony=dict(keys=[], chords=[]))) == []
+    # the other reading of the same song: its chord a bar; and the only one of a song whose harmony has no chord
+    assert H.readings(machine) == ["eighths", "bars"]
+    assert [(c["root"], c["quality"], c["over"]) for c in H.chords_of(machine, "bars")] == [(A, "m", None)]
+    for bare in (dict(machine, harmony=dict(keys=[], chords=[])), dict(machine, harmony=None), _machine([])):
+        assert H.readings(bare) == ["bars"]
     assert [c["root"] for c in H.chords_of(dict(machine, harmony=None))] == [A]  # prepared before there was harmony
     keys = [dict(start=0.0, end=5.0, at=4, until=44, root=A, major=False, score=0.71, other=dict(root=C, major=True))]
     assert H.keys_of(dict(harmony=dict(keys=keys, chords=[]))) == [
@@ -574,18 +577,54 @@ def test_a_loop_is_found_through_sevenths_and_chords_the_tool_is_unsure_of(workd
     assert not after["bars"][7]["unsure"] and after["unsure"] == 0
 
 
-def test_a_song_prepared_before_gets_its_harmony_when_its_page_is_opened(workdir):
-    folder = os.path.join(workdir, "mix")
-    path = os.path.join(folder, "machine.json")
+def test_empty_bars_get_the_chord_the_bass_line_suggests():
+    H = copilot_harmony
+    bars, ends = [0.0, 2.0, 4.0, 6.0, 8.0], [2.0, 4.0, 6.0, 8.0, 10.0]
+    note = lambda start, end, pitch: dict(start=start, end=end, pitch=pitch)  # noqa: E731
+    chord = lambda start, end, root, quality: dict(
+        start=start, end=end, root=root, quality=quality, score=0.9, over=None, yours=False
+    )  # noqa: E731
+    heard = [chord(0.0, 2.1, A, "m"), chord(7.8, 10.0, E, "")]  # ends just inside bar 2; comes in just before bar 5
+    notes = [
+        note(0.0, 1.0, 45),
+        note(2.1, 2.5, 38), note(2.5, 3.9, 41),  # bar 2 starts on D, and holds F longer: D minor, the key's chord on D
+        note(4.9, 5.9, 46),  # bar 3: the bass comes in late, on B flat, a note outside A minor: a major chord
+        # bar 4: no bass note, so no chord
+    ]  # fmt: skip
+    out = H.by_the_bass(heard, notes, bars, ends, (A, False))
+    assert [(c["start"], c["end"], c["root"], c["quality"], c["implied"]) for c in out] == [
+        (0.0, 2.1, A, "m", False),
+        (2.1, 4.0, D, "m", True),
+        (4.0, 6.0, 10, "", True),
+        (7.8, 10.0, E, "", False),
+    ]
+    assert [c["score"] for c in out if c["implied"]] == [0.5, 0.5] and not any(c["yours"] for c in out)
+    assert H.by_the_bass([], [note(0.1, 1.0, 43)], [0.0], [2.0], (C, True))[0]["quality"] == ""  # G in C major
+    # a bar that has a chord for a beat or more is left as it is
+    part = [chord(4.0, 4.6, G, "")]
+    assert [c["implied"] for c in H.by_the_bass(part, [note(4.0, 6.0, 43)], [4.0], [6.0], (C, True))] == [False]
+
+
+def _long_ago(workdir):
+    """The prepared song as one prepared before the tool heard chords eighth by eighth: no harmony, a key and a
+    chord a bar of its own. Returns (the machine data as written, the harmony it had)."""
+    path = os.path.join(workdir, "mix", "machine.json")
     machine = copilot.read_json(path)
     fresh = machine.pop("harmony")
-    old = dict(
-        key=["C major", 0, True],
-        chords=[dict(bar=2, root=C, quality="", score=0.5, names=machine["chords"][0]["names"])],
+    names = machine["chords"][0]["names"]
+    machine.update(
+        key=["C major", 0, True], chords=[dict(bar=2, root=C, quality="", score=0.5, names=names, chord="C")]
     )
-    machine.update(key=old["key"], chords=old["chords"])  # as a song prepared long ago has them
     with open(path, "w") as f:
         json.dump(machine, f)
+    copilot_harmony._ASKED.discard(os.path.join(workdir, "mix"))
+    return machine, fresh
+
+
+def test_a_song_prepared_before_has_its_harmony_heard_when_its_page_is_opened(workdir):
+    folder = os.path.join(workdir, "mix")
+    path = os.path.join(folder, "machine.json")
+    machine, fresh = _long_ago(workdir)
     with open(os.path.join(folder, "notes.json"), "rb") as f:
         mine = f.read()
     desk = copilot.Desk(workdir, "mix")
@@ -593,34 +632,60 @@ def test_a_song_prepared_before_gets_its_harmony_when_its_page_is_opened(workdir
     now = copilot.read_json(path)
     # the same chords as on preparing the song anew (the notes are kept rounded, so a score may differ a hair)
     place = lambda found: [(c["at"], c["until"], c["root"], c["quality"], c["bass"]) for c in found["chords"]]  # noqa: E731
-    assert seen["fine"] and place(now["harmony"]) == place(fresh) and desk.machine["harmony"] == now["harmony"]
+    assert place(now["harmony"]) == place(fresh) and now["harmony"]["later"] and desk.machine == now
     assert [c["score"] for c in now["harmony"]["chords"]] == pytest.approx(
         [c["score"] for c in fresh["chords"]], abs=0.03
     )
-    assert [(k["root"], k["major"]) for k in now["harmony"]["keys"]] == [(k["root"], k["major"]) for k in fresh["keys"]]
-    assert now["before_harmony"] == old and now["key"][1:] == [G, True] and now["chords"][0]["chord"] in ("Em", "E")
-    assert {k: v for k, v in now.items() if k not in ("harmony", "before_harmony", "key", "chords")} == {
-        k: v for k, v in machine.items() if k not in ("key", "chords")
-    }
+    # it is added: everything the song had is as it was, the key and the chord a bar too, and the person's work
+    assert {k: v for k, v in now.items() if k != "harmony"} == machine
     with open(os.path.join(folder, "notes.json"), "rb") as f:
-        assert f.read() == mine  # nothing of the person's work is touched
-    assert seen["home"]["name"] == "G major" and len(seen["chords"]) >= 8
+        assert f.read() == mine
+    # and nothing the person has seen changes by itself: the page still shows the reading the song had
+    assert seen["reading"] == "bars" and seen["readings"] == ["eighths", "bars"] and not seen["fine"]
+    assert [c["name"] for c in seen["chords"] if not c["implied"]] == ["C"] and seen["home"]["name"] == "C major"
+    assert not any(bar["unsure"] for bar in seen["bars"]) and seen["keys"] == []
+    assert copilot.sheet_chords(folder, now) == {
+        2: [(0, dict(root=C, quality="", bass=None, names=machine["chords"][0]["names"]))]
+    }
 
-    # a song whose separated tracks are not kept any more stays as it is, and is not asked about again
-    machine.pop("harmony", None)
-    with open(path, "w") as f:
-        json.dump(machine, f)
+    # the person asks for the other reading: the chords heard eighth by eighth, in the key read from them
+    copilot_harmony.set_reading(folder, "eighths")
+    finer = copilot_harmony.view(copilot.Desk(workdir, "mix"))
+    assert finer["reading"] == "eighths" and finer["fine"] and finer["home"]["name"] == "G major"
+    assert len(finer["chords"]) >= 8 and [k["name"] for k in finer["keys"]] == ["G major"]
+    assert sorted(copilot.sheet_chords(folder, now))[:3] == [2, 3, 4]  # the score's chords follow the page
+    copilot_harmony.set_reading(folder, None)
+    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "bars"
+    with pytest.raises(Bass2SheetError, match="eighths, bars"):
+        copilot_harmony.set_reading(folder, "sixteenths")
+
+
+def test_a_song_whose_separated_tracks_are_gone_keeps_its_chord_a_bar(workdir):
+    folder = os.path.join(workdir, "mix")
+    path = os.path.join(folder, "machine.json")
+    machine, _ = _long_ago(workdir)
     songs = copilot.load_songs(workdir)
     songs["mix"]["stems_dir"] = os.path.join(workdir, "gone")
     with open(os.path.join(workdir, "songs.json"), "w") as f:
         json.dump(songs, f)
-    copilot_harmony._ASKED.discard(folder)
     assert copilot.hear_harmony(workdir, "mix") is None
-    stale = copilot.Desk(workdir, "mix")
-    seen = copilot_harmony.view(stale)
-    assert not seen["fine"] and [c["name"] for c in seen["chords"]] == ["C"] and seen["keys"] == []
-    assert "harmony" not in copilot.read_json(path) and folder in copilot_harmony._ASKED
+    seen = copilot_harmony.view(copilot.Desk(workdir, "mix"))
+    assert seen["readings"] == ["bars"] and seen["reading"] == "bars" and not seen["fine"]
+    assert copilot.read_json(path) == machine and folder in copilot_harmony._ASKED  # not asked again at every look
+    copilot_harmony.set_reading(folder, "eighths")  # asked for, and not to be had: the page shows what there is
+    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "bars"
     copilot_harmony._ASKED.discard(folder)
+
+
+def test_a_song_prepared_now_is_shown_with_its_chords_heard_eighth_by_eighth(workdir):
+    desk = copilot.Desk(workdir, "mix")
+    seen = copilot_harmony.view(desk)
+    assert seen["reading"] == "eighths" and seen["readings"] == ["eighths", "bars"] and seen["fine"]
+    assert "later" not in desk.machine["harmony"]
+    copilot_harmony.set_reading(desk.folder, "bars")  # its chord a bar is the coarser view of the same chords
+    coarse = copilot_harmony.view(copilot.Desk(workdir, "mix"))
+    assert coarse["reading"] == "bars" and {c["quality"] for c in coarse["chords"]} <= {"", "m"}
+    assert coarse["home"]["name"] == seen["home"]["name"]
 
 
 def test_the_person_chooses_home_and_the_names_follow(workdir):
@@ -715,3 +780,8 @@ def test_the_server_gives_the_harmony_and_keeps_the_choice_of_home(served, workd
     assert copilot.tab_style(os.path.join(workdir, "mix")) == "closed"
     assert _json(served + "/api/harmony", dict(song="mix", tab="high"))[0] == 400
     assert _json(served + "/api/harmony?id=mix")[1]["tab"] == "closed"
+    # which reading of the chords the page shows
+    status, coarse = _json(served + "/api/harmony", dict(song="mix", reading="bars"))
+    assert status == 200 and coarse["reading"] == "bars" and coarse["tab"] == "closed" and coarse["fixed"] == 1
+    assert _json(served + "/api/harmony", dict(song="mix", reading="sixteenths"))[0] == 400
+    assert _json(served + "/api/harmony", dict(song="mix", reading=None))[1]["reading"] == "eighths"

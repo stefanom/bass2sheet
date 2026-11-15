@@ -210,9 +210,14 @@ The score is the one "Make the sheet" writes, from your notes as they stand when
 
 The map's rules are rules of thumb from functional harmony, written down in `copilot_harmony.py` (`job`, `ring`, `bright`); they are not measured from anything. The look and the map come from the author's "Where next?", a map of harmony for improvising.
 
-The chords themselves are the tool's ([evaluation.md](evaluation.md#chords-and-key)): heard eighth note by eighth note, with sevenths, and the bass notes as evidence for the root. On the real pop test songs the root and major or minor are right about 86% of the time; a song that is mostly bass and drums gives the tool less to hear. Each chord comes with how sure the tool is, and a `?` marks a bar with a chord it is unsure of: such a chord is right about half the time. The song is cut into parts by its triads, so a seventh heard in one round and not in the next is still the same loop, and a chord in doubt does not break one.
+The chords themselves are the tool's, and a song has two readings of them. The switch under the map chooses which one the page shows; your own chords stand in either.
 
-A song prepared before the tool heard chords this way gets them the first time its harmony page is opened: a few seconds, from its separated tracks in the cache, its notes and its beat grid. Nothing is heard again and none of your work changes; the song's key and the chord symbols of its score follow, and what they were is kept in `machine.json` under `before_harmony`. Where the separated tracks are gone the page says so and shows the old chord per bar; adding the song again hears it anew.
+- **Eighth by eighth** ([evaluation.md](evaluation.md#chords-and-key)): heard eighth note by eighth note, with sevenths, and the bass notes as evidence for the root; the key is read from the chords, and the page says where the tool hears it change. On the real pop test songs the root and major or minor are right about 86% of the time. Each chord comes with how sure the tool is, and a `?` marks a bar with a chord it is unsure of: such a chord is right about half the time. Where no chord is heard at all, only bass and drums, the bar gets the chord the key has on the note the bass plays there, in slanted letters.
+- **One a bar**: a major or minor chord for each bar. Coarser, and right less often on those test songs (73%), but it is steadier from one round of a loop to the next. Over a bass riff with little else playing, which none of the test songs is, the finer reading follows the moving bass line and can write another chord in every round; there the coarser one may show the song's form better. Your ears decide: "Hear the chords" plays either over the record.
+
+The song is cut into parts by its triads, so a seventh heard in one round and not in the next is still the same loop, and a chord the tool is unsure of does not break one.
+
+A song prepared before the tool heard chords eighth by eighth has that reading heard the first time its harmony page is opened: a few seconds, from its separated tracks in the cache, its notes and its beat grid. It is added to what the song has. Nothing is heard again, none of your work changes, and the page goes on showing the reading the song had until you switch. Where the separated tracks are gone the page says so; adding the song again hears it anew. The chord symbols of the score follow the reading the page shows.
 
 ## The working directory
 
@@ -224,7 +229,7 @@ scores/
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
   <song>/reference/     answer keys: somebody's transcription of the song, lined up with the recording
-  <song>/harmony.json   what you set on the song's harmony page: its home, the chords you changed by bar, its fingering
+  <song>/harmony.json   what you set on the song's harmony page: its home, the chords you changed by bar, which reading of its chords, its fingering
   tests.json, ratings.json, ratings.jsonl   in a directory of test songs: what they are, and your answers
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need

@@ -1087,10 +1087,10 @@ def report(workdir):
 
 def hear_harmony(workdir, song_id, cache_dir=None):
     """Give a song its harmony (harmony.find) when it was prepared before the tool heard chords that way: from
-    its separated tracks, where they are still kept, and from the notes and the beat grid it already has. The
-    song's key and its chord per bar follow, as they would on preparing it again; what they were is kept under
-    `before_harmony`. Nothing is heard again and nothing else changes: not the notes, not the person's work.
-    Returns the harmony, or None when the tracks are not kept any more (the song then has to be added again)."""
+    its separated tracks, where they are still kept, and from the notes and the beat grid it already has. It is
+    added to what the song has (machine.json, `harmony`, marked `later`); the key and the chord a bar it had
+    stay as they are, nothing is heard again, and none of the person's work changes. Returns the harmony, or
+    None when the tracks are not kept any more (the song then has to be added again)."""
     from .common import cache_home, sha1_file
 
     folder = song_dir(workdir, song_id)
@@ -1102,16 +1102,19 @@ def hear_harmony(workdir, song_id, cache_dir=None):
     if not given and not os.path.exists(os.path.join(cache, f"stems-{sha1_file(song['path'])[:16]}-{separator}.npz")):
         return None  # asking for the tracks now would separate the song again: that is for `add` to do
     stems = judge.load_song(song["path"], cache, "cpu", given, separator)[1]
-    found = harmony.find(stems, machine["notes"], machine["grid"], machine["origin"])
-    key = harmony.main_key(found, machine["notes"])
-    machine["before_harmony"] = dict(key=machine["key"], chords=machine["chords"])
-    machine.update(
-        harmony=found,
-        key=[key[0], int(key[1]), bool(key[2])],
-        chords=harmony.per_bar(found, machine["origin"], key),
-    )
+    machine["harmony"] = dict(harmony.find(stems, machine["notes"], machine["grid"], machine["origin"]), later=True)
+    judge._song.cache_clear()  # the separated tracks are large, and a page server lives long
     atomic_write_text(os.path.join(folder, "machine.json"), json.dumps(machine))
-    return found
+    return machine["harmony"]
+
+
+def sheet_chords(folder, machine):
+    """What a song's score writes over its bars (harmony.for_sheet), in the reading of its chords that its
+    harmony page shows (copilot_harmony.reading)."""
+    from . import copilot_harmony
+
+    finer = copilot_harmony.reading(folder, machine) == "eighths"
+    return harmony.for_sheet(machine if finer else dict(machine, harmony=None))
 
 
 TAB = "easy"  # how a song is fingered unless the person chose otherwise for it (score.TAB_STYLES)
@@ -1158,7 +1161,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     )
     xml = score.musicxml(
         notes,
-        harmony.for_sheet(m),
+        sheet_chords(desk.folder, m),
         tuple(m["key"]),
         m["tempo"],
         float(grid[m["origin"]]),

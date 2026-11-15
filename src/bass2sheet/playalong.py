@@ -268,10 +268,11 @@ def written(machine, notes):
     return simplify(out) if settings["rhythm"] == "simple" else out
 
 
-def score_xml(machine, notes, bars, tab=None):
+def score_xml(machine, notes, bars, tab=None, chords=None):
     """The score to engrave for the page: (MusicXML with every line of `bars` bars on a page of its own and no
     title, the number of its first bar, the sixteenths counted from bar 1 where a note starts, those where one
-    sounds). `tab` is how the notes are put on the neck (copilot.tab_style)."""
+    sounds). `tab` is how the notes are put on the neck (copilot.tab_style); `chords` is what is written over
+    the bars (copilot.sheet_chords), by default the chords of the song's finest reading."""
     tab = tab or copilot.TAB
     if not notes:
         raise Bass2SheetError("there are no notes to play along with")
@@ -279,7 +280,7 @@ def score_xml(machine, notes, bars, tab=None):
     enters = max(1, min(n["grid_start"] // 16 + 1 for n in quantized))  # lines are counted from where the bass enters
     xml = score.musicxml(
         quantized,
-        harmony.for_sheet(machine),
+        chords if chords is not None else harmony.for_sheet(machine),
         tuple(machine["key"]),
         machine["tempo"],
         grid_time(machine["grid"], machine["origin"]),
@@ -466,7 +467,8 @@ def lines(workdir, song_id, bars=3, mscore=None):
     if machine is None or mine is None:
         raise Bass2SheetError(f"{song_id} is not prepared")
     tab = copilot.tab_style(folder)
-    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab)
+    chords = copilot.sheet_chords(folder, machine)
+    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab, chords)
     grid = json.dumps([machine["origin"], machine["grid"]])  # the same score on another grid is played at other times
     key = hashlib.sha1("\n".join([ENGRAVING, str(DPI), style(), grid, xml]).encode()).hexdigest()[:10]
     out_dir = os.path.join(folder, "play", f"b{bars}")
@@ -485,7 +487,7 @@ def lines(workdir, song_id, bars=3, mscore=None):
         os.makedirs(out_dir, exist_ok=True)
         for fit in range(bars, 0, -1):
             if fit < bars:
-                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit, tab)
+                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit, tab, chords)
             made = engrave(xml, first_bar, machine["grid"], machine["origin"], starts, sounding, out_dir, ms, key)
             meant = xml.count('<print new-page="yes"/>') + 1
             if len(made["lines"]) - meant <= 0.1 * meant:

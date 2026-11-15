@@ -65,6 +65,8 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .edit select{min-height:28px;font-size:.875rem}
 .chip.pick{box-shadow:inset 0 0 0 2px var(--text)}
 .chip.yours b::after{content:" ✓";font-family:var(--sans);font-size:.65em;color:var(--text-2)}
+.chip.implied{border-style:dotted;border-bottom-style:solid}
+.chip.implied b{font-style:italic}
 .chip.unsure{border-style:dashed;border-bottom-style:solid}
 .chip.unsure b::after{content:" ?";font-family:var(--sans);font-size:.7em;color:var(--pull)}
 .kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
@@ -246,6 +248,14 @@ svg text{font-family:var(--sans);fill:var(--text)}
           <span class="legend"><span><i class="bg-rest"></i>rest</span><span><i class="bg-drift"></i>drift</span><span><i class="bg-pull"></i>pull</span></span>
         </div>
         <svg id="map" viewBox="0 0 760 534"></svg>
+        <div class="row" id="reading-row" style="margin-top:var(--s2)" hidden>
+          <span class="v-tag">Chords</span>
+          <span class="seg" id="readings">
+            <button class="btn mini" type="button" data-reading="bars" title="One chord a bar, major or minor: coarse, and steady from one round to the next">One a bar</button>
+            <button class="btn mini" type="button" data-reading="eighths" title="Heard eighth note by eighth note, with sevenths: finer, and two chords may share a bar. More often right where a band plays the chords; less steady over a bass riff with little else">Eighth by eighth</button>
+          </span>
+          <span class="small muted" id="reading-note"></span>
+        </div>
         <details class="lens-help"><summary>How to read this map</summary><p class="small muted" id="lens-note"></p></details>
         <p class="small muted" id="rough" style="margin:var(--s2) 0 0" hidden></p>
       </div>
@@ -522,10 +532,10 @@ function paintPath() {
   const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
   const held = p.loop.map((bar, i) => {   // what this round's bars hold; the loop's own where the round has no such bar
     const at = p.bar - 1 + (round - 1) * p.size + i - p.skip, inside = at >= p.bar - 1 && at < p.bar - 1 + p.bars;
-    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours, unsure: H.bars[at].unsure } : { bar, yours: false, unsure: false };
+    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours, unsure: H.bars[at].unsure, implied: H.bars[at].implied } : { bar, yours: false, unsure: false, implied: false };
   });
   const shown = held.map(h => h.bar);
-  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : "") + (h.unsure ? " unsure" : ""))).join("");
+  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : "") + (h.unsure ? " unsure" : "") + (h.implied ? " implied" : ""))).join("");
   el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[L.barOf(p, round, +b.dataset.k)].time + 0.01, false); });
   const cur = el.querySelector(".playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -582,6 +592,14 @@ function paintTabs() {
   el.querySelectorAll("button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
   const now = of(H.tab) || of("easy"), others = Object.keys(TABS).filter(id => id !== H.tab).map(id => `${TABS[id][0].toLowerCase()}: ${of(id).moves}`).join(", ");
   $("effort").textContent = `In this song: ${said(now)}, ${now.skips} string skips, ${Math.round(100 * now.open / Math.max(1, now.notes))}% open strings (${others}). The score's tab follows.`;
+}
+async function setReading(reading) {
+  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, reading }) });
+  const data = await r.json();
+  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  H = data;
+  closeEdit();
+  paintAll();
 }
 async function setTab(tab) {
   const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, tab }) });
@@ -749,7 +767,7 @@ function paintEdit() {
   const bar = H.bars[E.bar - 1], part = H.parts.find(p => E.bar >= p.bar && E.bar < p.bar + p.bars);
   const say = list => list.map(c => L.flat(c.name)).join(" and ") || "no chord";
   $("edit-where").textContent = `Bar ${E.bar}${part ? " · part " + part.letter : ""}`;
-  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : `The tool heard ${say(bar.heard)}${bar.unsure ? ", and is not sure of it" : ""}.`;
+  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : bar.implied ? `No chord is heard in this bar: ${say(bar.holds)} is where the bass line is.` : `The tool heard ${say(bar.heard)}${bar.unsure ? ", and is not sure of it" : ""}.`;
   const offers = L.offers(bar.heard, H.places, H.home);
   $("edit-offers").innerHTML = offers.map((c, i) => {
     const n = named(c), on = E.pick && E.pick.root === c.root && E.pick.quality === c.quality;
@@ -854,11 +872,19 @@ function paintAll() {
   $("title").textContent = H.title + (H.artist ? " · " + H.artist : "");
   $("to-notes").href = "/song#" + encodeURIComponent(H.id);
   $("to-score").href = "/score#" + encodeURIComponent(H.id);
-  const doubted = H.bars.filter(b => b.unsure).length;
-  $("rough").hidden = H.fine && !doubted;
+  $("reading-row").hidden = H.readings.length < 2;
+  $("readings").querySelectorAll("button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.reading === H.reading); b.onclick = () => setReading(b.dataset.reading); });
+  $("reading-note").textContent = H.reading === "bars" ? "The tool also heard this song's chords eighth by eighth: try that reading." : "Two readings of the same song: keep the one that sounds right to you.";
+  const doubted = H.bars.filter(b => b.unsure).length, bare = H.bars.filter(b => b.implied).length;
+  $("rough").hidden = false;
   $("rough").textContent = H.fine
-    ? `A ? marks a chord the tool is unsure of: ${doubted} of this song's ${H.bars.length} bars have one. Such a chord is right about half the time. "Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`
-    : "For this song the tool has one chord a bar, major or minor, as it heard chords before: its separated tracks are not kept any more. Add the song again to have its chords heard anew.";
+    ? [doubted ? `A ? marks a chord the tool is unsure of: ${doubted} of this song's ${H.bars.length} bars have one, and such a chord is right about half the time.` : "",
+       bare ? `In ${bare} bars no chord is heard, only bass and drums: the chord there, in slanted letters, is the one the key has on the note the bass plays.` : "",
+       `"Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`].filter(Boolean).join(" ")
+    : H.readings.length > 1
+      ? [bare ? `In ${bare} bars no chord is heard: the chord there, in slanted letters, is the one the key has on the note the bass plays.` : "",
+         `One chord a bar, major or minor. "Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`].filter(Boolean).join(" ")
+      : "For this song the tool has one chord a bar, major or minor: its separated tracks are not kept any more, so its chords cannot be heard eighth by eighth. Adding the song again hears them.";
   paintShort(); paintHomes(); paintTabs(); paintStrip(); paintLoops(); paintProfile(); paintBass();
   tick(true);
   document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");

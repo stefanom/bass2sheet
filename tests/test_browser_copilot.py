@@ -534,6 +534,20 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     page.click("#tabs [data-tab='easy']")
     page.wait_for_function("H.tab === 'easy'")
 
+    # the two readings of the chords: heard eighth by eighth, or one a bar; the page shows the one picked
+    assert (
+        page.is_visible("#reading-row")
+        and page.get_attribute("#readings [data-reading='eighths']", "aria-pressed") == "true"
+    )
+    page.click("#readings [data-reading='bars']")
+    page.wait_for_function("H.reading === 'bars'")
+    assert page.get_attribute("#readings [data-reading='bars']", "aria-pressed") == "true"
+    assert (
+        copilot_harmony.reading(os.path.join(site.workdir, song), page.evaluate("({harmony: {chords: [1]}})")) == "bars"
+    )
+    page.click("#readings [data-reading='eighths']")
+    page.wait_for_function("H.reading === 'eighths'")
+
     # home: the key with the same notes; the names follow, and the choice is kept
     before = page.evaluate("[H.home.name, H.chords[S.chord].numeral]")
     page.locator("#homes button[aria-pressed='false']").first.click()
