@@ -37,25 +37,45 @@ async def typed(f, text, each=0.045):
         await f.pause(each)
 
 
+async def again(kept, began):
+    """A run of the command that was kept: what it printed, a line at a time at the moment it printed it, then its
+    exit code. For filming the scene again without running the command again (make.py --replay)."""
+    for at, line in kept["lines"]:
+        await asyncio.sleep(max(0.0, began + at - time.time()))
+        yield line
+    await asyncio.sleep(max(0.0, began + kept["seconds"] - time.time()))
+    yield kept["code"] if kept.get("code") is not None else 0
+
+
 async def command(f, c):
     """One command: a song in, a sheet out, and what the quality gates say. The command runs while it is filmed;
-    the wait is shown sped up."""
-    name, out_dir = (
-        os.path.basename(c.song_path),
-        "sheet",
-    )  # named, so that the tool speaks of it without the path to it
-    shutil.rmtree(os.path.join(c.work, out_dir), ignore_errors=True)
+    the wait is shown sped up. What it printed and when is kept in the work folder (command.json), and with
+    --replay the scene is filmed from that instead: the same lines at the same moments, and the files that run
+    wrote. The command is typed as the README has it, with `uv run`; it is run with this checkout's code."""
+    name, out_dir = os.path.basename(c.song_path), "sheet"  # named, so that the tool speaks of it without a path
+    argv, kept_at = [name, "-o", out_dir], os.path.join(c.work, "command.json")
+    if c.args.replay:
+        wrote = all(os.path.exists(os.path.join(c.work, out_dir, n)) for n in ("report.html", "bass.pdf"))
+        if not os.path.exists(kept_at) or not wrote:
+            raise StoryError(f"--replay films the command from a run that was kept, and {c.work} holds none")
+        with open(kept_at) as kf:
+            kept = json.load(kf)
+        if kept["argv"] != argv:
+            raise StoryError(f"the run that was kept is of another command: {kept['argv']}")
+    else:
+        shutil.rmtree(os.path.join(c.work, out_dir), ignore_errors=True)
     await f.goto(c.stage + "/terminal.html")
     await f.js("prompt()")
     await f.roll()
     await f.pause(0.5)
     await f.say("c1", wait=False)
     await f.pause(0.7)
-    await typed(f, f'bass2sheet "{name}" -o {out_dir}')
+    await typed(f, f'uv run bass2sheet "{name}" -o {out_dir}')
     await f.pause(0.4)
     await f.js("enter()")
-    run = c.run("cli", [name, "-o", out_dir], cwd=c.work)
-    said, code, hurried = [], None, False
+    began = time.time()
+    run = again(kept, began) if c.args.replay else c.run("cli", argv, cwd=c.work)
+    said, at, code, hurried = [], [], None, False
 
     async def hurry_when_said():  # the first seconds of the run at their own pace, while the line is finished
         nonlocal hurried
@@ -70,7 +90,9 @@ async def command(f, c):
             code = line
         else:
             said.append(line)
+            at.append(round(time.time() - began, 2))
             await f.js("t => print(t)", line)
+    took = round(time.time() - began, 2)
     await waiting
     f.hurry(False, seconds=6.5)
     verdict = next(
@@ -88,6 +110,14 @@ async def command(f, c):
         raise StoryError(
             f"the narration says {want['verdict']} and {want['marked']} bars marked; the tool now says: {verdict.group(0)})"
         )
+    if not c.args.replay:  # kept, so that the scene can be filmed again without the two minutes of the run
+        when = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(began))
+        with open(kept_at, "w") as kf:
+            json.dump(
+                dict(argv=argv, when=when, seconds=took, code=code, lines=[list(x) for x in zip(at, said)]),
+                kf,
+                indent=1,
+            )
     await f.pause(0.8)
     await f.js("prompt()")
     await typed(f, f"ls {out_dir}")
@@ -580,7 +610,7 @@ async def tests(f, c):
     f.look((max(0, x - 50), max(0, y - 22), 900), seconds=0.9)  # the table, and room beside it for the command
     await f.move(*(await f.spot("#summary table", where=(0.85, 0.2))), seconds=0.9)
     await f.said(0.4)
-    f.note("bass2sheet-copilot reference SONG transcription.mid", right=True)
+    f.note("uv run bass2sheet-copilot reference SONG transcription.mid", right=True)
     await f.say("t2")
     f.note(None)
     await f.pause(0.3)
@@ -624,7 +654,7 @@ async def ending(f, c):
     await f.roll()
     await f.say("e1", wait=False)
     await f.pause(0.5)
-    await typed(f, "bass2sheet-copilot report --dir scores")
+    await typed(f, "uv run bass2sheet-copilot report --dir scores")
     await f.pause(0.3)
     await f.js("enter()")
     said = []
@@ -646,7 +676,7 @@ async def ending(f, c):
             heading="Try it",
             steps=[
                 ["./bootstrap", "sets everything up, once"],
-                ["bass2sheet-copilot serve", "then open the page it names"],
+                ["uv run bass2sheet-copilot serve --dir scores", "then open the page it names"],
             ],
             boxes=[
                 dict(heading="The music", lines=credit),
