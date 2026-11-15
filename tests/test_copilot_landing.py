@@ -436,6 +436,32 @@ def test_a_link_that_cannot_be_fetched_says_why(served, tmp_path, monkeypatch):
     assert list(copilot.load_songs(workdir)) == ["mix"]
 
 
+def test_a_linked_song_that_cannot_be_prepared_is_tried_again_without_being_fetched_twice(
+    served, tmp_path, monkeypatch
+):
+    url, workdir, _ = served
+    silent = str(tmp_path / "silent.wav")
+    with open(silent, "wb") as f:
+        f.write(_wav(np.zeros((12 * SR, 2), np.float32)))
+    log = _downloader(tmp_path, monkeypatch, silent)
+    assert _post(url + "/api/link", dict(url="https://youtu.be/dQw4w9WgXcQ"))[0] == 200
+    job, _ = _settled(url, "link-1")
+    assert (job["state"], job["error"], job["id"]) == ("failed", "the audio is silent", "stand-in-linked-song")
+    assert [s["state"] for s in job["steps"]][:3] == ["done", "failed", "waiting"]  # fetched; it is the song that fails
+    kept = os.path.join(workdir, "uploads", "Stand In - Linked Song (Official Video) [dQw4w9WgXcQ].wav")
+    assert os.path.exists(kept) and len(open(log).read().splitlines()) == 1
+
+    assert _post(url + "/api/adding", dict(id="link-1", do="again"))[0] == 200
+    job, _ = _settled(url, "link-1")
+    assert (job["state"], job["error"]) == ("failed", "the audio is silent")
+    fetching = job["steps"][0]
+    assert (fetching["id"], fetching["state"], fetching["seconds"]) == ("fetching", "done", 0)  # it was there already
+    assert len(open(log).read().splitlines()) == 1  # the link was asked for once, not twice
+    assert _post(url + "/api/adding", dict(id="link-1", do="remove"))[1]["jobs"] == []
+    _until(lambda: not os.path.exists(kept))  # given up: what was fetched goes too
+    assert os.listdir(os.path.join(workdir, "uploads")) == [] and list(copilot.load_songs(workdir)) == ["mix"]
+
+
 def _slow_downloader(tmp_path, monkeypatch, audio):
     """A program in yt-dlp's place that can be made to wait: a link with `wait` in it is fetched only once the
     file this returns exists, one with `slow` never, and one with `slides` comes as a file that is not audio."""
