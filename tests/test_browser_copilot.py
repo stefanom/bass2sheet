@@ -520,9 +520,7 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")  # with a flat sign
     assert copilot_harmony.read_home(os.path.join(site.workdir, song)) is not None
     page.reload()
-    page.wait_for_function(
-        "H !== null && document.querySelectorAll('#map .st').length > 10"
-    )
+    page.wait_for_function("H !== null && document.querySelectorAll('#map .st').length > 10")
     assert page.evaluate("H.home.name") == after[0]
     assert page.locator("#profile circle").count() == page.evaluate("H.chords.length")
     assert page.locator("#roles .role").count() == 5 and "on their root" in page.inner_text("#bass-note")

@@ -244,6 +244,14 @@ def test_a_song_is_cut_into_the_loops_it_goes_round():
     assert _shape(parts(list("AXCDABCDABCDABCD"))) == [(0, 16, "A", "ABCD")]
     assert parts([]) == [] and _shape(parts(list("AB"))) == [(0, 2, "A", "AB")]
     assert _shape(parts(list("AAB"))) == [(0, 3, "A", "AAB")]  # a chord held for two bars is not a loop yet
+    # a loop that comes back begun part of the way round is the same part, and says how far round it begins
+    found = parts(list("ABCDABCDABCD" + "xyzD" + "ABCDABCDABCD"))
+    assert _shape(found) == [(0, 12, "A", "ABCD"), (12, 3, "B", "xyz"), (15, 13, "A", "ABCD")]
+    assert [p["skip"] for p in found] == [0, 0, 3]  # it comes back in on the loop's last bar
+    found = parts(list("ABCDABCDABCDxyCDABCDABCDAB"))
+    assert _shape(found) == [(0, 12, "A", "ABCD"), (12, 2, "B", "xy"), (14, 12, "A", "ABCD")]
+    assert [p["skip"] for p in found] == [0, 0, 2]
+    assert [p["skip"] for p in parts(list("EEEEEEEEqEEEEEEEE"))] == [0, 0, 0]  # one chord held has no way round
 
 
 def test_a_bass_note_is_named_as_a_step_of_its_chord():

@@ -56,6 +56,11 @@ same(L.steps([], t => t, v => v), "");
 const bars = Array.from({ length: 12 }, (_, k) => ({ bar: k + 1, time: 2 * k }));
 const part = { bar: 3, bars: 8, size: 4 };
 same([L.round(part, bars, 4), L.round(part, bars, 5.9), L.round(part, bars, 11.5), L.round(part, bars, 12), L.round(part, bars, 19.9)], [[1, 0, 2], [1, 0, 2], [1, 3, 5], [2, 0, 6], [2, 3, 9]]);
+// a part that begins three bars into its loop of four: its first bar is the loop's last
+const late = { bar: 3, bars: 6, size: 4, skip: 3 };
+same([L.round(late, bars, 4), L.round(late, bars, 6), L.round(late, bars, 13.9), L.round(late, bars, 14)], [[1, 3, 2], [2, 0, 3], [2, 3, 6], [3, 0, 7]]);
+// the bar of the song where a part plays a bar of its loop, kept inside the part
+same([L.barOf(part, 1, 0), L.barOf(part, 2, 1), L.barOf(late, 2, 0), L.barOf(late, 1, 3), L.barOf(late, 1, 0), L.barOf(late, 3, 3)], [2, 7, 3, 2, 2, 7]);
 same(L.spans([{ bar: 1, bars: 24 }, { bar: 97, bars: 24 }]), "bars 1–24, 97–120");
 
 // a loop said short: each chord once; "two bars each" when every chord lasts the same

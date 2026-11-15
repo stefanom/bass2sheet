@@ -323,11 +323,12 @@ const Harmony = {
     const th = fret % 10 === 1 && fret !== 11 ? "st" : fret % 10 === 2 && fret !== 12 ? "nd" : fret % 10 === 3 && fret !== 13 ? "rd" : "th";
     return `the ${fret}${th} fret of the ${Harmony.STRING_NAMES[string]} string`;
   },
-  // which round of a part time t falls in, and which bar of the loop: [round from 1, bar of the loop from 0]
+  // which round of a part time t falls in, and which bar of the loop: [round from 1, bar of the loop from 0, the
+  // bar of the song from 0]
   round(part, bars, t) {
     let bar = part.bar - 1;
     while (bar + 1 < part.bar - 1 + part.bars && bars[bar + 1].time <= t) bar++;
-    const k = bar - (part.bar - 1);
+    const k = bar - (part.bar - 1) + (part.skip || 0);   // a part may begin part of the way round its loop
     return [Math.floor(k / part.size) + 1, k % part.size, bar];
   },
   // a loop said short: each chord once with how many bars it lasts, "i – ♭VII – ♭VI – V", and that count when
@@ -340,6 +341,11 @@ const Harmony = {
     }
     const each = runs.every(r => r.bars === runs[0].bars) ? runs[0].bars : 0;
     return { runs, each };
+  },
+  // the bar of the song (from 0) where a part plays bar k of its loop in a round, kept inside the part
+  barOf(part, round, k) {
+    const bar = part.bar - 1 + (round - 1) * part.size + k - (part.skip || 0);
+    return Math.max(part.bar - 1, Math.min(part.bar - 2 + part.bars, bar));
   },
   // "bars 1–24, 97–120"
   spans(parts) {
@@ -392,9 +398,9 @@ const again = (loop, k) => (k > 0 && JSON.stringify(loop[k]) === JSON.stringify(
 function paintPath() {
   const p = H.parts[S.part], el = $("path");
   if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; $("where").innerHTML = "&nbsp;"; return; }
-  const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil(p.bars / p.size);
+  const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
   el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + p.loop.map((bar, i) => chip(bar, null, i, again(p.loop, i) + (i === k ? " playing" : ""))).join("");
-  el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[p.bar - 1 + (round - 1) * p.size + +b.dataset.k].time + 0.01, false); });
+  el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[L.barOf(p, round, +b.dataset.k)].time + 0.01, false); });
   const cur = el.querySelector(".playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
   $("where").textContent = `Part ${p.letter} · ${rounds > 1 ? `round ${round} of ${rounds} · ` : ""}bar ${S.bar + 1}`;
@@ -502,7 +508,7 @@ function paintLoops() {
     b.onclick = () => { const p = by[b.dataset.play].find(q => q.start > au.currentTime) || by[b.dataset.play][0]; seek(p.start + 0.01, true); };
   });
   $("loops").querySelectorAll(".verb").forEach(v => v.querySelectorAll(".chip").forEach(b => {
-    b.onclick = () => { const p = by[v.dataset.letter][0]; seek(H.bars[p.bar - 1 + +b.dataset.k].time + 0.01, true); };
+    b.onclick = () => { const p = by[v.dataset.letter][0]; seek(H.bars[L.barOf(p, 1, +b.dataset.k)].time + 0.01, true); };
   }));
   const loops = H.loops.filter(l => l.size < l.bars), inLoops = loops.reduce((n, l) => n + l.bars, 0);
   $("parts-note").textContent = H.bars.length

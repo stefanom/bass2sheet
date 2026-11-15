@@ -345,49 +345,46 @@ def _agreed(labels, i, n, size):
     return loop, sum(labels[i + j] != loop[j % size] for j in range(n))
 
 
-def _loop_at(labels, i):
-    """The loop that starts at bar i, if one does: (how good it is, its bars, the bars of one round). A loop goes
-    round at least twice and lasts four bars or more; a bar that differs from what most rounds have costs three."""
-    best = None
-    for size in LOOPS:
-        n = _round(labels, i, size)
-        if n >= max(2 * size, 4):
-            good = n - 3 * _agreed(labels, i, n, size)[1] - 0.01 * size  # of two that cover the same, the shorter
-            if best is None or good > best[0]:
-                best = (good, n, size)
-    return best
-
-
 def parts(labels):
     """A song as parts, from what each bar holds (`labels`, anything that can be compared): a part is a loop of
-    a few bars going round at least twice, or a passage that does not repeat. [dict(first, bars, loop, letter)]:
-    `first` counts bars from 0; `loop` is what one round holds, bar by bar (what most rounds have there); parts
-    with the same loop have the same letter."""
+    a few bars going round at least twice, or a passage that does not repeat. [dict(first, bars, loop, skip,
+    letter)]: `first` counts bars from 0; `loop` is what one round holds, bar by bar (what most rounds have
+    there); parts with the same loop have the same letter, and one that begins part of the way round it says how
+    many bars in (`skip`).
+
+    Of all the ways to cut the song, the one is taken that puts the most bars into loops: a bar in a loop counts
+    one, a bar of a loop that differs from what most rounds have there costs three, a bar of a passage costs
+    one, and every loop costs a little, the longer the more, so that the song is not cut finer than it need be
+    and four bars twice are not called a loop of eight."""
+    n = len(labels)
+    best, cut = [0.0] * (n + 1), [None] * (n + 1)  # from bar i on: the best that can be had, and how it begins
+    for i in range(n - 1, -1, -1):
+        best[i], cut[i] = best[i + 1] - 1, (1, 0)  # a bar of a passage
+        for size in LOOPS:
+            bars = _round(labels, i, size)
+            if bars >= max(2 * size, 4):  # a loop goes round at least twice and lasts four bars or more
+                good = bars - 3 * _agreed(labels, i, bars, size)[1] - 0.5 - 0.01 * size + best[i + bars]
+                if good > best[i]:
+                    best[i], cut[i] = good, (bars, size)
     out, i, letters = [], 0, {}
-
-    def passage(n):
-        if out and out[-1]["size"] == 0:
-            out[-1]["bars"] += n
+    while i < n:
+        bars, size = cut[i]
+        if size == 0 and out and out[-1]["size"] == 0:
+            out[-1]["bars"] += 1
         else:
-            out.append(dict(first=i, bars=n, size=0))
-
-    while i < len(labels):
-        # a loop may start a few bars on: the bars before it are then a passage, and each of them costs one
-        ahead = [(skip, _loop_at(labels, i + skip)) for skip in range(9) if i + skip < len(labels)]
-        ahead = [(loop[0] - skip, -skip, loop) for skip, loop in ahead if loop]
-        if not ahead:
-            passage(1)
-            i += 1
-            continue
-        _, skip, (_, n, size) = max(ahead)
-        if skip:
-            passage(-skip)
-            i -= skip
-        out.append(dict(first=i, bars=n, size=size))
-        i += n
+            out.append(dict(first=i, bars=bars, size=size))
+        i += bars
+    known = []  # the loops so far
     for part in out:
-        loop = _agreed(labels, part["first"], part["bars"], part.pop("size") or part["bars"])[0]
-        part.update(loop=loop, letter=repeats.letter(letters.setdefault(tuple(loop), len(letters))))
+        size = part.pop("size")
+        loop, skip = tuple(_agreed(labels, part["first"], part["bars"], size or part["bars"])[0]), 0
+        if size and loop not in known:  # an earlier loop, begun part of the way round, is that loop
+            turned = [(other, s) for other in known for s in range(1, size) if other[s:] + other[:s] == loop]
+            if turned:
+                loop, skip = turned[0]
+            else:
+                known.append(loop)
+        part.update(loop=list(loop), skip=skip, letter=repeats.letter(letters.setdefault(loop, len(letters))))
     return out
 
 
@@ -495,7 +492,7 @@ def _loops(song_parts, bass, n_bars):
         for k in range(part["bars"]):
             bar = part["bar"] - 1 + k
             if bar < n_bars:
-                loop["lines"][k % part["size"]][tuple(in_bar[bar])] += 1
+                loop["lines"][(k + part["skip"]) % part["size"]][tuple(in_bar[bar])] += 1
     for loop in loops.values():
         lines = []
         for seen in loop.pop("lines"):
@@ -566,6 +563,7 @@ def view(desk):
             bar=part["first"] + 1,
             bars=part["bars"],
             size=len(part["loop"]),
+            skip=part["skip"],
             start=round(max(0.0, bars[part["first"]]), 3),
             end=round(bar_ends[part["first"] + part["bars"] - 1], 3),
             loop=[[said(*chord) for chord in bar] for bar in part["loop"]],
