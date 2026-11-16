@@ -158,10 +158,12 @@ def test_tab_staff_carries_string_and_fret():
         assert 1 <= string <= 4 and 0 <= fret <= score.MAX_FRET
 
 
-def test_the_sheet_has_a_symbol_for_every_chord_the_finder_can_give():
+def test_the_sheet_has_a_symbol_for_every_kind_of_chord():
     from bass2sheet import harmony
 
-    assert set(score.KINDS) == set(harmony.QUALITIES)
+    # the kinds the finder can give, and the others a person may write
+    assert set(score.KINDS) == set(harmony.TONES) > set(harmony.QUALITIES)
+    assert len(set(score.KINDS.values())) == len(score.KINDS)
 
 
 def test_find_mscore_rejects_a_missing_explicit_path(monkeypatch):

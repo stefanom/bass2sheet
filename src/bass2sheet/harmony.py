@@ -19,7 +19,22 @@ from .common import SR, spelling
 # The vocabulary. Every chord found is one of these on one of the twelve roots, named as a chord symbol ends:
 # C, Cm, C7, Cmaj7, Cm7.
 QUALITIES = ("", "m", "7", "maj7", "m7")
-TONES = {"": (0, 4, 7), "m": (0, 3, 7), "7": (0, 4, 7, 10), "maj7": (0, 4, 7, 11), "m7": (0, 3, 7, 10)}
+# The notes of a chord, in semitones above its root, by its kind: the five the finder tells apart (QUALITIES),
+# then the kinds a person may write.
+TONES = {
+    "": (0, 4, 7),
+    "m": (0, 3, 7),
+    "7": (0, 4, 7, 10),
+    "maj7": (0, 4, 7, 11),
+    "m7": (0, 3, 7, 10),
+    "sus4": (0, 5, 7),
+    "6": (0, 4, 7, 9),
+    "m6": (0, 3, 7, 9),
+    "dim": (0, 3, 6),
+    "m7b5": (0, 3, 6, 10),
+    "dim7": (0, 3, 6, 9),
+    "aug": (0, 4, 8),
+}
 TRIAD = {"": "", "m": "m", "7": "", "maj7": "", "m7": "m"}  # the triad under each
 
 STEP = 2  # sixteenths in a frame: chords are looked for eighth by eighth

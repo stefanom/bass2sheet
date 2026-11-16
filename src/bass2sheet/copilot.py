@@ -1108,13 +1108,22 @@ def hear_harmony(workdir, song_id, cache_dir=None):
     return machine["harmony"]
 
 
-def sheet_chords(folder, machine):
-    """What a song's score writes over its bars (harmony.for_sheet), in the reading of its chords that its
-    harmony page shows (copilot_harmony.reading)."""
+def sheet_chords(folder, machine, notes):
+    """What a song's score writes over its bars: the chords the person wrote on its harmony page, and nothing
+    where they wrote none (copilot_harmony.for_sheet; `notes` are the song's notes, which say where its parts
+    end). The tool's own guesses at the chords are not printed."""
     from . import copilot_harmony
 
-    finer = copilot_harmony.reading(folder, machine) == "eighths"
-    return harmony.for_sheet(machine if finer else dict(machine, harmony=None))
+    return copilot_harmony.for_sheet(folder, machine, notes)
+
+
+def sheet_key(folder, machine):
+    """(name, root, major) of the key a song's score is written in: the home the person chose on its harmony
+    page, else the tool's first guess (copilot_harmony.home_of)."""
+    from . import copilot_harmony
+
+    root, major = copilot_harmony.home_of(folder, machine)
+    return copilot_harmony.key_name((root, major)), root, major
 
 
 TAB = "easy"  # how a song is fingered unless the person chose otherwise for it (score.TAB_STYLES)
@@ -1161,8 +1170,8 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     )
     xml = score.musicxml(
         notes,
-        sheet_chords(desk.folder, m),
-        tuple(m["key"]),
+        sheet_chords(desk.folder, m, desk.notes),
+        sheet_key(desk.folder, m),
         m["tempo"],
         float(grid[m["origin"]]),
         desk.song.get("title", song_id),
@@ -1172,6 +1181,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
         tab_style=tab or tab_style(desk.folder),
         bar_times=bar_times(grid, m["origin"]),
         subtitle=subtitle,
+        chord_note="",  # the chords are the person's own
     )
     files = dict(musicxml=os.path.join(out, "bass.musicxml"), midi=os.path.join(out, "bass_as_played.mid"))
     atomic_write_text(files["musicxml"], xml)

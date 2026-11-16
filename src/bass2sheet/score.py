@@ -11,7 +11,20 @@ import numpy as np
 from .common import FLATS, SHARPS, log
 from .harmony import TONES, for_sheet
 
-KINDS = {"": "major", "m": "minor", "7": "dominant", "maj7": "major-seventh", "m7": "minor-seventh"}  # MusicXML's
+KINDS = {  # a chord's kind (harmony.TONES) as MusicXML names it
+    "": "major",
+    "m": "minor",
+    "7": "dominant",
+    "maj7": "major-seventh",
+    "m7": "minor-seventh",
+    "sus4": "suspended-fourth",
+    "6": "major-sixth",
+    "m6": "minor-sixth",
+    "dim": "diminished",
+    "m7b5": "half-diminished",
+    "dim7": "diminished-seventh",
+    "aug": "augmented",
+}
 STRINGS = [28, 33, 38, 43]  # E1 A1 D2 G2, sounding MIDI
 MAX_FRET = 20
 TYPES = {
@@ -363,11 +376,13 @@ def musicxml(
     bars=None,
     bar_times=None,
     subtitle=None,
+    chord_note="Chord symbols approximate",
 ):
     """MusicXML text. `key` is (name, root, is_major); `check_bars` maps bar -> reasons (marked "check").
     `chords` is what harmony.for_sheet made of the song's chords (a symbol on beat 1 of a bar and, where the
     chord changes in the bar, one on beat 3), or the list of one triad per bar that older data has.
-    `subtitle` replaces the line under the title that says the bass is a machine transcription.
+    `subtitle` replaces the line under the title that says the bass is a machine transcription; `chord_note` is
+    what the foot of the page says of the chord symbols, where there are any.
     Lines hold `bars_per_line` bars counted from `phrase_start` (default: the first bar with notes).
 
     `bars=(first, last)` writes only those bars as one line with no title: a snippet of the same score, with the
@@ -548,7 +563,7 @@ def musicxml(
         filter(
             None,
             [
-                "Chord symbols approximate" if chords else "",
+                chord_note if chords else "",
                 "(notes) uncertain" if flagged else "",
                 "red 'check': verify by ear (see report)" if check_bars else "",
                 "times: where each line starts in the recording",

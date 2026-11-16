@@ -1,10 +1,15 @@
-"""A song's harmony, for the copilot's harmony page: the chords in time, named against a home key, the job each
-does, the few loops the song is made of, and what the bass plays under each chord.
+"""A song's harmony, for the copilot's harmony page: the parts its bass line goes round, what the bass plays in
+them, and the chords the person writes over it, named against a home key with the job each does.
 
-The page is for understanding a song before playing it, and for remembering it. So everything here is said
-against a home: the note the song comes back to. The tool finds a key; the person may pick another (a song in A
-minor and one in C major use the same notes, and which is home is heard, not counted). Their choice is kept
-beside the song, in harmony.json.
+The page is for understanding a song before playing it, and for remembering it. The tool writes no chord: a
+bass player needs the notes and how the song is built, and the tool's guesses at the chords are wrong too often
+to stand as the song's. The person says where a chord starts (a mark on a beat) and what it is; the tool cuts the
+song into parts from its bass line, names each bass note as a step of the key, and offers a few chords to try on
+a beat (`suggest`), ranked by the bass notes, the key, what it hears itself and what the person put in the other
+rounds. Their chords, their home and their fingering are kept beside the song, in harmony.json.
+
+Everything is said against a home: the note the song comes back to. The tool guesses a key; the person may pick
+another (a song in A minor and one in C major use the same notes, and which is home is heard, not counted).
 
 The map of the page is a map of jobs, from functional harmony: a chord rests (home), drifts (away) or pulls
 (tension). Where a chord sits says three things: its job (the region), how far outside the key it is (the row),
@@ -13,6 +18,7 @@ and how bright it is (left to right, on the line of fifths). The rules are rules
 """
 
 import collections
+import functools
 import json
 import math
 import os
@@ -82,25 +88,10 @@ def role(pitch, root):
 
 # ---- the map: a chord's job, how far outside the key it is, and how bright it is
 
-# The notes of a chord, in semitones above its root.
-TONES = {
-    "": (0, 4, 7),
-    "m": (0, 3, 7),
-    "dim": (0, 3, 6),
-    "aug": (0, 4, 8),
-    "sus4": (0, 5, 7),
-    "6": (0, 4, 7, 9),
-    "m6": (0, 3, 7, 9),
-    "7": (0, 4, 7, 10),
-    "maj7": (0, 4, 7, 11),
-    "m7": (0, 3, 7, 10),
-    "m7b5": (0, 3, 6, 10),
-    "dim7": (0, 3, 6, 9),
-}
+TONES = harmony.TONES  # the notes of a chord, in semitones above its root, by its kind
 MAJOR = frozenset((0, 2, 4, 5, 7, 9, 11))
 MINOR = frozenset((0, 2, 3, 5, 7, 8, 10, 11))  # the natural minor scale, and the raised seventh its V chord needs
 JOBS = ("rest", "drift", "pull")
-PLAIN = dict(maj="", dom="", min="m", dim="dim")  # the triad under a chord, by its family (kind)
 # The job of a plain chord by its step above home, where no rule below says otherwise.
 BY_STEP = ("rest", "drift", "drift", "rest", "rest", "drift", "pull", "pull", "drift", "rest", "drift", "pull")
 # A root's place on the line of fifths from home, by its step above home; and, for a diminished chord that passes
@@ -339,53 +330,85 @@ def _round(labels, i, size):
         return n
 
 
-def _agreed(labels, i, n, size):
-    """(the loop, the bars that differ from it) of n bars from bar i on that go round `size` bars: the loop is
-    what most rounds have in each bar."""
-    loop = [collections.Counter(labels[i + k : i + n : size]).most_common(1)[0][0] for k in range(size)]
-    return loop, sum(labels[i + j] != loop[j % size] for j in range(n))
+def _agreed(labels, i, n, size, skip=0):
+    """(the loop, the bars that differ from it) of n bars from bar i on that go round `size` bars, the first of
+    them being bar `skip` of the loop: the loop is what most rounds have in each of its bars."""
+    seen = [collections.Counter() for _ in range(size)]
+    for j in range(n):
+        seen[(j + skip) % size][labels[i + j]] += 1
+    loop = [c.most_common(1)[0][0] if c else None for c in seen]
+    return loop, sum(labels[i + j] != loop[(j + skip) % size] for j in range(n))
 
 
-def parts(labels):
-    """A song as parts, from what each bar holds (`labels`, anything that can be compared): a part is a loop of
-    a few bars going round at least twice, or a passage that does not repeat. [dict(first, bars, loop, skip,
-    letter)]: `first` counts bars from 0; `loop` is what one round holds, bar by bar (what most rounds have
-    there); parts with the same loop have the same letter, and one that begins part of the way round it says how
-    many bars in (`skip`).
+def parts(labels, home=None):
+    """A song as parts, from what each bar holds (`labels`, anything that can be compared and hashed): a part
+    is a loop of a few bars going round at least twice, or a passage that does not repeat. [dict(first, bars,
+    loop, skip, letter)]: `first` counts bars from 0; `loop` is what one round holds, bar by bar (what most
+    rounds have there); `skip` is the bar of the loop the part begins on, for a part that comes in part of the
+    way round; parts with the same loop have the same letter.
 
     Of all the ways to cut the song, the one is taken that puts the most bars into loops: a bar in a loop counts
     one, a bar of a loop that differs from what most rounds have there costs three, a bar of a passage costs
     one, and every loop costs a little, the longer the more, so that the song is not cut finer than it need be
-    and four bars twice are not called a loop of eight."""
+    and four bars twice are not called a loop of eight. A loop may be come into part of the way round (a bar
+    that leads in), as it may be left part of the way round. Where a loop could as well begin on one bar as on
+    another, whole rounds are taken before cut ones, and then a loop that begins on a bar that holds `home`,
+    when that is given: a phrase mostly starts at home."""
+    return [dict(part, loop=list(part["loop"])) for part in _parts(tuple(labels), home)]
+
+
+@functools.lru_cache(maxsize=16)
+def _parts(labels, home):
     n = len(labels)
+    whole = {}  # (bar, size) -> the bars that go round the loop that starts there
     best, cut = [0.0] * (n + 1), [None] * (n + 1)  # from bar i on: the best that can be had, and how it begins
     for i in range(n - 1, -1, -1):
-        best[i], cut[i] = best[i + 1] - 1, (1, 0)  # a bar of a passage
+        best[i], cut[i] = best[i + 1] - 1, (1, 0, 0)  # a bar of a passage
         for size in LOOPS:
-            bars = _round(labels, i, size)
-            if bars >= max(2 * size, 4):  # a loop goes round at least twice and lasts four bars or more
-                good = bars - 3 * _agreed(labels, i, bars, size)[1] - 0.5 - 0.01 * size + best[i + bars]
+            for lead in range(size):  # the bars before the first whole round: the end of a round
+                start = i + lead
+                if start + size > n:
+                    break
+                if lead and labels[i:start] != labels[start + size - lead : start + size]:
+                    continue
+                if (start, size) not in whole:
+                    whole[(start, size)] = _round(labels, start, size)
+                bars = whole[(start, size)]
+                if bars < max(2 * size, 4):  # a loop goes round at least twice and lasts four bars or more
+                    continue
+                skip = (size - lead) % size
+                good = lead + bars - 3 * _agreed(labels, i, lead + bars, size, skip)[1] - 0.5 - 0.01 * size
+                good -= 0.2 * ((lead > 0) + (bars % size > 0))  # whole rounds are likelier than cut ones
+                good += 0.3 * (home is not None and labels[start] == home) + best[i + lead + bars]
                 if good > best[i]:
-                    best[i], cut[i] = good, (bars, size)
+                    best[i], cut[i] = good, (lead + bars, size, skip)
     out, i, letters = [], 0, {}
     while i < n:
-        bars, size = cut[i]
+        bars, size, skip = cut[i]
         if size == 0 and out and out[-1]["size"] == 0:
             out[-1]["bars"] += 1
         else:
-            out.append(dict(first=i, bars=bars, size=size))
+            out.append(dict(first=i, bars=bars, size=size, skip=skip))
         i += bars
     known = []  # the loops so far
     for part in out:
-        size = part.pop("size")
-        loop, skip = tuple(_agreed(labels, part["first"], part["bars"], size or part["bars"])[0]), 0
-        if size and loop not in known:  # an earlier loop, begun part of the way round, is that loop
-            turned = [(other, s) for other in known for s in range(1, size) if other[s:] + other[:s] == loop]
-            if turned:
-                loop, skip = turned[0]
+        size, skip = part.pop("size"), part["skip"]
+        loop = tuple(_agreed(labels, part["first"], part["bars"], size or part["bars"], skip)[0])
+        if size and loop not in known:
+            # An earlier loop taken from another bar on is that loop; and so is one that differs from it in a
+            # single bar of four or more (a bar heard otherwise). The nearest first.
+            turned = [
+                (sum(a != b for a, b in zip(other[s:] + other[:s], loop)), s, other)
+                for other in known
+                if len(other) == size
+                for s in range(size)
+            ]
+            near = min(turned, default=None, key=lambda found: found[:2])
+            if near is not None and near[0] <= (1 if size >= 4 else 0):
+                loop, skip = near[2], (skip + near[1]) % size
             else:
                 known.append(loop)
-        part.update(loop=list(loop), skip=skip, letter=repeats.letter(letters.setdefault(loop, len(letters))))
+        part.update(loop=loop, skip=skip, letter=repeats.letter(letters.setdefault(loop, len(letters))))
     return out
 
 
@@ -404,95 +427,17 @@ def degree(pitch, root, base):
     return name + ("↑" if up > 12 else "↓" if up < 0 else "")
 
 
-READINGS = ("eighths", "bars")
+KEY_STEPS = ("1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7")
 
 
-def readings(machine):
-    """The readings a song has of its chords: `eighths`, heard eighth note by eighth note with sevenths
-    (harmony.find), and `bars`, one major or minor chord a bar. A song prepared before the tool heard chords
-    eighth by eighth has `bars` only, until its harmony is heard (copilot.hear_harmony)."""
-    return [which for which in READINGS if which == "bars" or (machine.get("harmony") or {}).get("chords")]
+def step(pitch, home):
+    """A bass note as a step of the key: 1 is home, 5 the fifth above it, b3 and b7 the flat third and seventh."""
+    return KEY_STEPS[(pitch - home[0]) % 12]
 
 
-def reading(folder, machine):
-    """Which reading of a song's chords its page shows: the one the person chose for it (harmony.json), else
-    the finer one the song has. On songs with a transcription to hold them against, the chords heard eighth by
-    eighth are right more often than the chord a bar, the author's own songs among them (docs/evaluation.md).
-    That a song was shown with its chord a bar before is no reason to keep it: nobody agreed to those chords."""
-    have = readings(machine)
-    chosen = (copilot.read_json(os.path.join(folder, "harmony.json")) or {}).get("reading")
-    return chosen if chosen in have else have[0]
+# ---- what the tool hears, which is used for two things only: its guess of the key, and ranking what it offers
 
-
-def set_reading(folder, which):
-    """Keep which reading of the song's chords the person wants (one of READINGS); None goes back to the one
-    the song gets by itself."""
-    if which is not None and which not in READINGS:
-        raise Bass2SheetError("a song's chords are read in one of these ways: " + ", ".join(READINGS))
-    path = os.path.join(folder, "harmony.json")
-    saved = copilot.read_json(path) or {}
-    if which is None:
-        saved.pop("reading", None)
-    else:
-        saved["reading"] = which
-    atomic_write_text(path, json.dumps(saved))
-
-
-def found_key(machine, which):
-    """(root, major) of the key a reading of the song is in: the one read from its chords heard eighth by
-    eighth, or the one the song was given with its chord a bar."""
-    if which == "eighths":
-        key = harmony.main_key(machine["harmony"], machine.get("notes") or ())
-        return int(key[1]) % 12, bool(key[2])
-    return int(machine["key"][1]) % 12, bool(machine["key"][2])
-
-
-def chords_of(machine, which=None):
-    """The tool's chords as stretches of time, in order: [dict(start, end, root, quality, score, over)], in the
-    reading `which` (see `readings`; by default the finer one the song has). `over` is the note the bass holds
-    under the chord when that is not its root (C over E), else None. Heard eighth by eighth, two chords may
-    share a bar, and where only bass and drums play there is none."""
-    grid, origin, length = machine["grid"], machine["origin"], machine["length"]
-    which = which or readings(machine)[0]
-    out = []
-    if which == "eighths":
-        for c in machine["harmony"]["chords"]:
-            start, end = max(0.0, c["start"]), min(c["end"], length)
-            if end - start > 0.05:
-                chord = dict(start=round(start, 3), end=round(end, 3), root=int(c["root"]), quality=c["quality"])
-                out.append(dict(chord, score=round(float(c["score"]), 3), over=c.get("bass")))
-        return out
-    for c in machine.get("chords") or []:
-        i = origin + 16 * (c["bar"] - 1)
-        if not 0 <= i < len(grid) or float(c.get("score", 1.0)) <= 0:
-            continue
-        end = grid[i + 16] if i + 16 < len(grid) else length
-        start = max(0.0, grid[i])
-        if end - start <= 0.05:
-            continue
-        chord = dict(start=round(start, 3), end=round(min(end, max(length, start)), 3), root=int(c["root"]))
-        out.append(dict(chord, quality=c.get("quality", ""), score=round(float(c.get("score", 1.0)), 3), over=None))
-    return out
-
-
-UNSURE = 0.6  # a chord the tool gives less than this is marked on the page: it is right about half the time
 _ASKED = set()  # the songs whose harmony was asked for and could not be had: not asked for at every look
-
-
-def keys_of(machine):
-    """The keys the tool hears the song in, in time order: [dict(start, end, root, major, score, other)], or
-    none for a song without its harmony. `other` is the key that explains that stretch next best."""
-    return [
-        dict(
-            start=round(k["start"], 3),
-            end=round(k["end"], 3),
-            root=int(k["root"]),
-            major=bool(k["major"]),
-            score=round(float(k["score"]), 3),
-            other=(int(k["other"]["root"]), bool(k["other"]["major"])),
-        )
-        for k in (machine.get("harmony") or {}).get("keys") or []
-    ]
 
 
 def with_harmony(desk):
@@ -505,6 +450,43 @@ def with_harmony(desk):
     return desk.machine
 
 
+def heard_chords(machine):
+    """The chords the tool hears in a song, as stretches of time: [dict(start, end, root, quality, score)].
+    Eighth by eighth where the song has its harmony (harmony.find), else the chord a bar it was given long ago.
+    Nobody sees these as the song's chords: they rank the chords the page offers (`suggest`)."""
+    found = (machine.get("harmony") or {}).get("chords")
+    if found:
+        return [
+            dict(start=c["start"], end=c["end"], root=int(c["root"]), quality=c["quality"], score=float(c["score"]))
+            for c in found
+        ]
+    grid, origin, out = machine["grid"], machine["origin"], []
+    for c in machine.get("chords") or []:
+        i = origin + 16 * (c["bar"] - 1)
+        if 0 <= i < len(grid) - 16 and float(c.get("score", 1.0)) > 0:
+            out.append(
+                dict(start=grid[i], end=grid[i + 16], root=int(c["root"]), quality=c.get("quality", ""), score=0.5)
+            )
+    return out
+
+
+def guessed_keys(machine):
+    """The keys the tool would call home, the likeliest first, as (root, major): the key it reads from the
+    chords it hears, the key with the same notes, the next best it found, and the key the song was first given."""
+    keys = (machine.get("harmony") or {}).get("keys") or []
+    out = []
+    if keys:
+        main = harmony.main_key(machine["harmony"], machine.get("notes") or ())
+        out.append((int(main[1]) % 12, bool(main[2])))
+        out.append(relative(out[0]))
+        out += [
+            (int(k["other"]["root"]) % 12, bool(k["other"]["major"])) for k in keys if (k["root"], k["major"]) == out[0]
+        ][:1]
+    given = (int(machine["key"][1]) % 12, bool(machine["key"][2]))
+    out += [given, relative(given)]
+    return list(dict.fromkeys(out))
+
+
 def read_home(folder):
     """The home the person chose for a song, as (root, major), or None."""
     saved = copilot.read_json(os.path.join(folder, "harmony.json")) or {}
@@ -513,7 +495,7 @@ def read_home(folder):
 
 
 def set_home(folder, home):
-    """Keep the person's choice of home, (root, major); None goes back to the key the tool found."""
+    """Keep the person's choice of home, (root, major); None goes back to the key the tool guesses."""
     path = os.path.join(folder, "harmony.json")
     saved = copilot.read_json(path) or {}
     if home is None:
@@ -526,109 +508,311 @@ def set_home(folder, home):
     atomic_write_text(path, json.dumps(saved))
 
 
-def read_fixes(folder):
-    """The chords the person put in place of the tool's, by bar (counted from 1): {bar: [(root, quality), ...]}.
-    One chord fills its bar; two share it half and half."""
+def home_of(folder, machine):
+    """(root, major) of a song's home: the one the person chose, else the tool's first guess."""
+    return read_home(folder) or guessed_keys(machine)[0]
+
+
+# ---- the person's chords: marks on beats
+
+NO_CHORD = "none"  # what a mark holds where the person says: no chord from here
+REMOVE = "remove"  # what a change says to take a mark away
+
+
+def read_marks(folder):
+    """The chord marks the person made in a song, in order: [dict(at, chord)]. `at` counts sixteenths from the
+    start of bar 1 and falls on a beat. `chord` is (root, quality); or None, where a change of chord is marked
+    and the chord is still to be chosen; or "none", where the person says there is no chord from here."""
     saved = copilot.read_json(os.path.join(folder, "harmony.json")) or {}
-    return {int(bar): [(int(r) % 12, str(q)) for r, q in held] for bar, held in (saved.get("chords") or {}).items()}
+    marks = []
+    for m in saved.get("marks") or []:
+        chord = m.get("chord")
+        marks.append(
+            dict(at=int(m["at"]), chord=(int(chord[0]) % 12, str(chord[1])) if isinstance(chord, list) else chord)
+        )
+    return sorted(marks, key=lambda m: m["at"])
 
 
-def set_chords(folder, bars, chord):
-    """Put a chord, (root, quality), in the place of what the tool heard in each of `bars` (counted from 1).
-    None takes the person's chord away again: the bar then has what the tool heard."""
-    if not (
-        isinstance(bars, list) and bars and all(isinstance(b, int) and not isinstance(b, bool) and b >= 1 for b in bars)
-    ):
-        raise Bass2SheetError("a chord is changed in one bar or more, counted from 1")
-    if chord is not None:
-        root, quality = chord
-        if not (isinstance(root, int) and not isinstance(root, bool) and 0 <= root < 12 and quality in TONES):
-            raise Bass2SheetError(
-                "a chord is one of the twelve notes with one of: " + ", ".join(q or "major" for q in TONES)
-            )
+def set_marks(folder, changes):
+    """Make, change or take away chord marks. `changes` is [dict(at, chord)]: `chord` as read_marks gives it
+    (a chord as [root, quality]), or "remove" to take the mark at `at` away."""
+    if not (isinstance(changes, list) and changes):
+        raise Bass2SheetError("no chord mark was given")
+    marks = {m["at"]: m["chord"] for m in read_marks(folder)}
+    for change in changes:
+        at, chord = (change.get("at"), change.get("chord")) if isinstance(change, dict) else (None, None)
+        if not (isinstance(at, int) and not isinstance(at, bool) and at >= 0 and at % 4 == 0):
+            raise Bass2SheetError("a chord starts on a beat of a bar")
+        if isinstance(chord, (list, tuple)):
+            ok = len(chord) == 2 and isinstance(chord[0], int) and not isinstance(chord[0], bool)
+            if not (ok and 0 <= chord[0] < 12 and chord[1] in TONES):
+                raise Bass2SheetError(
+                    "a chord is one of the twelve notes with one of: " + ", ".join(q or "major" for q in TONES)
+                )
+            marks[at] = (chord[0], chord[1])
+        elif chord == REMOVE:
+            marks.pop(at, None)
+        elif chord is None or chord == NO_CHORD:
+            marks[at] = chord
+        else:
+            raise Bass2SheetError("a mark holds a chord, no chord, or a chord still to choose")
     path = os.path.join(folder, "harmony.json")
     saved = copilot.read_json(path) or {}
-    fixed = saved.setdefault("chords", {})
-    for bar in bars:
-        if chord is None:
-            fixed.pop(str(bar), None)
-        else:
-            fixed[str(bar)] = [[chord[0], chord[1]]]
+    saved["marks"] = [dict(at=at, chord=list(c) if isinstance(c, tuple) else c) for at, c in sorted(marks.items())]
     atomic_write_text(path, json.dumps(saved))
 
 
-def with_fixes(machine, chords, fixes):
-    """The chords with the person's in place: in a bar the person fixed, their chord fills the bar and what the
-    tool heard there is cut away. Each chord says whose it is (`yours`)."""
-    grid, origin, length = machine["grid"], machine["origin"], machine["length"]
-    spans = []
-    for bar, held in sorted(fixes.items()):
-        i = origin + 16 * (bar - 1)
-        if 0 <= i < len(grid) and held:
-            t0, t1 = max(0.0, grid[i]), min(length, grid[i + 16] if i + 16 < len(grid) else length)
-            if t1 - t0 > 0.05:
-                spans.append((t0, t1, held))
+def stretches(machine, marks, part_ends):
+    """What the marks say, as stretches of the song in order: [dict(at, until, start, end, chord)]. A mark's
+    chord lasts until the next mark, or the end of the part it is in (`part_ends`: where each part ends, in
+    sixteenths from the start of bar 1), or the end of the song. Times are seconds; a mark beyond the end of the
+    song is left out."""
+    grid, origin = machine["grid"], machine["origin"]
+    total = len(grid) - 1 - origin
+    time = lambda g: float(grid[origin + g])  # noqa: E731
     out = []
-    for c in chords:
-        pieces = [(c["start"], c["end"])]
-        for t0, t1, _ in spans:
-            pieces = [(a, b) for lo, hi in pieces for a, b in ((lo, min(hi, t0)), (max(lo, t1), hi)) if b - a > 0.05]
-        out += [dict(c, start=round(a, 3), end=round(b, 3), yours=False) for a, b in pieces]
-    for t0, t1, held in spans:
-        each = (t1 - t0) / len(held)
-        for k, (root, quality) in enumerate(held):
-            mine = dict(start=round(t0 + k * each, 3), end=round(t0 + (k + 1) * each, 3), root=root, quality=quality)
-            out.append(dict(mine, score=1.0, over=None, yours=True))
-    return sorted(out, key=lambda c: c["start"])
+    for k, m in enumerate(marks):
+        if m["at"] >= total:
+            continue
+        nxt = [marks[k + 1]["at"]] if k + 1 < len(marks) else []
+        until = min([total] + nxt + [e for e in part_ends if e > m["at"]][:1])
+        end = min(time(until), max(machine["length"], time(m["at"])))
+        out.append(
+            dict(at=m["at"], until=until, start=round(max(0.0, time(m["at"])), 3), end=round(end, 3), chord=m["chord"])
+        )
+    return out
 
 
-# The chord a key has on each of its steps, for a bar in which only the bass says where the harmony is.
-OF_THE_KEY = {
-    True: {0: "", 2: "m", 4: "m", 5: "", 7: "", 9: "m", 11: "dim"},
-    False: {0: "m", 2: "dim", 3: "", 5: "m", 7: "m", 8: "", 10: ""},
-}
+def starts_on(notes, start, end):
+    """The note a stretch of the bass line starts on: the first to begin in its first eighth (a note may come in
+    a touch early), else a note held into it from before for a quarter of it or more. A note of the bar before
+    that rings on over the bar line is not it. None when there is neither."""
+    span = end - start
+    for n in notes:
+        if start - 0.08 <= n["start"] < start + min(0.125 * span, 0.3) and n["end"] > start + 0.02:
+            return n
+    for n in notes:
+        if n["start"] < start and n["end"] - start >= 0.25 * span:
+            return n
+    return None
 
 
-def by_the_bass(chords, notes, bars, bar_ends, home):
-    """The chords, with the bars in which no chord is heard or set given the one the bass line suggests: where
-    only bass and drums play, the harmony is where the bass is.
-
-    A bar is such a bar when chords fill less than a fifth of it. Its root is then the note the bass plays at
-    the start of the bar (the note it holds longest, when it comes in later), and the chord is the one the key
-    has on that note, a major chord on a note outside the key. It fills what is free of the bar. A bar without
-    a bass note is left empty. Every chord says whether it comes from the bass line (`implied`); one that does
-    has a score of one half.
-
-    Only empty bars are filled. Giving the bass line's chord to the bars whose chords the tool is unsure of
-    was measured too, and made the chords worse (docs/evaluation.md)."""
-    out = [dict(c, implied=False) for c in chords]
+def main_notes(notes, bars, bar_ends):
+    """The note the bass line stands on in each bar, as a pitch class, or None for a bar without bass: the note
+    it spends most of the bar on, where the note it starts the bar with counts for half a bar more. A line
+    comes back with other fills each round, and still stands on the same notes."""
+    out = []
     for t0, t1 in zip(bars, bar_ends):
-        inside = [(max(c["start"], t0), min(c["end"], t1)) for c in chords if min(c["end"], t1) > max(c["start"], t0)]
-        if sum(b - a for a, b in inside) > 0.2 * (t1 - t0):
-            continue
-        lo = max([t0] + [b for a, b in inside if a <= t0 + 0.02])  # after a chord that ends just inside the bar
-        hi = min([t1] + [a for a, b in inside if b >= t1 - 0.02])  # before one that comes in early
-        if hi - lo < 0.5 * (t1 - t0) or any(lo < a and b < hi for a, b in inside):
-            continue
-        held, first = collections.Counter(), None
+        held, first = collections.Counter(), starts_on(notes, t0, t1)
         for n in notes:
-            both = min(n["end"], hi) - max(n["start"], lo)
-            if both > 0:
-                held[n["pitch"] % 12] += both
-                if first is None and n["start"] < lo + 0.25 * (hi - lo):
-                    first = n["pitch"] % 12
-        if held:
-            root = first if first is not None else held.most_common(1)[0][0]
-            quality = OF_THE_KEY[home[1]].get((root - home[0]) % 12, "")
-            out.append(dict(start=round(lo, 3), end=round(hi, 3), root=root, quality=quality, score=0.5, over=None))
-            out[-1].update(yours=False, implied=True)
-    return sorted(out, key=lambda c: c["start"])
+            both = min(n["end"], t1) - max(n["start"], t0)
+            if both > 0.05:  # a note that comes in a hair before the next bar line is not of this bar
+                held[n["pitch"] % 12] += both / (t1 - t0)
+        if first is not None:
+            held[first["pitch"] % 12] += 0.5
+        out.append(max(held, key=lambda pc: (held[pc], -pc)) if held else None)
+    return out
+
+
+def song_parts(machine, notes, home):
+    """The song cut into parts by its bass line: by the note the line stands on in each bar (main_notes), never
+    by chords. See `parts`; a loop starts on the bar that stands on home (`home`, as (root, major)) where it
+    could start on several."""
+    grid, origin = machine["grid"], machine["origin"]
+    bars = [grid[i] for i in range(origin, len(grid), 16)]
+    bar_ends = bars[1:] + [max(machine["length"], bars[-1])] if bars else []
+    return parts(["-" if pc is None else pc for pc in main_notes(notes, bars, bar_ends)], home[0])
+
+
+def place_of(cut, at):
+    """Where a sixteenth is in the song's form: (the part it is in, the bar of the part's loop, the round), or
+    None beyond the last part."""
+    bar = at // 16
+    for part in cut:
+        if part["first"] <= bar < part["first"] + part["bars"]:
+            k = bar - part["first"] + part["skip"]
+            return part, k % len(part["loop"]), k // len(part["loop"])
+    return None
+
+
+def same_place(cut, at):
+    """The same beat of the same bar of the loop, in every other round of the parts with this part's letter:
+    the sixteenths, in order."""
+    here = place_of(cut, at)
+    if here is None:
+        return []
+    letter, pos, out = here[0]["letter"], here[1], []
+    for part in cut:
+        if part["letter"] == letter:
+            for k in range(part["bars"]):
+                there = 16 * (part["first"] + k) + at % 16
+                if (k + part["skip"]) % len(part["loop"]) == pos and there != at:
+                    out.append(there)
+    return out
+
+
+def sounding(spans, at):
+    """The chord the person has at a sixteenth, (root, quality), or None."""
+    for span in spans:
+        if span["at"] <= at < span["until"]:
+            return span["chord"] if isinstance(span["chord"], tuple) else None
+    return None
+
+
+def copy_round(desk, at):
+    """Write the chords of the round that holds sixteenth `at` into the other rounds of the parts with the same
+    letter, where a round has no mark of its own yet: a round the person wrote is never written over. Returns
+    how many rounds were filled."""
+    machine = desk.machine
+    notes = sorted(desk.notes, key=lambda n: n["start"])
+    cut, marks = song_parts(machine, notes, home_of(desk.folder, machine)), read_marks(desk.folder)
+    here = place_of(cut, at)
+    if here is None:
+        raise Bass2SheetError("there is no part of the song there")
+    part, size = here[0], len(here[0]["loop"])
+
+    def rounds(p):  # the rounds of a part as (first sixteenth, one past the last), cut to the part
+        first, last = 16 * p["first"], 16 * (p["first"] + p["bars"])
+        k = first - 16 * p["skip"]
+        while k < last:
+            yield max(k, first), min(k + 16 * size, last), k
+            k += 16 * size
+
+    mine = next(r for r in rounds(part) if r[0] <= at < r[1])
+    spans = stretches(machine, marks, [16 * (p["first"] + p["bars"]) for p in cut])
+    source = [(m["at"] - mine[2], m["chord"]) for m in marks if mine[0] <= m["at"] < mine[1]]
+    carried = sounding(spans, mine[0])  # a chord that comes into the round from before it starts the copy too
+    if carried and not any(offset == mine[0] - mine[2] for offset, _ in source):
+        source.insert(0, (mine[0] - mine[2], carried))
+    if not source:
+        raise Bass2SheetError("this round has no chords to copy yet")
+    changes, filled = [], 0
+    for p in cut:
+        if p["letter"] != part["letter"]:
+            continue
+        for first, last, zero in rounds(p):
+            if (first, last) == mine[:2] or any(first <= m["at"] < last for m in marks):
+                continue
+            new = [dict(at=zero + offset, chord=chord) for offset, chord in source if first <= zero + offset < last]
+            before = [chord for offset, chord in source if zero + offset < first]
+            if before and not any(c["at"] == first for c in new):  # a round come into part of the way: the chord
+                new.insert(0, dict(at=first, chord=before[-1]))  # that sounds there in the round copied starts it
+            changes += new
+            filled += bool(new)
+    if changes:
+        set_marks(
+            desk.folder,
+            [dict(c, chord=list(c["chord"]) if isinstance(c["chord"], tuple) else c["chord"]) for c in changes],
+        )
+    return filled
+
+
+# ---- chords to offer: the person writes a song's chords, and the tool says which are likely
+
+# What each thing a suggestion is ranked by counts for. Set by hand; how well the ranking does is measured in
+# docs/evaluation.md.
+OFFER = dict(
+    first=2.0,  # the bass plays the chord's root where the stretch starts
+    held=1.5,  # the share of the stretch the bass spends on the root
+    fifth=0.5,  # ... and on the chord's fifth
+    third=1.0,  # ... on its third, against the third of the other kind (major or minor)
+    key=0.5,  # how common the chord is in the key
+    heard=2.0,  # the share of the stretch in which the tool hears a chord on this root, by how sure it is
+    kind=0.5,  # ... and of this kind
+    picked=6.0,  # the person put this chord at the same place in another round
+)
+
+
+def suggest(notes, start, end, home, heard=(), picked=(), most=8, weights=None):
+    """The chords to offer for a stretch of a song, the likeliest first: [(root, quality)], major and minor
+    chords only. They are ranked by the bass notes in the stretch (`notes`: where the stretch starts the bass
+    is mostly on the root, and it spends its time on the root, the fifth and the third), by the key (`home`,
+    as (root, major): the chords a key is made of come first), by what the tool hears there (`heard`: chords
+    as chords_of gives them, each counting for the share of the stretch it fills and how sure the tool is), and
+    by what the person put at the same place in other rounds (`picked`: [(root, quality)])."""
+    w = dict(OFFER, **(weights or {}))
+    span = max(end - start, 1e-6)
+    on, first = np.zeros(12), starts_on(notes, start, end)
+    first = None if first is None else first["pitch"] % 12
+    for n in notes:
+        both = min(n["end"], end) - max(n["start"], start)
+        if both > 0:
+            on[n["pitch"] % 12] += both / span
+    if on.sum() > 0:
+        on = on / on.sum()
+    table = harmony.IN_MAJOR if home[1] else harmony.IN_MINOR
+    sure, kinds = np.zeros(12), collections.Counter()
+    for c in heard:
+        both = (min(c["end"], end) - max(c["start"], start)) / span
+        if both > 0:
+            sure[c["root"]] += both * c["score"]
+            kinds[(c["root"], "m" if minor_like(c["quality"]) else "")] += both * c["score"]
+    chosen = collections.Counter((int(root), "m" if minor_like(quality) else "") for root, quality in picked)
+    ranked = []
+    for root in range(12):
+        for quality, third, other in (("", 4, 3), ("m", 3, 4)):
+            common = table[quality].get((root - home[0]) % 12, harmony.RARE)
+            score = (
+                w["first"] * (first == root)
+                + w["held"] * on[root]
+                + w["fifth"] * on[(root + 7) % 12]
+                + w["third"] * (on[(root + third) % 12] - on[(root + other) % 12])
+                + w["key"] * math.log(common / 5.0)
+                + w["heard"] * sure[root]
+                + w["kind"] * kinds[(root, quality)]
+                + w["picked"] * chosen[(root, quality)]
+            )
+            ranked.append((-score, root, quality))
+    return [(root, quality) for _, root, quality in sorted(ranked)[:most]]
+
+
+def offers(desk, at, most=6):
+    """What the page shows for a beat the person is putting a chord on: dict(offers, rounds). `offers` are the
+    chords to try, the likeliest first (see `suggest`), over the stretch from the beat to the next mark, a bar
+    at most. `rounds` are the same place in the other rounds of the part, each with the chord the person has
+    there now: where the chord chosen here may be wanted too."""
+    machine = with_harmony(desk)
+    grid, origin = machine["grid"], machine["origin"]
+    n_bars = max(0, (len(grid) - 1 - origin) // 16)
+    if not (isinstance(at, int) and 0 <= at < 16 * n_bars and at % 4 == 0):
+        raise Bass2SheetError("a chord starts on a beat of a bar of the song")
+    home = home_of(desk.folder, machine)
+    names = spelling(*home)
+    notes = sorted(desk.notes, key=lambda n: n["start"])
+    cut, marks = song_parts(machine, notes, home), read_marks(desk.folder)
+    spans = stretches(machine, marks, [16 * (p["first"] + p["bars"]) for p in cut])
+    later = [m["at"] for m in marks if m["at"] > at] + [
+        16 * (p["first"] + p["bars"]) for p in cut if 16 * (p["first"] + p["bars"]) > at
+    ]
+    until = min([at + 16, 16 * n_bars] + later)
+    there = [(g, sounding(spans, g)) for g in same_place(cut, at)]
+    ranked = suggest(
+        notes,
+        float(grid[origin + at]),
+        float(grid[origin + until]),
+        home,
+        heard=heard_chords(machine),
+        picked=[chord for _, chord in there if chord],
+        most=most,
+    )
+    said = lambda root, quality: dict(  # noqa: E731
+        root=root,
+        quality=quality,
+        name=names[root] + quality,
+        numeral=numeral(root, quality, home),
+        job=job(root, quality, home),
+    )
+    yours = {(root, "m" if minor_like(quality) else "") for _, chord in there if chord for root, quality in [chord]}
+    return dict(
+        at=at,
+        offers=[dict(said(root, quality), yours=(root, quality) in yours) for root, quality in ranked],
+        rounds=[dict(at=g, bar=g // 16 + 1, chord=None if chord is None else said(*chord)) for g, chord in there],
+    )
 
 
 def _per_bar(chords, bars, bar_ends):
-    """What each bar holds: its chords in order. A chord counts in a bar it fills a fifth of (a beat; a chord
-    that comes in an eighth early belongs to the next bar); one that goes on after another of the same name
-    counts once."""
+    """What each bar holds: its chords in order. A chord counts in a bar it fills a fifth of (a beat); one that
+    goes on after another of the same name counts once."""
     out = []
     for t0, t1 in zip(bars, bar_ends):
         held = [c for c in chords if min(c["end"], t1) - max(c["start"], t0) > 0.2 * (t1 - t0)]
@@ -637,11 +821,8 @@ def _per_bar(chords, bars, bar_ends):
 
 
 def _under(notes, start, end):
-    """The bass note a chord stands on: the one sounding when the chord starts, else the first that starts in it."""
-    for n in notes:
-        if n["start"] <= start + 0.06 < n["end"]:
-            return n
-    return next((n for n in notes if start <= n["start"] < end), None)
+    """The bass note a chord stands on: the one its stretch starts on, else the first that starts in it."""
+    return starts_on(notes, start, end) or next((n for n in notes if start <= n["start"] < end), None)
 
 
 def set_tab(folder, style):
@@ -677,10 +858,10 @@ def fingerings(machine, notes):
     return _FINGERED[key]
 
 
-def _bass(machine, notes, chords, bars, played):
-    """The bass line against the chords: each note with where it is played on the neck (`played`), where the
-    fretting hand is then, the chord the note sounds under, what it is to that chord, and the sixteenth of its
-    bar it starts on."""
+def _bass(machine, notes, chords, bars, played, home):
+    """The bass line: each note with where it is played on the neck (`played`), where the fretting hand is
+    then, the sixteenth of its bar it starts on, and what it is: a step of the key (`step`) and, where the
+    person wrote a chord, what it is to that chord (`degree`, `role`)."""
     grid = np.asarray(machine["grid"])
     starts = [c["start"] for c in chords]
     base = {}  # per chord: the pitch of the root the line stands on there
@@ -691,9 +872,8 @@ def _bass(machine, notes, chords, bars, played):
         bar = max(0, int(np.searchsorted(bars, n["start"] + 0.03, side="right")) - 1)
         slot = int(np.argmin(np.abs(grid - n["start"]))) - (machine["origin"] + 16 * bar)
         note = dict(start=round(n["start"], 3), end=round(n["end"], 3), pitch=int(n["pitch"]), string=string, fret=fret)
-        note.update(
-            hand=at, bar=bar + 1, slot=max(0, min(15, slot)), chord=k if under else None, degree=None, role=None
-        )
+        note.update(hand=at, bar=bar + 1, slot=max(0, min(15, slot)), step=step(n["pitch"], home))
+        note.update(chord=k if under else None, degree=None, role=None)
         if under:
             root = under["root"]
             if k not in base:
@@ -705,49 +885,64 @@ def _bass(machine, notes, chords, bars, played):
     return out
 
 
-def _loops(song_parts, bass, n_bars):
+def _loops(shown, bass, n_bars):
     """The distinct parts of a song, for remembering it: each loop once, with how often it comes and what the
-    bass plays over each of its bars (the line most rounds have there, and the share of rounds that have it)."""
+    bass plays over each of its bars: the line most rounds have there, and the share of rounds that have it. A
+    note is named by the chord it is played over where the bar has chords throughout (`of` is "chord"), else as
+    a step of the key ("key")."""
     in_bar = collections.defaultdict(list)
     for note in bass:
-        in_bar[note["bar"] - 1].append((note["slot"], note["degree"], note["role"]))
+        in_bar[note["bar"] - 1].append(note)
+    line_of = {}
+    for bar, played in in_bar.items():
+        by_chord = all(n["degree"] is not None for n in played)
+        line_of[bar] = tuple(
+            (n["slot"], n["degree"] if by_chord else n["step"], n["role"] if by_chord else None) for n in played
+        )
     loops = {}
-    for part in song_parts:
+    for part in shown:
         loop = loops.setdefault(part["letter"], dict(letter=part["letter"], size=part["size"], loop=part["loop"]))
+        loop.setdefault("stands", part["stands"])
         loop.setdefault("lines", [collections.Counter() for _ in range(part["size"])])
         loop.update(bars=loop.get("bars", 0) + part["bars"], times=loop.get("times", 0) + 1)
         loop["rounds"] = round(loop.get("rounds", 0) + part["bars"] / part["size"], 2)
         for k in range(part["bars"]):
             bar = part["bar"] - 1 + k
             if bar < n_bars:
-                loop["lines"][(k + part["skip"]) % part["size"]][tuple(in_bar[bar])] += 1
+                loop["lines"][(k + part["skip"]) % part["size"]][line_of.get(bar, ())] += 1
     for loop in loops.values():
         lines = []
         for seen in loop.pop("lines"):
             line, n = seen.most_common(1)[0] if seen else ((), 0)
             lines.append(
                 dict(
-                    notes=[dict(slot=s, degree=d, role=r) for s, d, r in line],
+                    notes=[dict(slot=s, said=d, role=r) for s, d, r in line],
+                    of="chord" if line and all(r is not None for _, _, r in line) else "key",
                     share=round(n / max(1, sum(seen.values())), 2),
                 )
             )
-        shapes = {tuple((n["slot"], n["degree"]) for n in line["notes"]) for line in lines if line["notes"]}
+        shapes = {tuple((n["slot"], n["said"]) for n in line["notes"]) for line in lines if line["notes"]}
         loop.update(bass=lines, same=len(shapes) == 1 and loop["size"] > 1)
     return sorted(loops.values(), key=lambda loop: -loop["bars"])
 
 
 def view(desk):
-    """Everything the harmony page shows of a song (see the page for how). Times are seconds of the record."""
+    """Everything the harmony page shows of a song (see the page for how). Times are seconds of the record.
+
+    The song's chords are the person's: the marks they made (read_marks). The tool cuts the song into parts by
+    the notes its bass line stands on, names each bass note as a step of the key, guesses the key, and offers
+    chords to choose from (`offers`); it writes no chord itself."""
     machine = with_harmony(desk)
-    which = reading(desk.folder, machine)
-    found = found_key(machine, which)
+    guesses = guessed_keys(machine)
     chosen = read_home(desk.folder)
-    home = chosen or found
+    home = chosen or guesses[0]
     names = spelling(home[0], home[1])
     notes = sorted(desk.notes, key=lambda n: n["start"])
-    bars = [machine["grid"][i] for i in range(machine["origin"], len(machine["grid"]), 16)]
+    grid, origin = machine["grid"], machine["origin"]
+    bars = [grid[i] for i in range(origin, len(grid), 16)]
     bar_ends = bars[1:] + [max(machine["length"], bars[-1])] if bars else []
-    patterns = desk.patterns()["bars"]
+    family = [p["pattern"] for p in desk.patterns()["bars"]]
+    stands = main_notes(notes, bars, bar_ends)
     said = lambda root, quality: dict(  # noqa: E731
         root=root,
         quality=quality,
@@ -755,23 +950,25 @@ def view(desk):
         numeral=numeral(root, quality, home),
         job=job(root, quality, home),
     )
-    fine = which == "eighths"
-    heard, fixes = chords_of(machine, which), read_fixes(desk.folder)
+    cut = song_parts(machine, notes, home)
+    marks = read_marks(desk.folder)
+    spans = stretches(machine, marks, [16 * (p["first"] + p["bars"]) for p in cut])
     chords, spent, played = [], collections.Counter(), collections.Counter()
-    for c in by_the_bass(with_fixes(machine, heard, fixes), notes, bars, bar_ends, home):
-        on = _under(notes, c["start"], c["end"])
+    for span in spans:
+        if not isinstance(span["chord"], tuple) or span["end"] - span["start"] <= 0.05:
+            continue
+        root, quality = span["chord"]
+        on = _under(notes, span["start"], span["end"])
         for n in notes:  # how long the bass spends on each part of the chord
-            both = min(n["end"], c["end"]) - max(n["start"], c["start"])
+            both = min(n["end"], span["end"]) - max(n["start"], span["start"])
             if both > 0:
-                played[role(n["pitch"], c["root"])] += both
-        spent[(c["root"], c["quality"])] += c["end"] - c["start"]
-        chord = dict(c, **said(c["root"], c["quality"]), bar=max(1, sum(t <= c["start"] + 0.01 for t in bars)))
-        chord.update(ring=ring(c["root"], c["quality"], home), far=far(c["root"], c["quality"], home))
-        chord.update(tones=[(c["root"] + t) % 12 for t in tones(c["quality"])])
+                played[role(n["pitch"], root)] += both
+        spent[(root, quality)] += span["end"] - span["start"]
+        chord = dict(said(root, quality), at=span["at"], until=span["until"], start=span["start"], end=span["end"])
+        chord.update(ring=ring(root, quality, home), far=far(root, quality, home))
+        chord.update(tones=[(root + t) % 12 for t in tones(quality)], bar=span["at"] // 16 + 1)
         chord.update(
-            bass=None if on is None else int(on["pitch"]) % 12,
-            role=None if on is None else role(on["pitch"], c["root"]),
-            slash=None if c["over"] is None or c["over"] == c["root"] else names[c["over"]],
+            bass=None if on is None else int(on["pitch"]) % 12, role=None if on is None else role(on["pitch"], root)
         )
         chords.append(chord)
     maps = {}
@@ -784,21 +981,14 @@ def view(desk):
         maps[name] = dict(box=(760, 534) if name == "roads" else WHEEL["box"], spots=spots)
         for chord in chords:
             chord.setdefault("on", {})[name] = where[(chord["root"], chord["quality"])]
-    in_bar, by_tool = _per_bar(chords, bars, bar_ends), _per_bar(heard, bars, bar_ends)
-    held = [tuple(_same(c) for c in bar) for bar in in_bar]  # what the song is cut into parts by
-    # The song is cut by its triads: a seventh heard in one round and not in the next is the same bar. A chord
-    # the tool is unsure of does not count where the bar has one it is sure of. What a loop is then shown with,
-    # bar by bar, is what most of its rounds hold there, sevenths and all.
-    sure = [[c for c in bar if not fine or c["yours"] or c["score"] >= UNSURE] or bar for bar in in_bar]
-    plain = [_once(tuple((c["root"], PLAIN[kind(c["quality"])]) for c in bar)) for bar in sure]
-    cut, labels = parts(plain), plain
-    shown = collections.defaultdict(collections.Counter)
+    in_bar = _per_bar(chords, bars, bar_ends)
+    held = [tuple(_same(c) for c in bar) for bar in in_bar]
+    shown = collections.defaultdict(collections.Counter)  # what most rounds of a loop hold in each of its bars
     for part in cut:
         for k in range(part["bars"]):
-            at = (k + part["skip"]) % len(part["loop"])
-            if labels[part["first"] + k] == part["loop"][at]:
-                shown[(part["letter"], at)][held[part["first"] + k]] += 1
-    song_parts = [
+            if held[part["first"] + k]:
+                shown[(part["letter"], (k + part["skip"]) % len(part["loop"]))][held[part["first"] + k]] += 1
+    the_parts = [
         dict(
             letter=part["letter"],
             bar=part["first"] + 1,
@@ -811,21 +1001,22 @@ def view(desk):
                 [said(*chord) for chord in (shown[(part["letter"], at)].most_common(1) or [((), 1)])[0][0]]
                 for at in range(len(part["loop"]))
             ],
+            stands=[None if pc == "-" else names[pc] for pc in part["loop"]],  # the note the bass stands on, bar by bar
         )
         for part in cut
     ]
     tab, ways = copilot.tab_style(desk.folder), fingerings(machine, notes)
-    bass = _bass(machine, notes, chords, bars, ways[tab])
+    bass = _bass(machine, notes, chords, bars, ways[tab], home)
     runs = [c for k, c in enumerate(chords) if k == 0 or _same(c) != _same(chords[k - 1])]
     moves = collections.Counter((_same(a), _same(b)) for a, b in zip(runs, runs[1:]))
     motions = collections.Counter(
         (b["root"] - a["root"]) % 12 for a, b in zip(runs, runs[1:]) if a["root"] != b["root"]
     )
-    total, sung = sum(spent.values()) or 1.0, sum(played.values()) or 1.0
-    keys = keys_of(machine) if fine else []
-    homes = [found, relative(found)]  # the choices: the key found, the one with the same notes, the next best
-    homes += [k["other"] for k in keys if (k["root"], k["major"]) == found and k["other"] not in homes][:1]
-    homes += [chosen] if chosen and chosen not in homes else []
+    on_steps = collections.Counter()
+    for n in notes:
+        on_steps[step(n["pitch"], home)] += n["end"] - n["start"]
+    total, sung, long = sum(spent.values()) or 1.0, sum(played.values()) or 1.0, sum(on_steps.values()) or 1.0
+    carried = [sounding(spans, 16 * k) for k in range(len(bars))]  # the chord a bar starts in
     return dict(
         id=desk.song_id,
         title=desk.song.get("title", desk.song_id),
@@ -833,35 +1024,51 @@ def view(desk):
         length=machine["length"],
         tempo=machine["tempo"],
         home=dict(root=home[0], major=home[1], name=key_name(home), yours=chosen is not None),
-        homes=[dict(root=h[0], major=h[1], name=key_name(h), found=h == found) for h in homes],
-        keys=[dict(k, name=key_name((k["root"], k["major"])), other=None) for k in keys],  # where each key is heard
+        homes=[
+            dict(root=h[0], major=h[1], name=key_name(h), guess=k == 0)
+            for k, h in enumerate(guesses[:3] + ([chosen] if chosen and chosen not in guesses[:3] else []))
+        ],
         names=names,
         bars=[
             dict(
                 bar=k + 1,
                 time=round(t, 3),
                 end=round(bar_ends[k], 3),
-                pattern=patterns[k]["pattern"] if k < len(patterns) else None,
+                beats=[round(float(grid[min(len(grid) - 1, origin + 16 * k + 4 * b)]), 3) for b in range(4)],
+                pattern=family[k] if k < len(family) else None,  # the bars that sound the same in the bass track
+                stands_on=None if stands[k] is None else names[stands[k]],
                 holds=[said(*chord) for chord in held[k]],
-                heard=[said(*_same(c)) for c in by_tool[k]],  # what the tool heard there, whatever it holds now
-                yours=k + 1 in fixes,
-                unsure=fine and k + 1 not in fixes and any(c["score"] < UNSURE and not c["implied"] for c in in_bar[k]),
-                implied=any(c["implied"] for c in in_bar[k]),  # no chord is heard here: it is where the bass is
+                comes_in=None if carried[k] is None else said(*carried[k]),
             )
             for k, t in enumerate(bars)
         ],
+        marks=[
+            dict(
+                at=span["at"],
+                until=span["until"],
+                bar=span["at"] // 16 + 1,
+                beat=span["at"] % 16 // 4 + 1,
+                start=span["start"],
+                end=span["end"],
+                chord=said(*span["chord"]) if isinstance(span["chord"], tuple) else None,
+                open=span["chord"] is None,  # a change is marked and its chord is still to be chosen
+            )
+            for span in spans
+        ],
         chords=chords,
-        fixed=len(fixes),
+        written=len(chords),
+        to_choose=sum(span["chord"] is None for span in spans),
+        covered=round(total / max(machine["length"], 1e-9), 3) if chords else 0.0,  # the share of the song with a chord
         qualities=list(TONES),
-        palette={  # every chord the page may offer in place of another, with its notes
+        palette={  # every chord the page may put on a beat, with its notes
             f"{root},{quality}": dict(said(root, quality), tones=[(root + t) % 12 for t in tones(quality)])
             for root in range(12)
             for quality in TONES
         },
         maps=maps,
         regions={does: dict(box=REGIONS[does]) for does in JOBS},
-        parts=song_parts,
-        loops=_loops(song_parts, bass, len(bars)),
+        parts=the_parts,
+        loops=_loops(the_parts, bass, len(bars)),
         bass=bass,
         strings=STRINGS,
         tab=tab,  # how the notes are put on the neck, and what each way asks of the hand over the whole song
@@ -869,24 +1076,35 @@ def view(desk):
         places=[dict(said(*key), seconds=round(s, 1), share=round(s / total, 3)) for key, s in spent.most_common()],
         moves=[dict(a=said(*a), b=said(*b), times=n) for (a, b), n in moves.most_common()],
         motions=[dict(up=up, name=MOTIONS[up], times=n) for up, n in motions.most_common()],
-        roles={r: round(played[r] / sung, 3) for r in ROLE_ORDER},
+        roles={r: round(played[r] / sung, 3) for r in ROLE_ORDER} if chords else None,
+        steps=[dict(step=name, share=round(t / long, 3)) for name, t in on_steps.most_common()],
         on_root=round(sum(c["role"] == "root" for c in chords) / max(1, sum(c["role"] is not None for c in chords)), 3),
-        fine=fine,  # the chords are the ones heard eighth by eighth: each comes with how sure the tool is of it
-        reading=which,
-        readings=readings(machine),
-        unsure=round(sum(c["end"] - c["start"] for c in chords if fine and _doubted(c)), 1),
         audio={name: f"/data/{desk.song_id}/audio/{name}.flac" for name in ("record", "nobass", "bass")},
     )
 
 
+def for_sheet(folder, machine, notes):
+    """The chords a song's score writes over its bars: the person's, as long as the harmony page shows each
+    (to the next mark or the end of its part, which is cut from `notes`), and none where they wrote none. As
+    harmony.for_sheet gives them: {bar: [(sixteenth of the bar, dict(root, quality, bass, names))]}, a chord
+    where it starts and again at the start of every bar it goes on in."""
+    home = home_of(folder, machine)
+    names = spelling(*home)
+    n_bars = max(0, (len(machine["grid"]) - 1 - machine["origin"]) // 16)
+    marks, out = read_marks(folder), {}
+    cut = song_parts(machine, sorted(notes, key=lambda n: n["start"]), home) if marks else []
+    for span in stretches(machine, marks, [16 * (p["first"] + p["bars"]) for p in cut]):
+        if isinstance(span["chord"], tuple):
+            root, quality = span["chord"]
+            spelled = list(names)
+            spelled[root] = harmony.note_name(root, names[home[0]], names)
+            for tone in tones(quality)[1:]:
+                spelled[(root + tone) % 12] = harmony.note_name((root + tone) % 12, spelled[root], names)
+            chord = dict(root=root, quality=quality, bass=None, names=spelled)
+            for g in [span["at"]] + list(range(16 * (span["at"] // 16 + 1), min(span["until"], 16 * n_bars), 16)):
+                out.setdefault(g // 16 + 1, []).append((g % 16, chord))
+    return out
+
+
 def _same(chord):
     return chord["root"], chord["quality"]
-
-
-def _doubted(chord):
-    return not chord["yours"] and not chord["implied"] and chord["score"] < UNSURE
-
-
-def _once(held):
-    """What a bar holds, with a chord that follows itself counted once."""
-    return tuple(c for k, c in enumerate(held) if k == 0 or c != held[k - 1])

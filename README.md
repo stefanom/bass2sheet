@@ -101,7 +101,7 @@ bass2sheet-copilot serve --dir scores        # then open http://localhost:8770
 
 The song plays through on a timeline: the isolated bass as a picture of pitch against time, the notes the tool heard drawn over it and played in the bass's own sound against the record. You stop where a note is wrong and fix it. For another pitch the tool offers its guesses, best first, and one key takes one; you can also nudge a note, delete it, add one, split one in two or join two. The tool finds the bars that sound alike and names them over the timeline: after a fix it offers the same fix for the repeats that have the same mistake, and it marks where a bar is written unlike a repeat that sounds the same. You decide. What you leave as it is, as far as you have worked, counts as right. The sheet is written from your notes.
 
-Every fix is the tool's record of a mistake, with the right answer attached: `bass2sheet-copilot report` lists them by kind. A second page for each song shows its harmony: the chords by the job they do, the few loops the song is made of, and what the bass plays over them, on a bass neck. See [docs/copilot.md](docs/copilot.md).
+Every fix is the tool's record of a mistake, with the right answer attached: `bass2sheet-copilot report` lists them by kind. A second page for each song shows how it is built: the few loops its bass line goes round, what the bass plays in them, and the shape of each bar on a bass neck. The chords there are yours to write: you say where they change, by clicking a beat or tapping along, the tool offers a few to try, and each is heard against the record. See [docs/copilot.md](docs/copilot.md).
 
 ## Another note finder: MuScriptor
 

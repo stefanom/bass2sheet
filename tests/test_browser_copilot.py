@@ -470,23 +470,131 @@ def test_the_play_along_page_loads_a_song_and_moves_from_line_to_line(browse, si
 # --------------------------------------------------------------------------------------------------- the test songs
 
 
-def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_home(browse, site, song):
-    page = browse(f"{site.url}/harmony#{song}", ready="H !== null && document.querySelectorAll('#map .st').length > 20")
-    assert "A song of" in page.inner_text("#title") and page.locator("#loops .verb").count() >= 1
-    # the song in short: its one loop, said as steps above home
-    assert page.locator("#short .line").count() == 1 and "a bar each" in page.inner_text("#short")
-    loop = page.evaluate("H.loops.find(l => l.size === 4)")
-    chips = page.locator(f"#loops .verb[data-letter='{loop['letter']}'] .chip")
-    assert chips.count() == 4 and [chips.nth(k).locator("b").inner_text() for k in range(4)] == ["Em", "C", "G", "D"]
-    assert chips.nth(0).locator("u").inner_text() == "R R 5 8 5 4"  # what the bass plays over the first chord
+HARMONY_READY = "H !== null && document.querySelectorAll('#map .st').length > 20"
+# nothing is being tried, and what the editor offers is for the chords as they are now
+QUIET = "S.trying === null && document.getElementById('au').paused && Keys.now === null && (E.at === null || E.fresh)"
 
-    # a click on a chord of a loop goes there and plays: the chord, its job, the bar, the neck and the map follow
-    chips.nth(1).click()
+
+def test_the_person_writes_a_songs_chords_on_its_harmony_page(browse, site, song):
+    page = browse(f"{site.url}/harmony#{song}", ready=HARMONY_READY)
+    folder = os.path.join(site.workdir, song)
+    # before the person writes a chord there is none: the parts of the bass line, and the notes it stands on
+    assert "A song of" in page.inner_text("#title") and "No chords written yet" in page.inner_text("#short")
+    assert "the bass on" in page.inner_text("#short") and page.inner_text("#here-name") == "–"
+    assert page.evaluate("H.chords.length") == 0 and page.locator("#map .st.used").count() == 0
+    assert (
+        page.is_hidden("#profile-card") and page.is_hidden("#edit") and "No chords yet" in page.inner_text("#map-hint")
+    )
+    loop = page.evaluate("H.parts.find(p => p.size === 4)")
+    chips = page.locator(f"#loops .verb[data-letter='{loop['letter']}'] .chip")
+    assert chips.locator("b").all_inner_texts() == ["E", "C", "G", "D"] and "bare" in chips.nth(0).get_attribute(
+        "class"
+    )
+    assert chips.nth(0).locator("u").inner_text() == "6 6 3 6 3 2"  # what the bass plays, as steps of G major
+
+    # a click on a bar of a loop goes to its first beat: the round as bars of four beats, and the tool's offers
+    at = 16 * (loop["bar"] - 1)
+    chips.nth(0).click()
+    page.wait_for_function(f"E.at === {at} && E.offers !== null")
+    assert page.inner_text("#edit-where").lower() == f"bar {loop['bar']} · beat 1 · part {loop['letter']}".lower()
+    assert "No chord here yet" in page.inner_text("#edit-there")
+    offered = page.locator("#edit-offers .chip b").all_inner_texts()
+    assert offered[0] == "Em" and len(offered) == 6 == len(set(offered))
+    assert page.locator("#path .barbox").count() == 4 and page.locator("#path .beat.sel").count() == 1
+    assert page.locator("#path .beat.sel").get_attribute("data-at") == str(at)
+    assert page.locator("#map .st.dest").count() >= 4 and "dashed" in page.inner_text("#map-hint")
+    assert not os.path.exists(os.path.join(folder, "harmony.json"))  # looking and asking write nothing
+
+    # a click on an offer puts it on the beat, and plays that stretch of the record with it in the keyboard sound
+    page.locator("#edit-offers .chip").first.click()
+    page.wait_for_function(
+        "H.written === 1 && S.trying !== null && !document.getElementById('au').paused && Keys.now !== null"
+    )
+    assert page.evaluate("Keys.voices.length") == 3
+    page.wait_for_function(QUIET, timeout=20000)
+    assert page.inner_text("#edit-there") == "Em starts here." and page.inner_text("#here-name") == "Em"
+    assert copilot_harmony.read_marks(folder) == [dict(at=at, chord=(4, "m"))]
+    assert page.locator("#path .cell").first.inner_text() == "Em" and page.locator("#map .st.used").count() == 1
+    assert page.is_hidden("#edit-also")  # it lasts to the end of the part: the other rounds are in E minor too
+
+    # the next bar's chord from the map; another kind of chord from the two boxes; and a bar with no chord
+    page.click(f"#path .beat[data-at='{at + 16}']")
+    page.wait_for_function(f"E.at === {at + 16} && E.offers !== null")
+    assert "Em goes on" in page.inner_text("#edit-there")
+    spot = page.evaluate("H.maps.roads.spots.findIndex(s => s.name === 'C')")
+    page.click(f"#map .st[data-spot='{spot}']")
+    page.wait_for_function("H.written === 2")
+    page.wait_for_function(QUIET, timeout=20000)
+    page.click(f"#path .beat[data-at='{at + 32}']")
+    page.wait_for_function(f"E.at === {at + 32} && E.offers !== null")
+    page.select_option("#edit-root", "7")
+    page.select_option("#edit-quality", "maj7")
+    page.click("#edit-put")
+    page.wait_for_function("H.written === 3")
+    page.wait_for_function(QUIET, timeout=20000)
+    assert page.inner_text("#here-name") == "Gmaj7"
+    page.click(f"#path .beat[data-at='{at + 48}']")
+    page.wait_for_function(f"E.at === {at + 48} && E.offers !== null")
+    page.click("#edit-none")
+    page.wait_for_function("H.marks.length === 4 && E.fresh")
+    assert page.inner_text("#edit-there") == "No chord from here." and page.locator("#path .cell.none").count() == 1
+    assert [m["chord"] for m in copilot_harmony.read_marks(folder)] == [(4, "m"), (0, ""), (7, "maj7"), "none"]
+
+    # the round is copied to the two that have none
+    assert page.inner_text("#edit-copy") == "Copy this round's chords to the 2 rounds that have none"
+    page.click("#edit-copy")
+    page.wait_for_function("H.marks.length === 12 && H.written === 9 && E.fresh")
+    assert page.is_hidden("#edit-copy")
+    assert chips.locator("b").all_inner_texts() == ["Em", "C", "Gmaj7", "D"]  # the last is still the bass's note
+    # the last bar gets its chord after all, and then the same place in the other rounds gets it too
+    page.locator("#edit-offers .chip b", has_text=re.compile("^D$")).click()
+    page.wait_for_function("H.written === 10")
+    page.wait_for_function(QUIET, timeout=20000)
+    assert page.inner_text("#edit-also") == "Also in the 2 other rounds"
+    page.click("#edit-also")
+    page.wait_for_function("H.written === 12 && E.fresh")
+    assert page.is_hidden("#edit-also") and "bare" not in chips.nth(3).get_attribute("class")
+    assert chips.nth(0).locator("u").inner_text() == "R R 5 8 5 4"  # the bass is named by the chord now
+    assert [m["chord"] for m in copilot_harmony.read_marks(folder)] == [(4, "m"), (0, ""), (7, "maj7"), (2, "")] * 3
+
+    # a mark is taken away, and the chord before it goes on; put back, the editor is closed
+    page.click("#edit-remove")
+    page.wait_for_function("H.written === 11 && E.fresh")
+    assert page.inner_text("#edit-there").startswith("Nothing starts here: Gmaj7 goes on")
+    assert page.locator("#path .cell.goes").count() == 1
+    page.locator("#edit-offers .chip b", has_text=re.compile("^D$")).click()
+    page.wait_for_function("H.written === 12")
+    page.wait_for_function(QUIET, timeout=20000)
+    page.click("#edit-close")
+    assert page.is_hidden("#edit") and page.locator("#map .st.dest").count() == 0
+    # what is said of the song follows its chords
+    assert "12 chords written" in page.inner_text("#short") and "a bar each" in page.inner_text("#short")
+    assert page.is_visible("#profile-card") and page.locator("#profile circle").count() == 12
+    assert page.locator("#roles .role").count() == 11 and "on their root" in page.inner_text("#bass-note")
+    page.reload()
+    page.wait_for_function("H !== null && document.querySelectorAll('#map .st').length > 10")
+    assert page.evaluate("H.written") == 12 and page.locator("#map .st.used").count() == 4  # kept
+
+
+def test_the_harmony_page_follows_the_song_and_marks_the_changes_tapped(browse, site, song):
+    folder = os.path.join(site.workdir, song)
+    chords = [[4, "m"], [0, ""], [7, ""], [2, ""]]  # the person's chords: Em, C, G and D, a bar each, three times
+    copilot_harmony.set_marks(folder, [dict(at=16 * (bar + 1), chord=chords[bar % 4]) for bar in range(12)])
+    page = browse(f"{site.url}/harmony#{song}", ready=HARMONY_READY)
+    loop = page.evaluate("H.parts.find(p => p.size === 4)")
+    assert page.locator("#short .line").count() == 1 and "a bar each" in page.inner_text("#short")
+    chips = page.locator(f"#loops .verb[data-letter='{loop['letter']}'] .chip")
+    assert chips.locator("b").all_inner_texts() == ["Em", "C", "G", "D"]
+
+    # the part is played: the chord, its job, the bar, the neck and the map follow the song
+    page.click(f"#loops [data-play='{loop['letter']}']")
     page.wait_for_function("!document.getElementById('au').paused && S.chord >= 0 && H.chords[S.chord].name === 'C'")
-    page.wait_for_function("document.getElementById('play').textContent === '■ Stop'")
-    assert page.inner_text("#here-name") == "C"
+    assert page.inner_text("#play") == "■ Stop" and page.inner_text("#here-name") == "C"
     assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")
-    assert "bar" in page.inner_text("#where").lower() and page.locator("#path .chip.playing b").inner_text() == "C"
+    assert (
+        "bar" in page.inner_text("#where").lower() and page.locator("#path .barbox.playing .cell").inner_text() == "C"
+    )
+    assert page.locator("#path .barbox.playing .beat.cur").count() == 1
     assert page.locator("#map .st.cur").count() == 1
     assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
     page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
@@ -513,12 +621,16 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
         assert page.locator("#map .st.cur").get_attribute("data-spot") == str(
             page.evaluate(f"H.chords[S.chord].on.{view}")
         )
-    # a click on a chord of the map goes to where the song is on it next
+    # with no beat picked, a click on a chord of the map goes to where the song is on it next
     spot = page.evaluate("H.maps.roads.spots.findIndex(s => s.name === 'D')")
     page.click(f"#map .st[data-spot='{spot}']")
     page.wait_for_function("S.chord >= 0 && H.chords[S.chord].name === 'D'")
+    # the chords in the keyboard sound, over the record, for as long as it plays
+    page.click("#chords")
+    page.wait_for_function("Keys.now !== null && Keys.now.startsWith('c' + S.chord + ':')")
     page.click("#play")
-    page.wait_for_function("document.getElementById('au').paused")
+    page.wait_for_function("document.getElementById('au').paused && Keys.now === null")
+    page.click("#chords")
 
     # the fingering: for playing unless another way is picked; the neck follows, with the hand drawn on it
     assert page.get_attribute("#tabs [data-tab='easy']", "aria-pressed") == "true" and "hand move" in page.inner_text(
@@ -530,85 +642,61 @@ def test_the_harmony_page_follows_the_song_on_its_maps_and_keeps_the_choice_of_h
     page.wait_for_function("H.tab === 'low'")
     assert page.evaluate("H.bass.map(n => [n.string, n.fret])") != before
     assert page.get_attribute("#tabs [data-tab='low']", "aria-pressed") == "true"
-    assert copilot.tab_style(os.path.join(site.workdir, song)) == "low"
+    assert copilot.tab_style(folder) == "low"
     page.click("#tabs [data-tab='easy']")
     page.wait_for_function("H.tab === 'easy'")
 
-    # the two readings of the chords: heard eighth by eighth, or one a bar; the page shows the one picked
-    assert (
-        page.is_visible("#reading-row")
-        and page.get_attribute("#readings [data-reading='eighths']", "aria-pressed") == "true"
-    )
-    page.click("#readings [data-reading='bars']")
-    page.wait_for_function("H.reading === 'bars'")
-    assert page.get_attribute("#readings [data-reading='bars']", "aria-pressed") == "true"
-    assert (
-        copilot_harmony.reading(os.path.join(site.workdir, song), page.evaluate("({harmony: {chords: [1]}})")) == "bars"
-    )
-    page.click("#readings [data-reading='eighths']")
-    page.wait_for_function("H.reading === 'eighths'")
-
-    # home: the key with the same notes; the names follow, and the choice is kept
+    # home: the tool's guess until another is picked; the names follow, and the choice is kept
+    assert "the tool's guess" in page.inner_text("#homes button[aria-pressed='true']")
     before = page.evaluate("[H.home.name, H.chords[S.chord].numeral]")
     page.locator("#homes button[aria-pressed='false']").first.click()
     page.wait_for_function(f"H.home.name !== {json.dumps(before[0])}")
     after = page.evaluate("[H.home.name, H.chords[S.chord].numeral, H.home.yours]")
     assert after[1] != before[1] and after[2] is True
     assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")  # with a flat sign
-    assert copilot_harmony.read_home(os.path.join(site.workdir, song)) is not None
-    page.reload()
-    page.wait_for_function("H !== null && document.querySelectorAll('#map .st').length > 10")
-    assert page.evaluate("H.home.name") == after[0]
-    assert page.locator("#profile circle").count() == page.evaluate("H.chords.length")
-    assert page.locator("#roles .role").count() == 5 and "on their root" in page.inner_text("#bass-note")
+    assert copilot_harmony.read_home(folder) == (4, False) and page.evaluate("H.written") == 12
 
-
-def test_a_chord_is_heard_changed_in_every_round_and_given_back_on_the_harmony_page(browse, site, song):
-    page = browse(f"{site.url}/harmony#{song}", ready="H !== null && document.querySelectorAll('#map .st').length > 20")
-    loop = page.evaluate("H.parts.find(p => p.size === 4)")
-    bar = loop["bar"] + 1  # the second bar of the first round: C
-    page.evaluate(f"document.getElementById('au').currentTime = H.bars[{bar - 1}].time + 0.3")
-    page.wait_for_function(f"S.bar === {bar - 1}")
-    page.click("#change")
-    assert page.inner_text("#edit-where").lower() == f"bar {bar} · part {loop['letter']}".lower()
-    assert page.inner_text("#edit-heard") == "The tool heard C." and page.is_disabled("#edit-here")
-    offered = page.locator("#edit-offers .chip b").all_inner_texts()
-    assert offered[0] == "C" and "Am" in offered and len(offered) == len(set(offered))
-
-    # a click on a chord plays the bar with it, in the keyboard sound, and changes nothing
-    page.locator("#edit-offers .chip", has_text="Am").click()
-    page.wait_for_function("S.trying !== null && !document.getElementById('au').paused && Keys.now === 'try'")
-    assert page.evaluate("Keys.voices.length") == 3 and page.evaluate("H.fixed") == 0
-    page.wait_for_function(
-        "S.trying === null && document.getElementById('au').paused && Keys.now === null", timeout=20000
-    )
-    assert page.inner_text("#edit-here") == "Change this bar to Am" and page.is_enabled("#edit-here")
-    assert page.inner_text("#edit-all") == f"Change all 3 bars like it in part {loop['letter']}"
-
-    page.click("#edit-all")
-    page.wait_for_function("H.fixed === 3")
-    assert (
-        page.inner_text("#edit-heard") == "You put Am here. The tool heard C." and page.inner_text("#here-name") == "Am"
-    )
-    assert copilot_harmony.read_fixes(os.path.join(site.workdir, song)) == {bar + 4 * k: [(9, "m")] for k in range(3)}
-    chips = page.locator(
-        f"#loops .verb[data-letter='{page.evaluate('H.parts.find(p => p.size === 4).letter')}'] .chip b"
-    )
-    assert chips.all_inner_texts() == ["Em", "Am", "G", "D"] and page.locator("#path .chip.yours").count() == 1
-    assert page.is_visible("#edit-back") and page.is_hidden("#edit-all")
-
-    page.click("#edit-back")  # this bar only: the two other rounds keep the person's chord
-    page.wait_for_function("H.fixed === 2")
-    assert page.inner_text("#edit-heard") == "The tool heard C." and page.inner_text("#here-name") == "C"
-    page.click("#edit-close")
-    assert page.is_hidden("#edit")
-
-    # the chords of the page in the keyboard sound, over the record, for as long as it plays
-    page.click("#chords")
+    # the changes tapped while the song plays: each press marks the nearest beat, its chord to choose afterwards
+    bar = loop["bar"] + 4  # the first bar of the second round, counted from 1
+    assert page.is_hidden("#tapbar")
+    page.click("#tapmode")
+    assert page.is_visible("#tapbar") and page.get_attribute("#tapmode", "aria-pressed") == "true"
+    page.click("#tap")  # nothing plays: nothing is marked
+    page.evaluate(f"document.getElementById('au').currentTime = H.bars[{bar - 1}].time")
     page.click("#play")
-    page.wait_for_function("Keys.now !== null && Keys.now === 'c' + S.chord")
+    page.wait_for_function("!document.getElementById('au').paused")
+    # a press marks the beat nearest to where the song is, taking a hand to be a little late
+    tap_at = """async t => {
+      document.getElementById('au').currentTime = t;
+      await tap();
+      return H.marks.filter(m => m.open).map(m => m.at);
+    }"""
+    times = page.evaluate(f"[H.bars[{bar - 1}].beats[2], H.bars[{bar}].time, H.bars[{bar}].beats[1]]")
+    at = 16 * (bar - 1)
+    assert page.evaluate(tap_at, times[0] + 0.15) == [at + 8]
+    assert page.evaluate(tap_at, times[1] + 0.1) == [at + 8]  # on a beat that has a chord already: nothing
+    # the T key does what the button does
+    page.evaluate(f"document.getElementById('au').currentTime = {times[2] + 0.05}")
+    page.keyboard.press("t")
+    page.wait_for_function("H.to_choose === 2")
+    page.evaluate(f"document.getElementById('au').currentTime = {times[0] + 0.05}")
+    page.click("#tap")  # the beat marked before: nothing
     page.click("#play")
-    page.wait_for_function("document.getElementById('au').paused && Keys.now === null")
+    page.wait_for_function("document.getElementById('au').paused")
+    marks = copilot_harmony.read_marks(folder)
+    assert [m["at"] for m in marks if m["chord"] is None] == [at + 8, at + 20] and len(marks) == 14
+    assert page.locator("#path .cell.open").count() >= 1
+    # the changes still to choose are gone through one after the other
+    assert "2 changes marked without a chord" in page.inner_text("#short")
+    page.click("#short-next")
+    page.wait_for_function(f"E.at === {at + 8} && E.offers !== null")
+    assert page.inner_text("#edit-there") == "A change is marked here. Choose its chord."
+    page.click("#edit-next")
+    page.wait_for_function(f"E.at === {at + 20} && E.offers !== null")
+    page.click("#edit-remove")
+    page.wait_for_function("H.to_choose === 1 && H.marks.length === 13")
+    page.click("#tapmode")
+    assert page.is_hidden("#tapbar")
 
 
 def test_a_harmony_page_without_its_song_says_so(browse, site):

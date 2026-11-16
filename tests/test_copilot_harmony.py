@@ -1,10 +1,11 @@
-"""The song's harmony for the copilot's page: chords named against a home, how they follow each other, and what
-the bass plays under each."""
+"""The song's harmony for the copilot's page: the parts its bass line goes round, the chords the person writes on
+its beats (named against a home), the chords the tool offers for a beat, and what the bass plays."""
 
 import json
 import os
 import shutil
 import threading
+import types
 import urllib.error
 import urllib.request
 
@@ -236,14 +237,14 @@ def test_a_song_is_cut_into_the_loops_it_goes_round():
     assert _shape(parts(list("EEEEEEEEABABABAB"))) == [
         (0, 8, "A", "E"),
         (8, 8, "B", "AB"),
-    ]  # one chord held is a loop of a bar
+    ]  # one bar held is a loop of a bar
     assert _shape(parts(list("ABCDEFG"))) == [(0, 7, "A", "ABCDEFG")]  # nothing repeats: one passage
     assert _shape(parts(list("ABCDABCEABCDABCEABCDABCE"))) == [(0, 24, "A", "ABCDABCE")]  # eight bars, not four
     # one bar heard differently in one round does not break the loop, and the loop is what most rounds have
     assert _shape(parts(list("ABCDABXDABCDABCD"))) == [(0, 16, "A", "ABCD")]
     assert _shape(parts(list("AXCDABCDABCDABCD"))) == [(0, 16, "A", "ABCD")]
     assert parts([]) == [] and _shape(parts(list("AB"))) == [(0, 2, "A", "AB")]
-    assert _shape(parts(list("AAB"))) == [(0, 3, "A", "AAB")]  # a chord held for two bars is not a loop yet
+    assert _shape(parts(list("AAB"))) == [(0, 3, "A", "AAB")]  # a bar held for two bars is not a loop yet
     # a loop that comes back begun part of the way round is the same part, and says how far round it begins
     found = parts(list("ABCDABCDABCD" + "xyzD" + "ABCDABCDABCD"))
     assert _shape(found) == [(0, 12, "A", "ABCD"), (12, 3, "B", "xyz"), (15, 13, "A", "ABCD")]
@@ -251,7 +252,23 @@ def test_a_song_is_cut_into_the_loops_it_goes_round():
     found = parts(list("ABCDABCDABCDxyCDABCDABCDAB"))
     assert _shape(found) == [(0, 12, "A", "ABCD"), (12, 2, "B", "xy"), (14, 12, "A", "ABCD")]
     assert [p["skip"] for p in found] == [0, 0, 2]
-    assert [p["skip"] for p in parts(list("EEEEEEEEqEEEEEEEE"))] == [0, 0, 0]  # one chord held has no way round
+    assert [p["skip"] for p in parts(list("EEEEEEEEqEEEEEEEE"))] == [0, 0, 0]  # one bar held has no way round
+    # a loop that differs from an earlier one in one bar of four is that part; in two bars it is another
+    assert [p["letter"] for p in parts(list("ABCDABCDABCD" + "xy" + "ABCEABCEABCE"))] == ["A", "B", "A"]
+    assert [p["letter"] for p in parts(list("ABCDABCDABCD" + "xy" + "ABEFABEFABEF"))] == ["A", "B", "C"]
+
+
+def test_a_loop_is_taken_in_whole_rounds_and_then_from_home():
+    parts = copilot_harmony.parts
+    # seven bars of nothing, a bar that leads in, eight bars twice, four bars twice
+    song = list("-------F" + "BBAAGGFF" * 2 + "EEAAEEAA")
+    found = parts(song, "B")
+    assert _shape(found) == [(0, 7, "A", "-"), (7, 17, "B", "BBAAGGFF"), (24, 8, "C", "EEAA")]
+    assert [p["skip"] for p in found] == [0, 7, 0]  # the bar that leads in is the loop's last bar
+    assert _shape(parts(song))[1] == (7, 17, "B", "FBBAAGGF")  # with no home given: from the bar it starts on
+    # three whole rounds are not turned round to begin at home
+    assert _shape(parts(list("xECGDECGDECGDyy"), "G"))[1] == (1, 12, "B", "ECGD")
+    assert parts(song, "B") == found and parts(song, "B") is not found  # kept, and given out as a copy
 
 
 def test_a_bass_note_is_named_as_a_step_of_its_chord():
@@ -270,112 +287,158 @@ def test_a_bass_note_is_named_as_a_step_of_its_chord():
     ]
 
 
-def _machine(chords, bars=4, length=None):
+def test_a_bass_note_is_named_as_a_step_of_the_key():
+    step = copilot_harmony.step
+    assert [step(p, (E, False)) for p in (40, 52, 47, 43, 50, 45, 41)] == ["1", "1", "5", "b3", "b7", "4", "b2"]
+    assert step(55, (G, True)) == "1" and step(54, (G, True)) == "7" and step(49, (G, True)) == "b5"
+
+
+def _note(start, end, pitch):
+    return dict(start=start, end=end, pitch=pitch)
+
+
+def test_the_note_the_bass_stands_on_in_each_bar():
+    starts_on, main_notes = copilot_harmony.starts_on, copilot_harmony.main_notes
+    notes = [
+        _note(0.0, 0.5, 40),  # E starts bar 1
+        _note(0.5, 2.05, 47),  # B is held longer, and rings on a hair over the bar line
+        _note(1.95, 2.6, 45),  # A comes in a touch early: it is bar 2's first note
+        _note(2.6, 4.0, 52),
+        _note(5.0, 5.5, 43),  # bar 3 has one note, in its middle
+        _note(5.8, 7.5, 38),  # held into bar 4 from before
+    ]
+    bars, ends = [0.0, 2.0, 4.0, 6.0, 8.0], [2.0, 4.0, 6.0, 8.0, 10.0]
+    assert [n and n["pitch"] for n in (starts_on(notes, a, b) for a, b in zip(bars, ends))] == [40, 45, None, 38, None]
+    # the note a bar starts on counts for half a bar more than the time it is held
+    assert main_notes(notes, bars, ends) == [E, A, G, D, None]
+    assert main_notes([_note(0.0, 0.4, 40), _note(0.4, 2.0, 47)], [0.0], [2.0]) == [B]  # held four times as long
+    assert main_notes([_note(1.97, 3.0, 40)], [0.0, 2.0], [2.0, 4.0]) == [None, E]  # a hair before the bar line
+
+
+def _machine(bars=4, length=None, **more):
     grid = [round(-0.5 + 0.125 * k, 3) for k in range(4 + 16 * bars + 1)]  # bar 1 starts at 0, a bar lasts 2 s
-    return dict(grid=grid, origin=4, length=2.0 * bars if length is None else length, chords=chords)
+    return dict(grid=grid, origin=4, length=2.0 * bars if length is None else length, **more)
 
 
-def test_the_tools_chords_become_stretches_of_time():
+def test_the_persons_chords_are_marks_on_beats(tmp_path):
+    folder = str(tmp_path)
+    read, put = copilot_harmony.read_marks, copilot_harmony.set_marks
+    assert read(folder) == []
+    put(
+        folder,
+        [dict(at=32, chord=[A, "m"]), dict(at=0, chord=[E, "m7"]), dict(at=40, chord=None), dict(at=64, chord="none")],
+    )
+    first = [
+        dict(at=0, chord=(E, "m7")),
+        dict(at=32, chord=(A, "m")),
+        dict(at=40, chord=None),
+        dict(at=64, chord="none"),
+    ]
+    assert read(folder) == first  # in order: a chord, a change still to choose, no chord from here
+    # a mark is changed where it is, and taken away; taking away what is not there is nothing
+    put(folder, [dict(at=40, chord=[G, ""]), dict(at=64, chord="remove"), dict(at=400, chord="remove")])
+    assert read(folder) == [dict(at=0, chord=(E, "m7")), dict(at=32, chord=(A, "m")), dict(at=40, chord=(G, ""))]
+    # they are kept beside the home and the fingering the person chose
+    copilot_harmony.set_home(folder, (G, True))
+    copilot_harmony.set_tab(folder, "low")
+    put(folder, [dict(at=0, chord="remove")])
+    assert copilot_harmony.read_home(folder) == (G, True) and copilot.tab_style(folder) == "low"
+    kept = [dict(at=32, chord=(A, "m")), dict(at=40, chord=(G, ""))]
+    assert read(folder) == kept
+    for bad in (
+        [],
+        None,
+        ["bar 3"],
+        [dict(at=2, chord=[A, "m"])],  # not on a beat
+        [dict(at=-4, chord=[A, "m"])],
+        [dict(at=True, chord=[A, "m"])],
+        [dict(at=4.0, chord=None)],
+        [dict(at=4, chord=[12, ""])],
+        [dict(at=4, chord=[A, "minor"])],
+        [dict(at=4, chord=[A])],
+        [dict(at=4, chord="maybe")],
+        [dict(at=8, chord=[C, ""]), dict(at=9, chord=[C, ""])],  # one bad change: nothing of it is kept
+    ):
+        with pytest.raises(Bass2SheetError):
+            put(folder, bad)
+    assert read(folder) == kept
+
+
+def test_a_chord_lasts_until_the_next_mark_or_the_end_of_its_part():
+    stretches, sounding = copilot_harmony.stretches, copilot_harmony.sounding
+    marks = [
+        dict(at=0, chord=(E, "m")),
+        dict(at=8, chord=None),
+        dict(at=16, chord=(C, "")),
+        dict(at=40, chord="none"),
+        dict(at=48, chord=(G, "")),
+        dict(at=64, chord=(D, "")),  # beyond the end of the song
+    ]
+    spans = stretches(_machine(length=7.5), marks, [32, 64])  # a part of two bars, and one of two
+    assert [(s["at"], s["until"], s["start"], s["end"], s["chord"]) for s in spans] == [
+        (0, 8, 0.0, 1.0, (E, "m")),
+        (8, 16, 1.0, 2.0, None),
+        (16, 32, 2.0, 4.0, (C, "")),  # to the end of its part, not on into the next
+        (40, 48, 5.0, 6.0, "none"),
+        (48, 64, 6.0, 7.5, (G, "")),  # the last one ends with the song
+    ]
+    assert [sounding(spans, at) for at in (0, 4, 10, 20, 36, 44, 60, 80)] == [
+        (E, "m"),
+        (E, "m"),
+        None,  # a change is marked: its chord is to choose
+        (C, ""),
+        None,  # nothing was written from the start of the second part
+        None,  # no chord from here
+        (G, ""),
+        None,
+    ]
+    assert stretches(_machine(), [], [32]) == []
+    assert stretches(_machine(), [dict(at=16, chord=(C, ""))], [])[0]["until"] == 64  # no parts: to the end
+
+
+def test_the_same_place_in_the_other_rounds():
+    cut = copilot_harmony.parts(list("xECGDECGDECGDyyGDECGDEC"), "E")
+    assert _shape(cut) == [(0, 1, "A", "x"), (1, 12, "B", "ECGD"), (13, 2, "C", "yy"), (15, 8, "B", "ECGD")]
+    part, bar, round_ = copilot_harmony.place_of(cut, 16 * 6 + 4)  # bar 7, beat 2
+    assert (part["first"], bar, round_) == (1, 1, 1)  # the loop's second bar, the second time round
+    assert copilot_harmony.place_of(cut, 16 * 16)[1:] == (3, 0)  # the last part comes in on the loop's third bar
+    assert copilot_harmony.place_of(cut, 16 * 40) is None
+    # beat 3 of the bar on C: the same beat of every other bar that is the loop's second
+    assert copilot_harmony.same_place(cut, 16 * 2 + 8) == [16 * b + 8 for b in (6, 10, 18, 22)]
+    assert copilot_harmony.same_place(cut, 8) == [] and copilot_harmony.same_place(cut, 16 * 40) == []
+
+
+def test_the_chords_the_tool_heard_are_kept_for_what_it_offers():
+    heard = copilot_harmony.heard_chords
     found = [
         dict(bar=1, root=E, quality="m", score=0.9),
         dict(bar=2, root=C, quality="", score=0.0),  # a bar where no harmony was heard has no chord
         dict(bar=3, root=G, quality="", score=0.7),
-        dict(bar=4, root=D, quality="", score=0.6),
         dict(bar=9, root=D, quality="", score=0.6),  # beyond the song
     ]
-    chords = copilot_harmony.chords_of(_machine(found, length=7.5))
-    assert [(c["start"], c["end"], c["root"], c["quality"]) for c in chords] == [
-        (0.0, 2.0, E, "m"),
-        (4.0, 6.0, G, ""),
-        (6.0, 7.5, D, ""),  # the last one ends with the song
-    ]
-    assert copilot_harmony.chords_of(_machine([])) == [] and copilot_harmony.chords_of(_machine(None)) == []
+    old = heard(_machine(chords=found))  # a song prepared long ago: a chord a bar
+    assert [(c["start"], c["end"], c["root"], c["quality"]) for c in old] == [(0.0, 2.0, E, "m"), (4.0, 6.0, G, "")]
+    assert heard(_machine()) == [] and heard(_machine(chords=None)) == []
+    fine = dict(chords=[dict(start=0.0, end=1.0, at=4, until=12, root=A, quality="m7", bass=None, score=0.8)])
+    now = heard(_machine(chords=found, harmony=fine))  # heard eighth by eighth: those, as they are
+    assert now == [dict(start=0.0, end=1.0, root=A, quality="m7", score=0.8)]
 
 
-def test_the_chords_heard_eighth_by_eighth_are_taken_as_they_are():
-    H = copilot_harmony
-    heard = [
-        dict(start=-0.25, end=1.0, at=2, until=12, root=E, quality="m7", bass=None, score=0.93),  # from before bar 1
-        dict(start=1.0, end=2.0, at=12, until=20, root=C, quality="maj7", bass=E, score=0.41),  # two in the bar
-        dict(
-            start=4.0, end=9.5, at=36, until=80, root=G, quality="", bass=None, score=0.8
-        ),  # a gap before; past the end
-        dict(start=9.5, end=9.52, at=80, until=81, root=D, quality="", bass=None, score=0.8),
-    ]
-    machine = dict(_machine([dict(bar=1, root=A, quality="m", score=0.9)]), harmony=dict(keys=[], chords=heard))
-    assert [(c["start"], c["end"], c["root"], c["quality"], c["score"], c["over"]) for c in H.chords_of(machine)] == [
-        (0.0, 1.0, E, "m7", 0.93, None),
-        (1.0, 2.0, C, "maj7", 0.41, E),
-        (4.0, 8.0, G, "", 0.8, None),
-    ]
-    # the other reading of the same song: its chord a bar; and the only one of a song whose harmony has no chord
-    assert H.readings(machine) == ["eighths", "bars"]
-    assert [(c["root"], c["quality"], c["over"]) for c in H.chords_of(machine, "bars")] == [(A, "m", None)]
-    for bare in (dict(machine, harmony=dict(keys=[], chords=[])), dict(machine, harmony=None), _machine([])):
-        assert H.readings(bare) == ["bars"]
-    assert [c["root"] for c in H.chords_of(dict(machine, harmony=None))] == [A]  # prepared before there was harmony
-    keys = [dict(start=0.0, end=5.0, at=4, until=44, root=A, major=False, score=0.71, other=dict(root=C, major=True))]
-    assert H.keys_of(dict(harmony=dict(keys=keys, chords=[]))) == [
-        dict(start=0.0, end=5.0, root=A, major=False, score=0.71, other=(C, True))
-    ]
-    assert H.keys_of({}) == [] and H.keys_of(dict(harmony=None)) == []
-
-
-def test_the_persons_chord_takes_the_place_of_what_the_tool_heard_in_its_bar():
-    H = copilot_harmony
-    found = [
-        dict(bar=k, root=root, quality=q, score=0.8)
-        for k, (root, q) in enumerate([(E, "m"), (C, ""), (G, ""), (D, "")], 1)
-    ]
-    machine = _machine(found)
-    heard = H.chords_of(machine)
-    said = lambda chords: [(c["start"], c["end"], c["root"], c["quality"], c["yours"]) for c in chords]  # noqa: E731
-    assert said(H.with_fixes(machine, heard, {})) == [
-        (0.0, 2.0, E, "m", False),
-        (2.0, 4.0, C, "", False),
-        (4.0, 6.0, G, "", False),
-        (6.0, 8.0, D, "", False),
-    ]
-    fixed = H.with_fixes(machine, heard, {2: [(A, "m")]})
-    assert said(fixed)[1] == (2.0, 4.0, A, "m", True) and [c["yours"] for c in fixed] == [False, True, False, False]
-    assert fixed[1]["score"] == 1.0 and fixed[0]["score"] == 0.8
-    # two chords share their bar half and half; a bar past the end of the song is left out
-    two = H.with_fixes(machine, heard, {3: [(G, ""), (B, "dim")], 9: [(C, "")]})
-    assert said(two)[2:4] == [(4.0, 5.0, G, "", True), (5.0, 6.0, B, "dim", True)] and len(two) == 5
-    # a chord the tool held across the bar line is cut where the person's begins, and a bar it had nothing in is filled
-    long = [
-        dict(start=0.0, end=4.0, root=E, quality="m", score=0.7),
-        dict(start=6.0, end=8.0, root=D, quality="", score=0.7),
-    ]
-    assert said(H.with_fixes(machine, long, {2: [(C, "")], 3: [(G, "7")]})) == [
-        (0.0, 2.0, E, "m", False),
-        (2.0, 4.0, C, "", True),
-        (4.0, 6.0, G, "7", True),
-        (6.0, 8.0, D, "", False),
-    ]
-
-
-def test_the_persons_chords_are_kept_beside_the_song(tmp_path):
-    H, folder = copilot_harmony, str(tmp_path)
-    assert H.read_fixes(folder) == {}
-    H.set_chords(folder, [3, 7], (A, "m7"))
-    H.set_chords(folder, [4], (D, ""))
-    H.set_home(folder, (C, True))  # the home and the chords are kept apart in the one file
-    assert H.read_fixes(folder) == {3: [(A, "m7")], 7: [(A, "m7")], 4: [(D, "")]} and H.read_home(folder) == (C, True)
-    H.set_chords(folder, [7, 9], None)  # taken away again; a bar that had none is no matter
-    assert H.read_fixes(folder) == {3: [(A, "m7")], 4: [(D, "")]} and H.read_home(folder) == (C, True)
-    for bars, chord in (
-        ([], (C, "")),
-        ([0], (C, "")),
-        ([True], (C, "")),
-        ("3", (C, "")),
-        ([3], (12, "")),
-        ([3], (C, "minor")),
-        ([3], (True, "")),
-    ):
-        with pytest.raises(Bass2SheetError):
-            H.set_chords(folder, bars, chord)
-    assert H.read_fixes(folder) == {3: [(A, "m7")], 4: [(D, "")]}
+def test_the_chords_offered_for_a_stretch_of_the_bass_line():
+    suggest = copilot_harmony.suggest
+    line = [_note(0.0, 1.0, 40), _note(1.0, 1.5, 47), _note(1.5, 2.0, 43)]  # E, its fifth, its minor third
+    got = suggest(line, 0.0, 2.0, (E, False))
+    assert got[0] == (E, "m") and len(got) == 8 == len(set(got)) and all(quality in ("", "m") for _, quality in got)
+    assert suggest([_note(0.0, 1.0, 40), _note(1.0, 2.0, 44)], 0.0, 2.0, (E, True))[0] == (E, "")  # a major third
+    assert suggest([], 0.0, 2.0, (G, True))[0] == (G, "")  # nothing is played: the chords of the key, home first
+    assert len(suggest(line, 0.0, 2.0, (E, False), most=3)) == 3
+    # what the tool heard there is tried early, as its major or minor chord
+    heard = [dict(start=0.0, end=2.0, root=C, quality="maj7", score=0.9)]
+    assert (C, "") in suggest(line, 0.0, 2.0, (E, False), heard=heard)[:2]
+    assert (C, "") not in suggest(line, 0.0, 2.0, (E, False))[:2]
+    assert (C, "") not in suggest(line, 0.0, 2.0, (E, False), heard=[dict(heard[0], start=2.0, end=4.0)])[:2]
+    # and what the person put at the same place in another round comes first
+    assert suggest(line, 0.0, 2.0, (E, False), picked=[(A, "m7")])[0] == (A, "m")
 
 
 @pytest.fixture(scope="module")
@@ -394,122 +457,245 @@ def workdir(prepared, tmp_path):
     return work
 
 
-def test_the_page_gets_the_song_as_chords_against_a_home(workdir):
+# The song the tests prepare is a loop of E minor, C, G and D, a bar each, three times round, from bar 2 on; over
+# each chord the bass plays root, root, fifth, octave, fifth, fourth. The tool takes it to be in G major.
+ROUND = [
+    dict(at=16, chord=[E, "m"]),
+    dict(at=32, chord=[C, ""]),
+    dict(at=48, chord=[G, ""]),
+    dict(at=64, chord=[D, ""]),
+]
+
+
+def test_the_page_gets_the_song_with_no_chords_until_the_person_writes_some(workdir):
     desk = copilot.Desk(workdir, "mix")
     seen = copilot_harmony.view(desk)
-    found = (desk.machine["key"][1], desk.machine["key"][2])
-    assert (seen["home"]["root"], seen["home"]["major"]) == found and not seen["home"]["yours"]
-    assert seen["home"]["name"] == copilot_harmony.key_name(found)
-    # the choices: the key the tool found, and the key with the same notes
-    assert [(h["root"], h["major"], h["found"]) for h in seen["homes"]] == [
-        (*found, True),
-        (*copilot_harmony.relative(found), False),
-    ]
-    # the song is a loop of E minor, C, G and D, a bar each: the chords are those, in time order, a bar long
-    chords = seen["chords"]
-    assert len(chords) >= 8 and {c["name"] for c in chords} <= {"Em", "C", "G", "D", "E", "Cm", "Gm", "Dm"}
-    assert all(a["end"] <= b["start"] + 1e-6 for a, b in zip(chords, chords[1:]))
-    assert all(1.5 < c["end"] - c["start"] < 2.5 for c in chords[1:-1])  # the first and last bars are cut short
-    assert all(c["numeral"] == copilot_harmony.numeral(c["root"], c["quality"], found) for c in chords)
-    assert [c["bar"] for c in chords] == sorted(c["bar"] for c in chords) and chords[0]["bar"] >= 1
-    assert len(seen["bars"]) >= 12 and seen["bars"][0]["bar"] == 1 and "pattern" in seen["bars"][0]
-    # the bass starts each bar on the chord's root, and spends most of its time on roots and fifths
-    assert sum(c["role"] == "root" for c in chords) >= 0.8 * len(chords)
-    assert abs(sum(seen["roles"].values()) - 1) < 0.01 and seen["roles"]["root"] > 0.5
-    assert seen["roles"]["root"] + seen["roles"]["fifth"] > 0.8
-    # where the song spends its time, and how it moves
-    assert abs(sum(p["share"] for p in seen["places"]) - 1) < 0.02
-    assert seen["places"][0]["seconds"] >= seen["places"][-1]["seconds"]
-    assert seen["moves"] and all(m["a"]["name"] != m["b"]["name"] and m["times"] >= 1 for m in seen["moves"])
-    assert seen["motions"] and all(m["name"] == copilot_harmony.MOTIONS[m["up"]] for m in seen["motions"])
-    assert seen["fine"] and seen["unsure"] == 0 and not any(bar["unsure"] for bar in seen["bars"])
-    assert [k["name"] for k in seen["keys"]] == [seen["home"]["name"]] and seen["keys"][0]["start"] == 0
-    # each chord with its job, its distance from rest, its notes, and its place on each of the three maps
-    assert {c["job"] for c in chords} <= set(copilot_harmony.JOBS) and all(c["far"] >= 0 for c in chords)
-    assert all(c["tones"][0] == c["root"] and len(c["tones"]) == 3 for c in chords)
+    # home is the tool's guess, with the key that has the same notes to choose instead
+    assert seen["home"] == dict(root=G, major=True, name="G major", yours=False)
+    assert [(h["name"], h["guess"]) for h in seen["homes"]] == [("G major", True), ("E minor", False)]
+    # no chord anywhere: none in the song, none on the maps, nothing said about them
+    assert (
+        seen["chords"] == []
+        and seen["marks"] == []
+        and (seen["written"], seen["to_choose"], seen["covered"]) == (0, 0, 0)
+    )
+    assert seen["places"] == [] and seen["moves"] == [] and seen["motions"] == [] and seen["roles"] is None
     assert set(seen["maps"]) == {"roads", "wheel", "semitones"} and tuple(seen["maps"]["roads"]["box"]) == (760, 534)
-    for name, drawn in seen["maps"].items():
-        for c in chords:
-            spot = drawn["spots"][c["on"][name]]
-            assert spot["root"] == c["root"] and spot["seconds"] > 0 and spot["name"] and spot["numeral"]
+    assert all(
+        spot["seconds"] == 0 and spot["name"] and spot["numeral"] for m in seen["maps"].values() for spot in m["spots"]
+    )
     assert set(seen["regions"]) == set(copilot_harmony.JOBS)
+    # the bars: when each starts and each of its four beats, and the note the bass stands on
+    bars = seen["bars"]
+    assert len(bars) >= 14 and bars[0]["bar"] == 1 and "pattern" in bars[0]
+    assert [bar["stands_on"] for bar in bars[:6]] == [None, "E", "C", "G", "D", "E"]
+    for bar in bars[1:13]:
+        assert bar["beats"][0] == bar["time"] and bar["beats"] == sorted(bar["beats"]) and bar["beats"][3] < bar["end"]
+        assert bar["holds"] == [] and bar["comes_in"] is None
+    # the parts come from the bass line: a bar without bass, the loop of four bars three times round, the end
+    parts = seen["parts"]
+    assert parts[0]["bar"] == 1 and sum(p["bars"] for p in parts) == len(bars)
+    assert all(a["bar"] + a["bars"] == b["bar"] and a["end"] <= b["start"] + 1e-6 for a, b in zip(parts, parts[1:]))
+    loop = max(parts, key=lambda p: p["bars"])
+    assert (loop["bar"], loop["bars"], loop["size"], loop["skip"]) == (2, 12, 4, 0)
+    assert loop["stands"] == ["E", "C", "G", "D"] and loop["loop"] == [[], [], [], []]
+    said = {entry["letter"]: entry for entry in seen["loops"]}
+    mine = said[loop["letter"]]
+    assert (mine["size"], mine["bars"], mine["rounds"], mine["times"]) == (4, 12, 3.0, 1) and len(mine["bass"]) == 4
+    assert mine["stands"] == loop["stands"] and not mine["same"]  # the same shape, but on other steps of the key
+    # what the bass plays, as steps of the key: over E in G major the line is 6 6 3 6 3 2
+    assert [n["said"] for n in mine["bass"][0]["notes"]] == ["6", "6", "3", "6", "3", "2"]
+    assert [n["said"] for n in mine["bass"][1]["notes"]] == ["4", "4", "1", "4", "1", "b7"]  # and over C
+    assert all(line["of"] == "key" and line["share"] == 1.0 for line in mine["bass"])
+    assert all(n["role"] is None and 0 <= n["slot"] <= 15 for line in mine["bass"] for n in line["notes"])
+    notes = seen["bass"]
+    assert len(notes) == len(desk.notes) and seen["strings"] == [28, 33, 38, 43]
+    assert all(seen["strings"][n["string"]] + n["fret"] == n["pitch"] and 0 <= n["slot"] <= 15 for n in notes)
+    assert all(n["step"] and n["chord"] is None and n["degree"] is None and n["role"] is None for n in notes)
+    assert [s["step"] for s in seen["steps"]][:2] == ["1", "5"] and abs(
+        sum(s["share"] for s in seen["steps"]) - 1
+    ) < 0.01
+    # every chord the person may put on a beat, with its notes
+    assert len(seen["palette"]) == 12 * len(seen["qualities"]) == 144
+    assert seen["palette"]["9,m7"]["tones"] == [9, 0, 4, 7] and seen["palette"]["9,m7"]["name"] == "Am7"
     for name, address in seen["audio"].items():
         assert os.path.isfile(os.path.join(workdir, "mix", "audio", name + ".flac")) and address.endswith(
             name + ".flac"
         )
+    assert not os.path.exists(os.path.join(workdir, "mix", "harmony.json"))  # looking writes nothing
 
 
-def test_the_song_is_given_in_parts_with_what_the_bass_plays_over_each(workdir):
-    seen = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    parts, bars = seen["parts"], seen["bars"]
-    # the parts follow each other and cover every bar
-    assert parts[0]["bar"] == 1 and sum(p["bars"] for p in parts) == len(bars)
-    assert all(a["bar"] + a["bars"] == b["bar"] and a["end"] <= b["start"] + 1e-6 for a, b in zip(parts, parts[1:]))
-    # the song is one loop of four bars, three times round, between a bar that leads in and the bars it dies away in
-    loop = max(parts, key=lambda p: p["bars"])
-    assert (loop["bars"], loop["size"]) == (12, 4) and [len(bar) for bar in loop["loop"]] == [1, 1, 1, 1]
-    assert [bar[0]["name"] for bar in loop["loop"]] == ["Em", "C", "G", "D"]
-    assert {bar[0]["job"] for bar in loop["loop"]} <= set(copilot_harmony.JOBS)
-    said = {entry["letter"]: entry for entry in seen["loops"]}
-    mine = said[loop["letter"]]
-    assert (mine["size"], mine["bars"], mine["rounds"], mine["times"]) == (4, 12, 3.0, 1) and len(mine["bass"]) == 4
-    # over each chord the bass plays root, root, fifth, octave, fifth, fourth: the first bars are heard just so
-    for line in mine["bass"][:2]:
-        assert [n["degree"] for n in line["notes"]] == ["R", "R", "5", "8", "5", "4"] and line["share"] == 1.0
-        assert [n["slot"] for n in line["notes"]] == [0, 4, 6, 8, 12, 14]
-        assert [n["role"] for n in line["notes"]] == ["root", "root", "fifth", "root", "fifth", "other"]
-    assert seen["on_root"] == 1.0  # every chord starts on its root
-    # each bass note: where it is played, the chord it sounds under, and what it is to that chord
-    notes = seen["bass"]
-    assert len(notes) == len(copilot.Desk(workdir, "mix").notes) and seen["strings"] == [28, 33, 38, 43]
-    assert all(
-        0 <= n["string"] <= 3 and 0 <= n["fret"] <= 24 and seen["strings"][n["string"]] + n["fret"] == n["pitch"]
-        for n in notes
-    )
-    assert all(0 <= n["slot"] <= 15 and n["bar"] >= 1 for n in notes)
-    under = [n for n in notes if n["chord"] is not None]
-    assert len(under) >= 0.9 * len(notes) and all(n["degree"] and n["role"] for n in under)
-    assert all(
-        seen["chords"][n["chord"]]["start"] - 0.05 <= n["start"] < seen["chords"][n["chord"]]["end"] for n in under
-    )
-
-
-def test_a_chord_the_person_changed_is_in_the_song_from_then_on(workdir):
+def test_a_chord_the_person_writes_is_the_songs_from_its_beat_on(workdir):
     desk = copilot.Desk(workdir, "mix")
-    before = copilot_harmony.view(desk)
-    loop = max(before["parts"], key=lambda p: p["bars"])
-    bars = [loop["bar"] + 1 + 4 * k for k in range(3)]  # the second bar of the loop, in each of its three rounds
-    assert all(before["bars"][b - 1]["holds"][0]["name"] == "C" and not before["bars"][b - 1]["yours"] for b in bars)
-    assert before["fixed"] == 0 and len(before["palette"]) == 12 * len(before["qualities"]) == 144
-    assert before["palette"]["9,m7"]["tones"] == [9, 0, 4, 7] and before["palette"]["9,m7"]["name"] == "Am7"
+    # the first round: Em, C, a change still to choose, and D, which then lasts to the end of the part
+    copilot_harmony.set_marks(desk.folder, ROUND[:2] + [dict(at=48, chord=None), ROUND[3]])
+    seen = copilot_harmony.view(desk)
+    assert [(m["bar"], m["beat"], m["chord"] and m["chord"]["name"], m["open"]) for m in seen["marks"]] == [
+        (2, 1, "Em", False),
+        (3, 1, "C", False),
+        (4, 1, None, True),
+        (5, 1, "D", False),
+    ]
+    chords = seen["chords"]
+    assert [(c["name"], c["bar"], c["at"], c["until"]) for c in chords] == [
+        ("Em", 2, 16, 32),
+        ("C", 3, 32, 48),
+        ("D", 5, 64, 208),
+    ]
+    assert [(c["numeral"], c["job"]) for c in chords] == [("vi", "rest"), ("IV", "drift"), ("V", "pull")]
+    assert all(c["start"] == seen["bars"][c["bar"] - 1]["time"] and c["tones"][0] == c["root"] for c in chords)
+    assert chords[2]["end"] == seen["parts"][1]["end"]  # the end of the loop's part
+    assert (seen["written"], seen["to_choose"]) == (3, 1) and 0.7 < seen["covered"] < 0.9
+    # the bars say what they hold, and the chord that comes into each from before
+    assert [[c["name"] for c in bar["holds"]] for bar in seen["bars"][:6]] == [[], ["Em"], ["C"], [], ["D"], ["D"]]
+    assert [bar["comes_in"] and bar["comes_in"]["name"] for bar in seen["bars"][:7]] == [
+        None,
+        "Em",
+        "C",
+        None,
+        "D",
+        "D",
+        "D",
+    ]
+    # the bass under a chord is named by the chord; where there is none, by the key
+    line = lambda bar: [(n["degree"], n["role"]) for n in seen["bass"] if n["bar"] == bar]  # noqa: E731
+    assert [d for d, _ in line(2)] == ["R", "R", "5", "8", "5", "4"] == [d for d, _ in line(3)]
+    assert [r for _, r in line(2)] == ["root", "root", "fifth", "root", "fifth", "other"]
+    assert set(line(4)) == {(None, None)}
+    assert [n["step"] for n in seen["bass"] if n["bar"] == 4][:6] == ["1", "1", "5", "1", "5", "4"]
+    assert all(seen["chords"][n["chord"]]["start"] - 0.05 <= n["start"] for n in seen["bass"] if n["chord"] is not None)
+    assert seen["on_root"] == 1.0 and abs(sum(seen["roles"].values()) - 1) < 0.01  # each chord starts on its root
+    # where the song spends its time, how it moves, and each chord's place on the three maps
+    assert {p["name"] for p in seen["places"]} == {"Em", "C", "D"} and abs(
+        sum(p["share"] for p in seen["places"]) - 1
+    ) < 0.02
+    assert [(m["a"]["name"], m["b"]["name"], m["times"]) for m in seen["moves"]] == [("Em", "C", 1), ("C", "D", 1)]
+    assert [m["name"] for m in seen["motions"]] == [copilot_harmony.MOTIONS[m["up"]] for m in seen["motions"]]
+    for name, drawn in seen["maps"].items():
+        for c in chords:
+            spot = drawn["spots"][c["on"][name]]
+            assert spot["root"] == c["root"] and spot["seconds"] > 0
+    assert desk.notes == copilot.Desk(workdir, "mix").notes  # and nothing of the notes
 
-    copilot_harmony.set_chords(desk.folder, bars, (A, "m"))
-    after = copilot_harmony.view(desk)
-    assert after["fixed"] == 3
-    for b in bars:
-        bar = after["bars"][b - 1]
-        assert bar["yours"] and bar["holds"][0]["name"] == "Am" and bar["heard"][0]["name"] == "C"
-    assert sum(c["yours"] for c in after["chords"]) == 3 and "yours" in after["chords"][0]
-    # everything that is said of the song follows: its loop, where it spends its time, the map
-    now = max(after["parts"], key=lambda p: p["bars"])
-    assert [bar[0]["name"] for bar in now["loop"]] == ["Em", "Am", "G", "D"] and now["bars"] == 12
-    assert "Am" in {p["name"] for p in after["places"]} and "C" not in {p["name"] for p in after["places"]}
-    assert any(s["name"] == "Am" and s["seconds"] > 0 for s in after["maps"]["roads"]["spots"])
-    assert after["home"] == before["home"] and desk.notes == copilot.Desk(workdir, "mix").notes  # and nothing else
 
-    copilot_harmony.set_chords(desk.folder, bars[:1], None)  # one bar back to what the tool heard
-    back = copilot_harmony.view(desk)
-    assert (
-        back["fixed"] == 2
-        and back["bars"][bars[0] - 1]["holds"][0]["name"] == "C"
-        and not back["bars"][bars[0] - 1]["yours"]
+def test_a_round_is_copied_to_the_rounds_that_have_no_chords(workdir):
+    desk = copilot.Desk(workdir, "mix")
+    copilot_harmony.set_marks(desk.folder, ROUND)
+    assert copilot_harmony.copy_round(desk, 16 * 3 + 8) == 2  # from any beat of the round
+    seen = copilot_harmony.view(desk)
+    assert [m["at"] for m in seen["marks"]] == [16 * bar for bar in range(1, 13)] and seen["written"] == 12
+    assert [m["chord"]["name"] for m in seen["marks"]] == ["Em", "C", "G", "D"] * 3
+    loop = max(seen["parts"], key=lambda p: p["bars"])
+    assert [[c["name"] for c in bar] for bar in loop["loop"]] == [["Em"], ["C"], ["G"], ["D"]]
+    mine = {entry["letter"]: entry for entry in seen["loops"]}[loop["letter"]]
+    for line in mine["bass"][:2]:  # over a chord: root, root, fifth, octave, fifth, fourth
+        assert [n["said"] for n in line["notes"]] == ["R", "R", "5", "8", "5", "4"] and line["share"] == 1.0
+        assert [n["role"] for n in line["notes"]] == ["root", "root", "fifth", "root", "fifth", "other"]
+    assert all(line["of"] == "chord" for line in mine["bass"])
+    assert seen["roles"]["root"] > 0.5 and seen["roles"]["root"] + seen["roles"]["fifth"] > 0.8
+    # a round the person wrote is never written over: one chord changed in the second, and nothing is copied
+    copilot_harmony.set_marks(desk.folder, [dict(at=96, chord=[A, "m"])])
+    before = copilot_harmony.read_marks(desk.folder)
+    assert copilot_harmony.copy_round(desk, 16) == 0 and copilot_harmony.read_marks(desk.folder) == before
+    with pytest.raises(Bass2SheetError, match="no chords to copy"):
+        copilot_harmony.copy_round(desk, 16 * 13)  # the bars the song dies away in
+    with pytest.raises(Bass2SheetError, match="no part of the song"):
+        copilot_harmony.copy_round(desk, 16 * 400)
+
+
+def test_a_round_come_into_part_of_the_way_gets_the_chords_from_there_on(tmp_path):
+    # four bars three times, two other bars, and the loop again from its third bar: C D, twice round, A B
+    pitch = dict(A=45, B=47, C=48, D=50, x=41, y=43)
+    labels = "ABCDABCDABCDxyCDABCDABCDAB"
+    notes = [_note(2.0 * k, 2.0 * k + 1.9, pitch[label]) for k, label in enumerate(labels)]
+    machine = _machine(bars=len(labels), key=["A minor", A, False])
+    desk = types.SimpleNamespace(machine=machine, notes=notes, folder=str(tmp_path))
+    put, read = copilot_harmony.set_marks, copilot_harmony.read_marks
+    put(desk.folder, [dict(at=0, chord=[A, "m"]), dict(at=48, chord=[G, ""])])  # Am for three bars, G in the fourth
+    assert copilot_harmony.copy_round(desk, 0) == 6
+    assert [(m["at"] // 16, m["chord"]) for m in read(desk.folder)] == [
+        (0, (A, "m")),
+        (3, (G, "")),
+        (4, (A, "m")),
+        (7, (G, "")),
+        (8, (A, "m")),
+        (11, (G, "")),
+        (14, (A, "m")),  # the round that starts on its third bar starts in the chord that sounds there
+        (15, (G, "")),
+        (16, (A, "m")),
+        (19, (G, "")),
+        (20, (A, "m")),
+        (23, (G, "")),
+        (24, (A, "m")),  # and the last, cut after two bars, has what fits
+    ]
+    # a chord that comes into the round from before it is copied as the round's first
+    for m in read(desk.folder):
+        put(desk.folder, [dict(at=m["at"], chord="remove")])
+    put(desk.folder, [dict(at=0, chord=[A, "m"]), dict(at=80, chord=[G, ""])])  # Am from bar 1 on into the second round
+    assert copilot_harmony.copy_round(desk, 16 * 5) == 5  # the first round has a mark of its own: it is left
+    assert [(m["at"] // 16, m["chord"]) for m in read(desk.folder)][2:5] == [(8, (A, "m")), (9, (G, "")), (14, (G, ""))]
+
+
+def test_the_tool_offers_chords_for_a_beat(workdir):
+    desk = copilot.Desk(workdir, "mix")
+    got = copilot_harmony.offers(desk, 16)  # bar 2, beat 1: the bass is on E
+    names = [o["name"] for o in got["offers"]]
+    assert got["at"] == 16 and names[0] == "Em" and len(names) == 6 == len(set(names))
+    first = got["offers"][0]
+    assert (first["root"], first["quality"], first["numeral"], first["job"], first["yours"]) == (
+        E,
+        "m",
+        "vi",
+        "rest",
+        False,
     )
+    assert all(o["quality"] in ("", "m") and not o["yours"] for o in got["offers"])
+    # the same place in the other rounds, where the chord may be wanted too
+    assert got["rounds"] == [dict(at=80, bar=6, chord=None), dict(at=144, bar=10, chord=None)]
+    assert [copilot_harmony.offers(desk, 16 * bar)["offers"][0]["name"] for bar in (2, 3, 4)] == ["C", "G", "D"]
+    assert not os.path.exists(os.path.join(desk.folder, "harmony.json"))  # offering writes nothing
+    # what the person put at the same place in another round is offered first, and marked as theirs
+    copilot_harmony.set_marks(desk.folder, [dict(at=80, chord=[E, "7"])])
+    got = copilot_harmony.offers(desk, 16)
+    assert (got["offers"][0]["name"], got["offers"][0]["yours"]) == ("E", True) and got["rounds"][0]["chord"][
+        "name"
+    ] == "E7"
+    assert sum(o["yours"] for o in got["offers"]) == 1
+    # the offers are for the stretch to the next mark: on beat 3 of a bar, for its second half
+    assert copilot_harmony.offers(desk, 16 + 8)["offers"][0]["name"] in ("Em", "E")
+    for bad in (6, -4, 16 * 400, "16", None):
+        with pytest.raises(Bass2SheetError, match="beat of a bar"):
+            copilot_harmony.offers(desk, bad)
+
+
+def test_the_score_carries_the_persons_chords_and_no_others(workdir):
+    desk = copilot.Desk(workdir, "mix")
+    folder, machine = desk.folder, desk.machine
+    assert copilot.sheet_chords(folder, machine, desk.notes) == {}
+    assert copilot.sheet_key(folder, machine) == ("G major", G, True)
+    with open(copilot.sheet(workdir, "mix", mscore=False)["musicxml"]) as f:
+        assert "<harmony>" not in f.read()
+    # Em; C and, on beat 3, A minor seventh; no chord in bar 4; G from bar 5 to the end of the part
+    marks = [ROUND[0], ROUND[1], dict(at=40, chord=[A, "m7"]), dict(at=48, chord="none"), dict(at=64, chord=[G, ""])]
+    copilot_harmony.set_marks(folder, marks)
+    got = copilot.sheet_chords(folder, machine, desk.notes)
+    assert sorted(got) == [2, 3] + list(range(5, 14))
+    assert [(at, c["root"], c["quality"], c["bass"]) for at, c in got[3]] == [(0, C, "", None), (8, A, "m7", None)]
+    assert [(at, c["root"]) for at, c in got[9]] == [(0, G)] and len(got[2][0][1]["names"]) == 12
+    with open(copilot.sheet(workdir, "mix", mscore=False)["musicxml"]) as f:
+        xml = f.read()
+    assert xml.count("<harmony>") == 4 and "<kind>minor-seventh</kind>" in xml  # a chord is named where it changes
+    assert "<offset>8</offset>" in xml and "Chord symbols approximate" not in xml
+    # the key the score is written in is the home the person chose
+    copilot_harmony.set_home(folder, (E, False))
+    assert copilot.sheet_key(folder, machine) == ("E minor", E, False)
 
 
 def test_the_song_is_put_on_the_neck_for_playing_unless_the_person_chooses_another_way(workdir):
     from bass2sheet import score
 
     desk = copilot.Desk(workdir, "mix")
+    copilot_harmony.set_marks(desk.folder, ROUND)
     seen = copilot_harmony.view(desk)
     assert seen["tab"] == "easy" == copilot.tab_style(desk.folder)
     # what each way asks of the hand over the whole song, for the page to say
@@ -531,78 +717,6 @@ def test_the_song_is_put_on_the_neck_for_playing_unless_the_person_chooses_anoth
     assert copilot_harmony.view(desk)["tab"] == "easy"
     with pytest.raises(Bass2SheetError, match="easy, closed, low, position"):
         copilot_harmony.set_tab(desk.folder, "high")
-
-
-def _with_chords(workdir, rounds):
-    """The prepared song with other chords heard in it: `rounds` holds, for each bar from bar 2 on, what the bar
-    has as [(root, quality, score, share of the bar)]."""
-    path = os.path.join(workdir, "mix", "machine.json")
-    machine = copilot.read_json(path)
-    grid, origin = machine["grid"], machine["origin"]
-    chords = []
-    for k, bar in enumerate(rounds, 1):
-        at = origin + 16 * k
-        for root, quality, score, share in bar:
-            until = at + round(16 * share)
-            chords.append(dict(start=grid[at], end=grid[until], at=at, until=until, root=root, quality=quality))
-            chords[-1].update(bass=None, score=score)
-            at = until
-    machine["harmony"]["chords"] = chords
-    with open(path, "w") as f:
-        json.dump(machine, f)
-    return copilot.Desk(workdir, "mix")
-
-
-def test_a_loop_is_found_through_sevenths_and_chords_the_tool_is_unsure_of(workdir):
-    em, c, g, d = (E, "m", 0.9, 1), (C, "", 0.9, 1), (G, "", 0.9, 1), (D, "", 0.9, 1)
-    rounds = [
-        [em], [c], [g], [d],
-        [(E, "m7", 0.9, 1)], [c], [(G, "", 0.9, 0.5), (B, "m", 0.3, 0.5)], [(D, "7", 0.9, 1)],  # the same four bars
-        [(E, "m7", 0.9, 1)], [(C, "", 0.9, 0.875), (A, "m", 0.9, 0.125)], [g], [(D, "7", 0.9, 1)],
-    ]  # fmt: skip
-    seen = copilot_harmony.view(_with_chords(workdir, rounds))
-    loop = next(p for p in seen["parts"] if p["bar"] == 2)
-    assert (loop["bars"], loop["size"]) == (12, 4)  # one loop: a seventh, or a chord in doubt, is no new part
-    # the loop is shown as most of its rounds have it, sevenths and all
-    assert [[c["name"] for c in bar] for bar in loop["loop"]] == [["Em7"], ["C"], ["G"], ["D7"]]
-    bars = seen["bars"]
-    assert [c["name"] for c in bars[7]["holds"]] == ["G", "Bm"] and bars[7][
-        "unsure"
-    ]  # bar 8 is shown as heard, in doubt
-    assert [c["name"] for c in bars[10]["holds"]] == ["C"]  # a chord that comes in an eighth early is not in the bar
-    assert sum(bar["unsure"] for bar in bars) == 1 and seen["unsure"] > 0
-    # the person's chord there settles it: no doubt is left
-    copilot_harmony.set_chords(os.path.join(workdir, "mix"), [8], (G, ""))
-    after = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    assert not after["bars"][7]["unsure"] and after["unsure"] == 0
-
-
-def test_empty_bars_get_the_chord_the_bass_line_suggests():
-    H = copilot_harmony
-    bars, ends = [0.0, 2.0, 4.0, 6.0, 8.0], [2.0, 4.0, 6.0, 8.0, 10.0]
-    note = lambda start, end, pitch: dict(start=start, end=end, pitch=pitch)  # noqa: E731
-    chord = lambda start, end, root, quality: dict(
-        start=start, end=end, root=root, quality=quality, score=0.9, over=None, yours=False
-    )  # noqa: E731
-    heard = [chord(0.0, 2.1, A, "m"), chord(7.8, 10.0, E, "")]  # ends just inside bar 2; comes in just before bar 5
-    notes = [
-        note(0.0, 1.0, 45),
-        note(2.1, 2.5, 38), note(2.5, 3.9, 41),  # bar 2 starts on D, and holds F longer: D minor, the key's chord on D
-        note(4.9, 5.9, 46),  # bar 3: the bass comes in late, on B flat, a note outside A minor: a major chord
-        # bar 4: no bass note, so no chord
-    ]  # fmt: skip
-    out = H.by_the_bass(heard, notes, bars, ends, (A, False))
-    assert [(c["start"], c["end"], c["root"], c["quality"], c["implied"]) for c in out] == [
-        (0.0, 2.1, A, "m", False),
-        (2.1, 4.0, D, "m", True),
-        (4.0, 6.0, 10, "", True),
-        (7.8, 10.0, E, "", False),
-    ]
-    assert [c["score"] for c in out if c["implied"]] == [0.5, 0.5] and not any(c["yours"] for c in out)
-    assert H.by_the_bass([], [note(0.1, 1.0, 43)], [0.0], [2.0], (C, True))[0]["quality"] == ""  # G in C major
-    # a bar that has a chord for a beat or more is left as it is
-    part = [chord(4.0, 4.6, G, "")]
-    assert [c["implied"] for c in H.by_the_bass(part, [note(4.0, 6.0, 43)], [4.0], [6.0], (C, True))] == [False]
 
 
 def _long_ago(workdir):
@@ -640,27 +754,14 @@ def test_a_song_prepared_before_has_its_harmony_heard_when_its_page_is_opened(wo
     assert {k: v for k, v in now.items() if k != "harmony"} == machine
     with open(os.path.join(folder, "notes.json"), "rb") as f:
         assert f.read() == mine
-    # the page shows the chords heard eighth by eighth, in the key read from them: nobody agreed to the old ones
-    assert seen["reading"] == "eighths" and seen["readings"] == ["eighths", "bars"] and seen["fine"]
-    assert seen["home"]["name"] == "G major" and len(seen["chords"]) >= 8
-    assert [k["name"] for k in seen["keys"]] == ["G major"]
-    assert sorted(copilot.sheet_chords(folder, now))[:3] == [2, 3, 4]  # the score's chords follow the page
-
-    # the chord a bar the song had is its other reading, there to be asked for
-    copilot_harmony.set_reading(folder, "bars")
-    coarse = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    assert coarse["reading"] == "bars" and not coarse["fine"] and coarse["home"]["name"] == "C major"
-    assert [c["name"] for c in coarse["chords"] if not c["implied"]] == ["C"]
-    assert not any(bar["unsure"] for bar in coarse["bars"]) and coarse["keys"] == []
-    names = machine["chords"][0]["names"]
-    assert copilot.sheet_chords(folder, now) == {2: [(0, dict(root=C, quality="", bass=None, names=names))]}
-    copilot_harmony.set_reading(folder, None)
-    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "eighths"
-    with pytest.raises(Bass2SheetError, match="eighths, bars"):
-        copilot_harmony.set_reading(folder, "sixteenths")
+    # it is used for the tool's guess of the key and for what it offers; it puts no chord in the song
+    assert seen["home"]["name"] == "G major" and seen["chords"] == [] and seen["written"] == 0
+    assert [h["name"] for h in seen["homes"]] == ["G major", "E minor", "C major"]  # the key it had is there to pick
+    assert copilot_harmony.offers(desk, 16)["offers"][0]["name"] == "Em"
+    assert copilot.sheet_chords(folder, now, desk.notes) == {}
 
 
-def test_a_song_whose_separated_tracks_are_gone_keeps_its_chord_a_bar(workdir):
+def test_a_song_whose_separated_tracks_are_gone_keeps_the_key_it_had(workdir):
     folder = os.path.join(workdir, "mix")
     path = os.path.join(folder, "machine.json")
     machine, _ = _long_ago(workdir)
@@ -669,38 +770,34 @@ def test_a_song_whose_separated_tracks_are_gone_keeps_its_chord_a_bar(workdir):
     with open(os.path.join(workdir, "songs.json"), "w") as f:
         json.dump(songs, f)
     assert copilot.hear_harmony(workdir, "mix") is None
-    seen = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    assert seen["readings"] == ["bars"] and seen["reading"] == "bars" and not seen["fine"]
-    assert copilot.read_json(path) == machine and folder in copilot_harmony._ASKED  # not asked again at every look
-    copilot_harmony.set_reading(folder, "eighths")  # asked for, and not to be had: the page shows what there is
-    assert copilot_harmony.view(copilot.Desk(workdir, "mix"))["reading"] == "bars"
-    copilot_harmony._ASKED.discard(folder)
-
-
-def test_a_song_prepared_now_is_shown_with_its_chords_heard_eighth_by_eighth(workdir):
     desk = copilot.Desk(workdir, "mix")
     seen = copilot_harmony.view(desk)
-    assert seen["reading"] == "eighths" and seen["readings"] == ["eighths", "bars"] and seen["fine"]
-    copilot_harmony.set_reading(desk.folder, "bars")  # its chord a bar is the coarser view of the same chords
-    coarse = copilot_harmony.view(copilot.Desk(workdir, "mix"))
-    assert coarse["reading"] == "bars" and {c["quality"] for c in coarse["chords"]} <= {"", "m"}
-    assert coarse["home"]["name"] == seen["home"]["name"]
+    assert copilot.read_json(path) == machine and "harmony" not in desk.machine  # nothing could be heard
+    assert folder in copilot_harmony._ASKED  # and it is not asked for again at every look
+    assert [h["name"] for h in seen["homes"]] == ["C major", "A minor"] and seen["home"]["name"] == "C major"
+    assert seen["chords"] == [] and [bar["stands_on"] for bar in seen["bars"][1:5]] == ["E", "C", "G", "D"]
+    # the chord a bar it had still weighs in what is offered: C for bar 2, where the bass is on E
+    assert "C" in [o["name"] for o in copilot_harmony.offers(desk, 16)["offers"]][:2]
+    copilot_harmony._ASKED.discard(folder)
 
 
 def test_the_person_chooses_home_and_the_names_follow(workdir):
     desk = copilot.Desk(workdir, "mix")
+    copilot_harmony.set_marks(desk.folder, ROUND)
     before = copilot_harmony.view(desk)
     other = copilot_harmony.relative((before["home"]["root"], before["home"]["major"]))
     copilot_harmony.set_home(desk.folder, other)
     after = copilot_harmony.view(desk)
     assert (after["home"]["root"], after["home"]["major"]) == other and after["home"]["yours"]
-    assert [c["numeral"] for c in after["chords"]] != [c["numeral"] for c in before["chords"]]
+    assert [c["numeral"] for c in before["chords"]] == ["vi", "IV", "I", "V"]
+    assert [c["numeral"] for c in after["chords"]] == ["i", "bVI", "bIII", "bVII"]
     assert [c["root"] for c in after["chords"]] == [c["root"] for c in before["chords"]]  # the chords are the same
+    assert [n["step"] for n in after["bass"]][:6] == ["1", "1", "5", "1", "5", "4"]  # and the steps are of E now
     assert len(after["homes"]) == 2 and desk.notes == copilot.Desk(workdir, "mix").notes  # nothing of the notes
-    # a home that is neither the found key nor its relative is offered too, so that it can be seen as chosen
+    # a home that is neither the tool's guess nor its relative is offered too, so that it can be seen as chosen
     copilot_harmony.set_home(desk.folder, (1, True))
     assert [h["name"] for h in copilot_harmony.view(desk)["homes"]][-1] == "Db major"
-    copilot_harmony.set_home(desk.folder, None)  # back to the key the tool found
+    copilot_harmony.set_home(desk.folder, None)  # back to the tool's guess
     assert copilot_harmony.view(desk)["home"] == before["home"]
     for bad in ((12, True), (0, "major"), ("C", True)):
         with pytest.raises(Bass2SheetError):
@@ -731,7 +828,7 @@ def _json(url, data=None):
 def test_the_page_is_served_and_the_other_pages_lead_to_it(served):
     with urllib.request.urlopen(served + "/harmony", timeout=30) as r:
         page = r.read().decode()
-    assert r.status == 200 and '<script id="logic">' in page and "/api/harmony" in page
+    assert r.status == 200 and '<script id="logic">' in page and "/api/harmony" in page and "/api/offers" in page
     for address, link in (("/", "/harmony#${id}"), ("/song", 'id="harmonylink"')):
         with urllib.request.urlopen(served + address, timeout=30) as r:
             assert link in r.read().decode()
@@ -747,40 +844,46 @@ def test_the_pages_own_logic():
     assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr
 
 
-def test_the_server_gives_the_harmony_and_keeps_the_choice_of_home(served, workdir):
+def test_the_server_gives_the_harmony_and_keeps_what_the_person_sets(served, workdir):
+    folder = os.path.join(workdir, "mix")
     status, seen = _json(served + "/api/harmony?id=mix")
-    assert status == 200 and seen["id"] == "mix" and seen["chords"] and not seen["home"]["yours"]
+    assert status == 200 and seen["id"] == "mix" and seen["chords"] == [] and not seen["home"]["yours"]
     assert _json(served + "/api/harmony?id=nothing")[0] == 404
     other = seen["homes"][1]
     status, after = _json(served + "/api/harmony", dict(song="mix", home=[other["root"], other["major"]]))
     assert status == 200 and after["home"]["name"] == other["name"] and after["home"]["yours"]
-    assert copilot_harmony.read_home(os.path.join(workdir, "mix")) == (other["root"], other["major"])
+    assert copilot_harmony.read_home(folder) == (other["root"], other["major"])
     assert _json(served + "/api/harmony?id=mix")[1]["home"] == after["home"]  # kept
     status, said = _json(served + "/api/harmony", dict(song="mix", home=[12, True]))
     assert status == 400 and "twelve notes" in said["error"]
-    # a chord of the person's for some bars: kept, logged, and the home is left as it is
-    _json(served + "/api/harmony", dict(song="mix", home=[other["root"], other["major"]]))
-    status, fixed = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3, 7], chord=[A, "m"])))
-    assert status == 200 and fixed["fixed"] == 2 and fixed["bars"][2]["yours"] and fixed["home"]["yours"]
-    assert copilot_harmony.read_fixes(os.path.join(workdir, "mix")) == {3: [(A, "m")], 7: [(A, "m")]}
-    with open(os.path.join(workdir, "mix", "log.jsonl")) as f:
-        logged = [json.loads(line) for line in f if '"chord"' in line]
-    assert logged[-1]["kind"] == "chord" and logged[-1]["bars"] == [3, 7] and logged[-1]["chord"] == [A, "m"]
-    status, said = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3], chord=[A, "minor"])))
-    assert status == 400 and "twelve notes" in said["error"]
-    assert _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[], chord=[A, "m"])))[0] == 400
-    status, fewer = _json(served + "/api/harmony", dict(song="mix", chords=dict(bars=[3], chord=None)))
-    assert status == 200 and fewer["fixed"] == 1 and not fewer["bars"][2]["yours"] and fewer["home"]["yours"]
+    # what the tool offers for a beat
+    status, got = _json(served + "/api/offers?id=mix&at=16")
+    assert status == 200 and got["offers"][0]["name"] == "Em" and [r["bar"] for r in got["rounds"]] == [6, 10]
+    for bad in ("id=mix&at=6", "id=mix", "id=mix&at=two", "id=nothing&at=16"):  # no such beat, no such song
+        assert _json(served + "/api/offers?" + bad)[0] == 404
+    # the person's chords: kept, logged, and the home is left as it is
+    status, marked = _json(served + "/api/harmony", dict(song="mix", marks=ROUND))
+    assert status == 200 and marked["written"] == 4 and marked["home"]["yours"]
+    assert [m["chord"]["name"] for m in marked["marks"]] == ["Em", "C", "G", "D"]
+    assert [m["chord"] for m in copilot_harmony.read_marks(folder)] == [(E, "m"), (C, ""), (G, ""), (D, "")]
+    status, said = _json(served + "/api/harmony", dict(song="mix", marks=[dict(at=18, chord=[A, "m"])]))
+    assert status == 400 and "on a beat" in said["error"]
+    assert _json(served + "/api/harmony", dict(song="mix", marks=[]))[0] == 400
+    status, fewer = _json(served + "/api/harmony", dict(song="mix", marks=[dict(at=64, chord="remove")]))
+    assert status == 200 and fewer["written"] == 3
+    # the round copied to the rounds that have none
+    status, copied = _json(served + "/api/harmony", dict(song="mix", copy=16))
+    assert status == 200 and copied["written"] == 9 and copied["home"]["yours"]
+    assert _json(served + "/api/harmony", dict(song="mix", copy=16 * 400))[0] == 400
+    with open(os.path.join(folder, "log.jsonl")) as f:
+        logged = [json.loads(line) for line in f if '"chord' in line]
+    assert [entry["kind"] for entry in logged] == ["chord", "chord", "chords copied"]
+    assert logged[0]["marks"] == ROUND and (logged[2]["at"], logged[2]["rounds"]) == (16, 2)
     status, back = _json(served + "/api/harmony", dict(song="mix", home=None))
-    assert status == 200 and back["home"] == seen["home"] and back["fixed"] == 1
+    assert status == 200 and back["home"] == seen["home"] and back["written"] == 9
     # how the song is put on the neck: kept, and the chords and the home are left as they are
     status, closed = _json(served + "/api/harmony", dict(song="mix", tab="closed"))
-    assert status == 200 and closed["tab"] == "closed" and closed["fixed"] == 1
-    assert copilot.tab_style(os.path.join(workdir, "mix")) == "closed"
+    assert status == 200 and closed["tab"] == "closed" and closed["written"] == 9
+    assert copilot.tab_style(folder) == "closed"
     assert _json(served + "/api/harmony", dict(song="mix", tab="high"))[0] == 400
     assert _json(served + "/api/harmony?id=mix")[1]["tab"] == "closed"
-    # which reading of the chords the page shows
-    status, coarse = _json(served + "/api/harmony", dict(song="mix", reading="bars"))
-    assert status == 200 and coarse["reading"] == "bars" and coarse["tab"] == "closed" and coarse["fixed"] == 1
-    assert _json(served + "/api/harmony", dict(song="mix", reading="sixteenths"))[0] == 400
-    assert _json(served + "/api/harmony", dict(song="mix", reading=None))[1]["reading"] == "eighths"

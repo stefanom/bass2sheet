@@ -64,11 +64,8 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .edit{flex:1 1 100%;display:flex;flex-direction:column;gap:6px;padding:var(--s2) var(--s3);border:1px solid var(--text);border-radius:var(--r);background:var(--card)}
 .edit select{min-height:28px;font-size:.875rem}
 .chip.pick{box-shadow:inset 0 0 0 2px var(--text)}
-.chip.yours b::after{content:" ✓";font-family:var(--sans);font-size:.65em;color:var(--text-2)}
-.chip.implied{border-style:dotted;border-bottom-style:solid}
-.chip.implied b{font-style:italic}
-.chip.unsure{border-style:dashed;border-bottom-style:solid}
-.chip.unsure b::after{content:" ?";font-family:var(--sans);font-size:.7em;color:var(--pull)}
+.chip.bare{border-style:dotted;border-bottom-style:solid}
+.chip.bare b{font-family:var(--sans);font-size:.9375rem;color:var(--text-2)}
 .kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
 .kside{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
 .v-tag{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--text-2)}
@@ -165,6 +162,35 @@ svg text{font-family:var(--sans);fill:var(--text)}
   #neck{width:100%}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* the round that plays, bar by bar: the person's chords over four beats, and the bass line under them */
+.barbox{flex:none;display:grid;gap:2px;padding:3px 4px 2px;border:1px solid var(--line);border-radius:8px;min-width:124px}
+.barbox.playing{background:var(--pull-soft);box-shadow:inset 0 0 0 1px var(--text)}
+.barbox .cells,.barbox .beats{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+.cell{min-height:26px;padding:0 4px;border:0;border-bottom:3px solid var(--line);border-radius:4px 4px 0 0;background:transparent;cursor:pointer;font-family:var(--serif);font-size:1rem;line-height:1.5;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell:hover,.beat:hover{background:var(--ink-soft)}
+.cell.rest{border-bottom-color:var(--rest)}.cell.drift{border-bottom-color:var(--drift)}.cell.pull{border-bottom-color:var(--pull)}
+.cell.goes{color:var(--text-2);font-size:.8125rem;line-height:1.85;border-bottom-style:dotted}
+.cell.open{color:var(--pull);font-weight:700;border-bottom-color:var(--pull);border-bottom-style:dashed}
+.cell.none{color:var(--text-2);font-family:var(--sans);font-size:.6875rem;line-height:2.2}
+.beat{height:18px;padding:0;border:0;border-radius:4px;background:transparent;cursor:pointer;font-size:.625rem;line-height:1;color:var(--text-2)}
+.beat.marked{color:var(--text);font-weight:700}
+.beat.cur{background:var(--ink-soft);color:var(--text)}
+.beat.sel{background:var(--text);color:var(--paper)}
+.barbox u{font-size:.625rem;color:var(--text-2);text-decoration:none;white-space:nowrap;min-height:1.1em;text-align:center}
+.barbox .n{font-size:.5625rem;color:var(--text-2);letter-spacing:.04em}
+.now .path{flex:1 1 100%;order:3;align-items:flex-start}
+.now .transport{flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end}
+.now .tapbar,.now .edit,.now .kbd{order:4}
+.tapbar{flex:1 1 100%;display:flex;align-items:center;gap:var(--s3)}
+.tapbar .btn{min-height:44px;padding:0 var(--s6);font-size:1.05rem;border-color:var(--pull);color:var(--pull);font-weight:600}
+.tapbar .btn:active{background:var(--pull);color:#fff}
+.offer{display:inline-flex;align-items:center;gap:4px}
+.chip.also b::after{content:" ✓";font-family:var(--sans);font-size:.65em;color:var(--text-2)}
+.st.dest.rest circle{fill:var(--rest-soft);stroke:var(--rest);stroke-width:2.2;stroke-dasharray:4 3}
+.st.dest.drift circle{fill:var(--drift-soft);stroke:var(--drift);stroke-width:2.2;stroke-dasharray:4 3}
+.st.dest.pull circle{fill:var(--pull-soft);stroke:var(--pull);stroke-width:2.2;stroke-dasharray:4 3}
+.st.dest{opacity:1}
 </style>
 </head>
 <body>
@@ -178,7 +204,7 @@ svg text{font-family:var(--sans);fill:var(--text)}
 </header>
 <main>
   <h1 id="title">&nbsp;</h1>
-  <p class="dek">The song as its chords: what each one does, the few loops the song is made of, and what the bass plays over them.</p>
+  <p class="dek">The song as its bass line: the parts it is made of and what the bass plays in them. The chords are yours to write: the tool only offers some to try.</p>
   <div class="short" id="short" hidden></div>
   <p id="error" hidden></p>
 
@@ -192,8 +218,8 @@ svg text{font-family:var(--sans);fill:var(--text)}
     <div class="transport">
       <button class="btn go" id="play" type="button">▶ Play</button>
       <button class="btn" id="loop" type="button" aria-pressed="false" title="Go round the part that is playing until you stop it">Loop this part</button>
-      <button class="btn" id="chords" type="button" aria-pressed="false" title="Play the chords the page names, in a plain keyboard sound, over what you hear: a wrong chord is heard at once">Hear the chords</button>
-      <button class="btn" id="change" type="button" title="Put another chord in the bar that sounds, after hearing the bar with it">Change this chord</button>
+      <button class="btn" id="chords" type="button" aria-pressed="false" title="Play the chords you wrote, in a plain keyboard sound, over what you hear">Hear the chords</button>
+      <button class="btn" id="tapmode" type="button" aria-pressed="false" title="Mark where the chords change by pressing a button while the song plays">Tap the changes</button>
       <span class="seg" id="hear" title="What you hear">
         <button class="btn" type="button" data-hear="record" aria-pressed="true">Record</button>
         <button class="btn" type="button" data-hear="nobass" aria-pressed="false">Without bass</button>
@@ -201,11 +227,16 @@ svg text{font-family:var(--sans);fill:var(--text)}
       </span>
       <span class="muted small" id="clock">0:00</span>
     </div>
+    <div class="tapbar" id="tapbar" hidden>
+      <button class="btn" id="tap" type="button">Chord changes here</button>
+      <span class="small muted" id="tap-note">Press Play, then press this button (or the T key) each time you hear the chord change. Each press marks the nearest beat; you choose the chords afterwards.</span>
+    </div>
     <div class="edit" id="edit" hidden>
       <div class="row">
         <span class="v-tag" id="edit-where"></span>
-        <span class="small muted" id="edit-heard"></span>
+        <span class="small" id="edit-there"></span>
         <span class="grow"></span>
+        <button class="btn mini" id="edit-next" type="button" hidden>Next to choose ›</button>
         <button class="btn mini" id="edit-close" type="button">Close</button>
       </div>
       <div class="row">
@@ -214,14 +245,15 @@ svg text{font-family:var(--sans);fill:var(--text)}
         <span class="small muted">or</span>
         <select id="edit-root" aria-label="The root of another chord"></select>
         <select id="edit-quality" aria-label="The kind of that chord"></select>
-        <button class="btn mini" id="edit-try" type="button">▶ Hear the bar with it</button>
+        <button class="btn mini" id="edit-put" type="button">Put it here</button>
       </div>
       <div class="row">
-        <button class="btn mini" id="edit-hear" type="button">▶ Hear the bar as it is</button>
-        <button class="btn go" id="edit-here" type="button" disabled>Change this bar</button>
-        <button class="btn" id="edit-all" type="button" hidden></button>
-        <button class="btn" id="edit-back" type="button" hidden>Back to what the tool heard</button>
-        <span class="small muted" id="edit-note">Click a chord to hear this bar with it. Nothing changes until you say so.</span>
+        <button class="btn mini" id="edit-hear" type="button">▶ Hear it</button>
+        <button class="btn mini" id="edit-none" type="button" title="From this beat on there is no chord, until the next one you mark">No chord from here</button>
+        <button class="btn mini" id="edit-remove" type="button" hidden>Remove</button>
+        <button class="btn" id="edit-also" type="button" hidden></button>
+        <button class="btn" id="edit-copy" type="button" hidden></button>
+        <span class="small muted" id="edit-note"></span>
       </div>
     </div>
     <div class="kbd">
@@ -230,7 +262,7 @@ svg text{font-family:var(--sans);fill:var(--text)}
         <div class="row" style="gap:6px"><span class="v-tag">Fingering</span><span class="seg" id="tabs"></span></div>
         <p class="small muted" id="effort" style="margin:0"></p>
         <div class="v-tag" id="where">&nbsp;</div>
-        <p class="small" id="lead">The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.</p>
+        <p class="small" id="lead"></p>
       </div>
     </div>
   </div>
@@ -247,25 +279,16 @@ svg text{font-family:var(--sans);fill:var(--text)}
           <span class="grow"></span>
           <span class="legend"><span><i class="bg-rest"></i>rest</span><span><i class="bg-drift"></i>drift</span><span><i class="bg-pull"></i>pull</span></span>
         </div>
+        <p class="small" id="map-hint" style="margin:0 0 var(--s2)"></p>
         <svg id="map" viewBox="0 0 760 534"></svg>
-        <div class="row" id="reading-row" style="margin-top:var(--s2)" hidden>
-          <span class="v-tag">Chords</span>
-          <span class="seg" id="readings">
-            <button class="btn mini" type="button" data-reading="bars" title="One chord a bar, major or minor: coarse, and steady from one round to the next">One a bar</button>
-            <button class="btn mini" type="button" data-reading="eighths" title="Heard eighth note by eighth note, with sevenths: finer, and two chords may share a bar. More often right where a band plays the chords; less steady over a bass riff with little else">Eighth by eighth</button>
-          </span>
-          <span class="small muted" id="reading-note"></span>
-        </div>
         <details class="lens-help"><summary>How to read this map</summary><p class="small muted" id="lens-note"></p></details>
-        <p class="small muted" id="rough" style="margin:var(--s2) 0 0" hidden></p>
       </div>
     </div>
     <div class="rightcol">
       <div class="card">
         <h3>Home</h3>
         <div class="row" id="homes"></div>
-        <p class="small muted" style="margin:var(--s2) 0 0">Home is the note the song comes back to. Two keys share the same notes, a major one and a minor one: if the numerals read oddly, try the other.</p>
-        <p class="small" id="keys-note" style="margin:var(--s2) 0 0" hidden></p>
+        <p class="small muted" style="margin:var(--s2) 0 0">Home is the note the song comes back to: step 1. It is the tool's guess until you pick one. Two keys share the same notes, a major one and a minor one; if the steps read oddly, try the other.</p>
       </div>
       <div class="card">
         <h3>The song in parts</h3>
@@ -277,7 +300,7 @@ svg text{font-family:var(--sans);fill:var(--text)}
   </div>
 
   <div class="two">
-    <div class="card">
+    <div class="card" id="profile-card">
       <h3>The profile: distance from rest</h3>
       <svg id="profile" viewBox="0 0 600 200"></svg>
       <p class="small muted" id="profile-note" style="margin:var(--s2) 0 0"></p>
@@ -376,17 +399,55 @@ const Harmony = {
     for (const p of parts) if (p.letter === letter) for (let b = 0; b < p.bars; b++) if ((b + (p.skip || 0)) % p.size === k) out.push(p.bar + b);
     return out;
   },
-  // the chords to offer for a bar, each once: what the tool heard there, the chords of this song (the most used
-  // first), then the chords of the key
-  offers(heard, places, home, most = 12) {
-    const KEY = home.major ? [[0, ""], [2, "m"], [4, "m"], [5, ""], [7, ""], [9, "m"], [11, "dim"]] : [[0, "m"], [2, "dim"], [3, ""], [5, "m"], [7, "m"], [7, ""], [8, ""], [10, ""]];
-    const all = [...heard, ...places, ...KEY.map(([step, quality]) => ({ root: (home.root + step) % 12, quality }))];
-    const seen = new Set(), out = [];
-    for (const c of all) {
-      const key = c.root + "," + c.quality;
-      if (!seen.has(key) && out.length < most) { seen.add(key); out.push({ root: c.root, quality: c.quality }); }
+  // the beat nearest to time t, as sixteenths from the start of bar 1 (a mark's `at`); bars have their four
+  // beats' times
+  beatAt(bars, t) {
+    let best = 0, gap = Infinity;
+    bars.forEach((bar, k) => bar.beats.forEach((time, b) => {
+      if (Math.abs(time - t) < gap) { gap = Math.abs(time - t); best = 16 * k + 4 * b; }
+    }));
+    return best;
+  },
+  // what a bar shows of the person's chords, as stretches of beats in order: [{beat, beats, kind, chord}], kind
+  // "chord", "open" (a change is marked, its chord is to choose), "none" (no chord from here), "goes on" (the
+  // chord that comes into the bar from before) or "empty"
+  barCells(marks, k, comesIn) {
+    const mine = marks.filter(m => m.at >= 16 * k && m.at < 16 * k + 16).sort((a, b) => a.at - b.at);
+    const cells = [], first = mine.length ? (mine[0].at % 16) / 4 : 4;
+    if (first > 0) cells.push({ beat: 0, beats: first, kind: comesIn ? "goes on" : "empty", chord: comesIn || null });
+    mine.forEach((m, i) => {
+      const beat = (m.at % 16) / 4, next = i + 1 < mine.length ? (mine[i + 1].at % 16) / 4 : 4;
+      cells.push({ beat, beats: next - beat, kind: m.chord ? "chord" : m.open ? "open" : "none", chord: m.chord || null });
+    });
+    return cells;
+  },
+  // the bars shown in a row around bar k of a part (bars counted from 0): the round that holds it, or, for a
+  // loop shorter than four bars, as many rounds as make four bars or more; only bars of the part
+  window(part, k) {
+    const span = part.size * Math.ceil(4 / part.size), zero = part.bar - 1 - (part.skip || 0);
+    const first = zero + Math.floor((k - zero) / span) * span, out = [];
+    for (let b = first; b < first + span; b++) if (b >= part.bar - 1 && b < part.bar - 1 + part.bars) out.push(b);
+    return out;
+  },
+  // the rounds of the parts with one letter, each as [first sixteenth, one past its last, where its loop's
+  // first bar is (which may lie before a part that comes in part of the way round)]
+  roundsOf(parts, letter) {
+    const out = [];
+    for (const p of parts) {
+      if (p.letter !== letter) continue;
+      const first = 16 * (p.bar - 1), last = first + 16 * p.bars;
+      for (let zero = first - 16 * (p.skip || 0); zero < last; zero += 16 * p.size) out.push([Math.max(zero, first), Math.min(zero + 16 * p.size, last), zero]);
     }
     return out;
+  },
+  // the round a sixteenth is in, and how many other rounds of the same part have no mark yet: where the
+  // chords of this round can be copied to
+  emptyRounds(parts, marks, at) {
+    const part = parts.find(p => at >= 16 * (p.bar - 1) && at < 16 * (p.bar - 1 + p.bars));
+    if (!part) return { round: null, marked: 0, empty: 0 };
+    const rounds = Harmony.roundsOf(parts, part.letter), inside = r => marks.filter(m => m.at >= r[0] && m.at < r[1]).length;
+    const round = rounds.find(r => at >= r[0] && at < r[1]);
+    return { round, marked: inside(round), empty: rounds.filter(r => r !== round && inside(r) === 0).length };
   },
   // "the 2nd fret of the A string", "the open E string"
   fretName(string, fret) {
@@ -431,9 +492,18 @@ const $ = id => document.getElementById(id), L = Harmony;
 const song = decodeURIComponent(location.hash.slice(1));
 const au = $("au");
 let H = null;                     // what the server says of the song
-const S = { view: "roads", hear: "record", loop: false, chord: -1, part: -1, note: -1, bar: -1, looping: null, chords: false, trying: null };
-const E = { bar: 0, pick: null };   // the bar whose chord is being changed (from 1; 0: none), and the chord tried
-const KINDS = { "": "major", m: "minor", dim: "diminished", aug: "augmented", sus4: "sus4", 6: "6", m6: "m6", 7: "7", maj7: "maj7", m7: "m7", m7b5: "m7♭5", dim7: "dim7" };
+const S = { view: "roads", hear: "record", loop: false, chord: -1, part: -1, note: -1, bar: -1, beat: -1, looping: null, chords: false, trying: null, tap: false };
+// the beat a chord is being put on (a mark's `at`), what the tool offers there, and whether that was asked
+// for since the chords last changed
+const E = { at: null, offers: null, fresh: false };
+const JOB = { rest: "Home · rest", drift: "Away · drift", pull: "Tension · pull" };
+const KINDS = { "": "major", m: "minor", 7: "7", maj7: "maj7", m7: "m7", sus4: "sus4", 6: "6", m6: "m6", dim: "diminished", m7b5: "m7♭5", dim7: "dim7", aug: "augmented" };
+const ARROW = '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0L10,5L0,10z" fill="context-stroke"/></marker></defs>';
+const NOTES = {
+  roads: "Roads: three regions for the three jobs a chord can do. The usual trip runs Home → Away → Tension → Home; the arrows are the steps your chords take, bolder where the song takes them often. Inside each region, darker (flatter) chords sit on the left and brighter (sharper) ones on the right. Each region has three rows: the one facing the middle of the map is in the key, the next is one step outside it (borrowed chords and the dominants of other chords), and the rim is far outside. Filled circles are the chords you wrote. While you are putting a chord on a beat, the dashed circles are the ones the tool would try there, and a click on any chord puts it on the beat.",
+  wheel: "Wheel: the circle of fifths with home at the top. Majors outside, the minor chords with the same notes inside them, diminished chords at the hub. The shaded wedge is the key; the dashed wedge is the other mode on the same home, which songs borrow from. Neighbours are close; the far side is a tritone away.",
+  semitones: "Semitones: the twelve notes in order round the circle, home at the top, each step clockwise a semitone up. The three chords on one note sit on one spoke: major outside, minor inside it, diminished at the hub. A bass player reads it as the neck: one step round is one fret.",
+};
 // The chords in a plain keyboard sound, so that a chord can be heard against the record.
 const Keys = {
   ctx: null, voices: [], now: null,
@@ -492,52 +562,70 @@ const Keys = {
     this.now = null;
   },
 };
-const JOB = { rest: "Home · rest", drift: "Away · drift", pull: "Tension · pull" };
-const ARROW = '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0L10,5L0,10z" fill="context-stroke"/></marker></defs>';
-const NOTES = {
-  roads: "Roads: three regions for the three jobs a chord can do. The usual trip runs Home → Away → Tension → Home; the arrows are the steps this song takes, bolder where it takes them often. Inside each region, darker (flatter) chords sit on the left and brighter (sharper) ones on the right. Each region has three rows: the one facing the middle of the map is in the key, the next is one step outside it (borrowed chords and the dominants of other chords), and the rim is far outside. Filled circles are the chords of this song. Click one to hear where the song goes there.",
-  wheel: "Wheel: the circle of fifths with home at the top. Majors outside, the minor chords with the same notes inside them, diminished chords at the hub. The shaded wedge is the key; the dashed wedge is the other mode on the same home, which songs borrow from. Neighbours are close; the far side is a tritone away.",
-  semitones: "Semitones: the twelve notes in order round the circle, home at the top, each step clockwise a semitone up. The three chords on one note sit on one spoke: major outside, minor inside it, diminished at the hub. A bass player reads it as the neck: one step round is one fret.",
-};
 
 function seek(t, play) {
   S.looping = null;  // going somewhere by hand: the part to go round is the one landed in
+  S.trying = null;
   au.currentTime = Math.max(0, Math.min(H.length - 0.05, t));
   if (play && au.paused) au.play();
   tick(true);
 }
-function toggle() { if (au.paused) au.play(); else au.pause(); }
+function toggle() { S.trying = null; if (au.paused) au.play(); else au.pause(); }
+function fail(text) { $("error").hidden = !text; $("error").textContent = text || ""; }
+async function post(body) {   // something the person sets: the server answers with the song as it is then
+  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, ...body }) });
+  const data = await r.json();
+  if (data.error) { fail(data.error); return false; }
+  fail("");
+  H = data;
+  E.fresh = false;   // what was offered was for the chords as they were
+  return true;
+}
+const timeOf = at => H.bars[Math.floor(at / 16)].beats[(at % 16) / 4];
+const markAt = at => H.marks.find(m => m.at === at);
+const chordAt = at => H.chords.find(c => c.at <= at && at < c.until);
+const partAt = at => H.parts.find(p => at >= 16 * (p.bar - 1) && at < 16 * (p.bar - 1 + p.bars));
 
-/* ----- the chord that sounds, the part's loop as chips, the neck ----- */
+/* ----- the chord that sounds, the round that plays as bars of four beats, the neck ----- */
 function paintHere() {
-  const c = H.chords[S.chord], job = $("here-job");
-  $("here-name").textContent = c ? L.flat(c.name + (c.slash ? "/" + c.slash : "")) : "–";
-  $("here-num").textContent = c ? L.flat(c.numeral) : "";
+  const c = H.chords[S.chord], bar = H.bars[S.bar], job = $("here-job");
+  $("here-name").textContent = c ? L.flat(c.name) : "–";
+  $("here-num").textContent = c ? L.flat(c.numeral) : bar && bar.stands_on ? `bass on ${L.flat(bar.stands_on)}` : "";
   job.hidden = !c;
   if (c) {
     job.className = "job " + c.job;
     job.textContent = (c.far === 0 ? "home" : JOB[c.job]) + (c.ring ? (c.ring === 1 ? " · outside the key" : " · far out") : "");
   }
 }
-function chip(bar, line, k, extra = "") {
-  const first = bar[0] || { name: "–", numeral: "", job: "none" };
-  const name = bar.map(c => L.flat(c.name)).join(" ") || "–", num = bar.map(c => L.flat(c.numeral)).join(" ");
-  const bass = line ? line.notes.map(n => L.flat(n.degree || "·")).join(" ") : "";
-  return `<button type="button" class="chip ${first.job}${extra}" data-k="${k}"><b>${L.esc(name)}</b><i>${L.esc(num)}</i>${line ? `<u title="What the bass plays in this bar, as steps of the chord">${L.esc(bass)}</u>` : ""}</button>`;
+// what the bass plays in a bar, in words: steps of the chord where the bar has one throughout, else of the key
+function barLine(k) {
+  const notes = H.bass.filter(n => n.bar === k + 1), byChord = notes.length > 0 && notes.every(n => n.degree);
+  return notes.map(n => L.flat(byChord ? n.degree : n.step)).join(" ");
 }
-const again = (loop, k) => (k > 0 && JSON.stringify(loop[k]) === JSON.stringify(loop[k - 1]) ? " again" : "");
+function barBox(k, playing) {
+  const bar = H.bars[k], cells = L.barCells(H.marks, k, bar.comes_in);
+  const label = c => c.kind === "chord" ? L.flat(c.chord.name) : c.kind === "open" ? "?" : c.kind === "none" ? "no chord" : c.kind === "goes on" ? L.flat(c.chord.name) : "";
+  const kind = c => c.kind === "chord" ? c.chord.job : c.kind === "goes on" ? "goes " + c.chord.job : c.kind === "open" ? "open" : c.kind === "none" ? "none" : "";
+  const title = c => c.kind === "goes on" ? `${L.flat(c.chord.name)} goes on from before` : c.kind === "open" ? "A change is marked here: choose its chord" : c.kind === "empty" ? "No chord here yet" : "";
+  return `<div class="barbox${playing ? " playing" : ""}" data-bar="${k}">
+    <span class="n">bar ${k + 1}</span>
+    <div class="cells">${cells.map(c => `<button type="button" class="cell ${kind(c)}" style="grid-column:span ${c.beats}" data-at="${16 * k + 4 * c.beat}" title="${title(c)}">${L.esc(label(c)) || "&nbsp;"}</button>`).join("")}</div>
+    <div class="beats">${[0, 1, 2, 3].map(b => {
+      const at = 16 * k + 4 * b;
+      return `<button type="button" class="beat${markAt(at) ? " marked" : ""}${at === E.at ? " sel" : ""}${playing && b === S.beat ? " cur" : ""}" data-at="${at}" title="Bar ${k + 1}, beat ${b + 1}: put a chord here">${b + 1}</button>`;
+    }).join("")}</div>
+    <u title="What the bass plays in this bar: steps of the key, or of the chord where the bar has one">${L.esc(barLine(k)) || "&nbsp;"}</u>
+  </div>`;
+}
 function paintPath() {
   const p = H.parts[S.part], el = $("path");
   if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; $("where").innerHTML = "&nbsp;"; return; }
-  const [round, k] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
-  const held = p.loop.map((bar, i) => {   // what this round's bars hold; the loop's own where the round has no such bar
-    const at = p.bar - 1 + (round - 1) * p.size + i - p.skip, inside = at >= p.bar - 1 && at < p.bar - 1 + p.bars;
-    return inside ? { bar: H.bars[at].holds, yours: H.bars[at].yours, unsure: H.bars[at].unsure, implied: H.bars[at].implied } : { bar, yours: false, unsure: false, implied: false };
-  });
-  const shown = held.map(h => h.bar);
-  el.innerHTML = `<span class="mark" title="The part that is playing">${p.letter}</span>` + held.map((h, i) => chip(h.bar, null, i, again(shown, i) + (i === k ? " playing" : "") + (h.yours ? " yours" : "") + (h.unsure ? " unsure" : "") + (h.implied ? " implied" : ""))).join("");
-  el.querySelectorAll(".chip").forEach(b => { b.onclick = () => seek(H.bars[L.barOf(p, round, +b.dataset.k)].time + 0.01, false); });
-  const cur = el.querySelector(".playing");
+  const [round, , bar] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
+  let s = `<span class="mark" title="The part that is playing">${p.letter}</span>`;
+  for (const k of L.window(p, bar)) if (k < H.bars.length) s += barBox(k, k === bar);
+  el.innerHTML = s;
+  el.querySelectorAll("[data-at]").forEach(b => { b.onclick = () => select(+b.dataset.at); });
+  const cur = el.querySelector(".barbox.playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
   $("where").textContent = `Part ${p.letter} · ${rounds > 1 ? `round ${round} of ${rounds} · ` : ""}bar ${S.bar + 1}`;
 }
@@ -545,6 +633,7 @@ function paintNeck() {
   const c = H.chords[S.chord], n = H.bass[S.note], p = H.parts[S.part];
   const last = Math.min(24, Math.max(12, ...H.bass.map(b => b.fret))), W = (724 - 48) / last;
   const X = f => (f === 0 ? 24 : 48 + (f - 0.5) * W), Y = s => 22 + (3 - s) * 26;   // the G string on top, as in tab
+  const said = q => L.flat((q.degree || q.step || "·").replace(/[↑↓]/, ""));
   let s = `<line class="nut" x1="48" x2="48" y1="14" y2="108"/>`;
   for (let f = 1; f <= last; f++) s += `<line class="fret" x1="${(48 + f * W).toFixed(1)}" x2="${(48 + f * W).toFixed(1)}" y1="16" y2="106"/>`;
   const single = [3, 5, 7, 9, 15, 17, 19, 21].filter(f => f <= last), double = [12, 24].filter(f => f <= last);
@@ -555,7 +644,7 @@ function paintNeck() {
   // only what is played: faintly, every place this part of the song uses; ringed and joined in the order they
   // are played, the notes of this bar; filled, the note that sounds; and where the hand is: four frets from the
   // first finger
-  const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [], bar = L.shape(inBar);
+  const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [], bar = L.shape(inBar.map(b => ({ ...b, degree: b.degree || b.step })));
   const at = n && n.hand ? n.hand : (inBar.find(b => b.hand) || {}).hand;
   if (at) {
     const x0 = 48 + (at - 1) * W, x1 = 48 + Math.min(last, at + 3) * W;
@@ -568,14 +657,15 @@ function paintNeck() {
   if (inBar.length > 1) s += `<polyline class="shape" points="${inBar.map(b => X(b.fret).toFixed(1) + "," + Y(b.string)).join(" ")}"/>`;
   bar.forEach(q => {
     const tone = q.role && q.role !== "other" && c ? c.job : "none";
-    s += `<g class="tone ${tone}${q.role === "root" ? " root" : ""}"><circle cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="10.5"/><text x="${X(q.fret).toFixed(1)}" y="${Y(q.string) + 4}">${L.flat((q.degree || "·").replace(/[↑↓]/, ""))}</text></g>`;
+    s += `<g class="tone ${tone}${q.role === "root" ? " root" : ""}"><circle cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="10.5"/><text x="${X(q.fret).toFixed(1)}" y="${Y(q.string) + 4}">${said(q)}</text></g>`;
   });
-  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret).toFixed(1)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret).toFixed(1)}" y="${Y(n.string) + 4}">${L.flat((n.degree || "").replace(/[↑↓]/, "")) || "·"}</text></g>`;
+  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret).toFixed(1)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret).toFixed(1)}" y="${Y(n.string) + 4}">${said(n)}</text></g>`;
   $("neck").innerHTML = s;
   const what = { root: "the root", third: "the third", fifth: "the fifth", seventh: "the seventh", other: "a passing note" };
   const frets = bar.map(q => q.fret), span = frets.length ? (Math.min(...frets) === Math.max(...frets) ? `fret ${frets[0]}` : `frets ${Math.min(...frets)} to ${Math.max(...frets)}`) : "";
-  $("lead").textContent = n && c
-    ? `The bass plays ${H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯")}, ${what[n.role] || "a note"} of ${L.flat(c.name)}: ${L.fretName(n.string, n.fret)}.${n.hand ? ` The hand is at fret ${n.hand}.` : ""}`
+  const name = n ? H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯") : "";
+  $("lead").textContent = n
+    ? `The bass plays ${name}, ${n.role && c ? `${what[n.role]} of ${L.flat(c.name)}` : `step ${L.flat(n.step)} of the key`}: ${L.fretName(n.string, n.fret)}.${n.hand ? ` The hand is at fret ${n.hand}.` : ""}`
     : bar.length ? `This bar is played on ${span}. Ringed: its notes, joined in the order they are played. Faint: the other places this part uses.`
     : "The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.";
 }
@@ -589,24 +679,103 @@ const TABS = {
 function paintTabs() {
   const el = $("tabs"), of = id => H.tabs.find(t => t.id === id), said = t => `${t.moves} hand move${t.moves === 1 ? "" : "s"}`;
   el.innerHTML = Object.keys(TABS).map(id => `<button class="btn mini" type="button" data-tab="${id}" aria-pressed="${H.tab === id}" title="${TABS[id][1]}. In this song: ${said(of(id))}, ${of(id).skips} string skips, ${Math.round(100 * of(id).open / Math.max(1, of(id).notes))}% of the notes on open strings.">${TABS[id][0]}</button>`).join("");
-  el.querySelectorAll("button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  el.querySelectorAll("button").forEach(b => { b.onclick = async () => { if (await post({ tab: b.dataset.tab })) paintAll(); }; });
   const now = of(H.tab) || of("easy"), others = Object.keys(TABS).filter(id => id !== H.tab).map(id => `${TABS[id][0].toLowerCase()}: ${of(id).moves}`).join(", ");
   $("effort").textContent = `In this song: ${said(now)}, ${now.skips} string skips, ${Math.round(100 * now.open / Math.max(1, now.notes))}% open strings (${others}). The score's tab follows.`;
 }
-async function setReading(reading) {
-  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, reading }) });
-  const data = await r.json();
-  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
-  H = data;
-  closeEdit();
-  paintAll();
+
+/* ----- putting a chord on a beat ----- */
+async function select(at) {   // the beat a chord is put on: the tool's offers for it are asked for
+  if (!H || at < 0 || Math.floor(at / 16) >= H.bars.length) return;
+  au.pause();
+  S.trying = null;
+  E.at = at;
+  E.offers = null;
+  E.fresh = false;
+  au.currentTime = timeOf(at) + 0.01;
+  tick(true);
+  paintEdit();
+  await loadOffers();
 }
-async function setTab(tab) {
-  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, tab }) });
-  const data = await r.json();
-  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
-  H = data;
+async function loadOffers() {
+  const at = E.at;
+  if (at === null) return;
+  const r = await fetch(`/api/offers?id=${encodeURIComponent(song)}&at=${at}`), data = await r.json();
+  if (E.at !== at) return;
+  if (data.error) { fail(data.error); E.offers = { offers: [], rounds: [] }; } else E.offers = data;
+  E.fresh = true;
+  paintEdit();
+  paintMap();
+}
+function closeEdit() {
+  E.at = null;
+  E.offers = null;
+  S.trying = null;
+  paintEdit();
+  paintPath();
+  paintMap();
+}
+async function put(chord) {   // a chord on the beat that is selected, and the stretch of the record with it
+  const at = E.at;
+  if (at === null || !(await post({ marks: [{ at, chord }] }))) return;
   paintAll();
+  loadOffers();
+  if (Array.isArray(chord)) audition(at);
+}
+function audition(at) {   // the record from two beats before a mark to the end of its chord (a bar at most), with the chords you wrote
+  const m = markAt(at), bar = H.bars[Math.floor(at / 16)];
+  if (!m) return;
+  const beat = (bar.end - bar.time) / 4;
+  S.trying = { from: Math.max(0, m.start - 2 * beat), at: m.start, to: Math.min(m.end, m.start + 4 * beat) };
+  S.looping = null;
+  Keys.stop();
+  au.currentTime = S.trying.from;
+  au.play();
+}
+function paintEdit() {
+  const el = $("edit");
+  el.hidden = E.at === null;
+  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
+  if (E.at === null) return;
+  const at = E.at, k = Math.floor(at / 16), beat = (at % 16) / 4 + 1, part = partAt(at), m = markAt(at), going = chordAt(at);
+  $("edit-where").textContent = `Bar ${k + 1} · beat ${beat}${part ? " · part " + part.letter : ""}`;
+  $("edit-there").textContent = m && m.chord ? `${L.flat(m.chord.name)} starts here.`
+    : m && m.open ? "A change is marked here. Choose its chord."
+    : m ? "No chord from here."
+    : going ? `Nothing starts here: ${L.flat(going.name)} goes on from bar ${going.bar}. A chord you pick starts here.`
+    : "No chord here yet. Pick one to hear it.";
+  const offers = E.offers ? E.offers.offers : [], cur = m && m.chord;
+  $("edit-offers").innerHTML = E.offers
+    ? offers.map((c, i) => `<button type="button" class="chip ${c.job}${cur && cur.root === c.root && cur.quality === c.quality ? " pick" : ""}${c.yours ? " also" : ""}" data-i="${i}" title="${c.yours ? "You put this at the same place in another round" : "Put it here and hear it"}"><b>${L.esc(L.flat(c.name))}</b><i>${L.esc(L.flat(c.numeral))}</i></button>`).join("")
+    : '<span class="small muted">…</span>';
+  $("edit-offers").querySelectorAll(".chip").forEach(b => { b.onclick = () => { const c = offers[+b.dataset.i]; put([c.root, c.quality]); }; });
+  $("edit-root").innerHTML = H.names.map((n, r) => `<option value="${r}">${L.esc(L.flat(n))}</option>`).join("");
+  $("edit-quality").innerHTML = H.qualities.map(q => `<option value="${L.esc(q)}">${KINDS[q] || q}</option>`).join("");
+  const shown = cur || going || offers[0];
+  if (shown) { $("edit-root").value = shown.root; $("edit-quality").value = shown.quality; }
+  $("edit-hear").hidden = !cur;
+  $("edit-remove").hidden = !m;
+  $("edit-next").hidden = !H.to_choose;
+  // the same place in the other rounds, and the rounds that have nothing yet
+  const rounds = E.offers && E.fresh ? E.offers.rounds : [];
+  const other = cur ? rounds.filter(r => !r.chord || r.chord.root !== cur.root || r.chord.quality !== cur.quality) : [];
+  $("edit-also").hidden = !other.length;
+  $("edit-also").textContent = `Also in the ${other.length} other round${other.length > 1 ? "s" : ""}`;
+  $("edit-also").title = `Put ${cur ? L.flat(cur.name) : ""} on this beat of bars ${other.map(r => r.bar).join(", ")} too`;
+  $("edit-also").onclick = async () => { if (await post({ marks: other.map(r => ({ at: r.at, chord: [cur.root, cur.quality] })) })) { paintAll(); loadOffers(); } };
+  const free = L.emptyRounds(H.parts, H.marks, at);
+  $("edit-copy").hidden = !(E.fresh && free.marked && free.empty);
+  $("edit-copy").textContent = free.empty > 1 ? `Copy this round's chords to the ${free.empty} rounds that have none` : "Copy this round's chords to the round that has none";
+  $("edit-copy").onclick = async () => { if (await post({ copy: at })) { paintAll(); loadOffers(); } };
+  $("edit-note").textContent = cur ? "" : "A click on a chord puts it here and plays this stretch of the record with it. The map's dashed chords are the same suggestions.";
+}
+
+/* ----- tapping the changes while the song plays ----- */
+async function tap() {
+  if (!H || au.paused) return;
+  const at = L.beatAt(H.bars, au.currentTime - 0.1);   // a hand is a little late
+  if (markAt(at)) return;
+  if (await post({ marks: [{ at, chord: null }] })) paintAll();
 }
 
 /* ----- the maps ----- */
@@ -614,6 +783,9 @@ function paintMap() {
   const M = H.maps[S.view], spots = M.spots, roads = S.view === "roads", pad = roads ? 22 : 25;
   const c = H.chords[S.chord], cur = c ? c.on[S.view] : -1, prev = c ? L.before(H.chords, S.chord, S.view) : -1;
   const from = prev >= 0 ? H.chords[prev].on[S.view] : -1, part = H.parts[S.part];
+  const family = q => (/^(m|m7|m6)$/.test(q) ? "m" : /^(dim|m7b5|dim7)$/.test(q) ? "d" : "M");
+  const offered = E.at !== null && E.offers ? E.offers.offers : [];
+  const isOffer = p => offered.some(o => o.root === p.root && family(o.quality) === family(p.quality));
   let s = ARROW;
   if (roads) {
     const TITLE = { drift: ["AWAY · DRIFT", 21], pull: ["TENSION · PULL", 21], rest: ["HOME · REST", 526] };
@@ -633,7 +805,7 @@ function paintMap() {
     s += `<circle class="grid-l" cx="300" cy="215" r="180"/><circle class="grid-l" cx="300" cy="215" r="130"/><circle class="grid-l" cx="300" cy="215" r="86"/>`;
     s += `<text class="t-sm" x="540" y="20" style="text-anchor:end">a semitone up →</text>`;
   }
-  // the steps of the whole song, faint; those of the part that is playing, darker; the one into the sounding chord, bold
+  // the steps your chords take, faint; those of the part that is playing, darker; the one into the sounding chord, bold
   const all = L.moves(H.chords, S.view), most = Math.max(1, ...all.map(m => m.times));
   const mine = new Set(part ? L.moves(H.chords, S.view, part.start, part.end).map(m => m.a + ">" + m.b) : []);
   let top = "";
@@ -647,18 +819,28 @@ function paintMap() {
   }
   s += top;
   spots.forEach((p, i) => {
-    const used = p.seconds > 0, isCur = i === cur, faded = !used && !isCur && p.ring > 0, spare = !used && !isCur && p.ring === 0;
+    const used = p.seconds > 0, isCur = i === cur, dest = isOffer(p), faded = !used && !isCur && !dest && p.ring > 0, spare = !used && !isCur && !dest && p.ring === 0;
     const label = L.flat(roads ? p.numeral : p.name.replace(/dim$/, "°")), big = roads ? (label.length > 3 ? 10.5 : 14) : (p.r >= 22 ? 13 : p.r >= 19 ? 11 : 9.5);
-    s += `<g class="st ${p.job}${p.ring === 0 ? " in" : ""}${used ? " used" : ""}${isCur ? " cur" : ""}${faded ? " dim" : ""}${spare ? " spare" : ""}" data-spot="${i}"><title>${L.esc(L.flat(p.name))} · ${L.esc(L.flat(p.numeral))}${used ? " · " + L.clock(p.seconds) + " of the song" : " · not in this song"}</title><circle cx="${p.x}" cy="${p.y}" r="${p.r}"/><text class="t-num" x="${p.x}" y="${p.y + (roads ? 5 : 4)}" style="font-size:${big}px">${L.esc(label)}</text>${roads ? `<text class="t-sm" x="${p.x}" y="${p.y + p.r + 12}">${L.esc(L.flat(p.name))}</text>` : ""}</g>`;
+    const tip = E.at !== null ? "click to put it on the beat" : used ? L.clock(p.seconds) + " of the song" : "not among your chords";
+    s += `<g class="st ${p.job}${p.ring === 0 ? " in" : ""}${used ? " used" : ""}${dest ? " dest" : ""}${isCur ? " cur" : ""}${faded ? " dim" : ""}${spare ? " spare" : ""}" data-spot="${i}"><title>${L.esc(L.flat(p.name))} · ${L.esc(L.flat(p.numeral))} · ${tip}</title><circle cx="${p.x}" cy="${p.y}" r="${p.r}"/><text class="t-num" x="${p.x}" y="${p.y + (roads ? 5 : 4)}" style="font-size:${big}px">${L.esc(label)}</text>${roads ? `<text class="t-sm" x="${p.x}" y="${p.y + p.r + 12}">${L.esc(L.flat(p.name))}</text>` : ""}</g>`;
   });
   const map = $("map");
   map.setAttribute("viewBox", `0 0 ${M.box[0]} ${M.box[1]}`);
   map.dataset.live = au.paused ? "0" : "1";
   map.innerHTML = s;
   map.querySelectorAll(".st").forEach(g => {
-    g.onclick = () => { const k = L.next(H.chords, S.view, +g.dataset.spot, au.currentTime); if (k >= 0) seek(H.chords[k].start + 0.01, true); };
+    g.onclick = () => {
+      const p = spots[+g.dataset.spot];
+      if (E.at !== null) return put([p.root, p.quality]);   // a beat is waiting for its chord: this one
+      const k = L.next(H.chords, S.view, +g.dataset.spot, au.currentTime);
+      if (k >= 0) seek(H.chords[k].start + 0.01, true);
+    };
   });
   $("lens-note").textContent = NOTES[S.view];
+  $("map-hint").textContent = E.at !== null
+    ? "The dashed chords are the ones to try on the beat you picked. A click on any chord of the map puts it there."
+    : H.written ? `Your ${H.written} chord${H.written > 1 ? "s" : ""} on the map. A click on one goes to where the song is on it next.`
+    : "No chords yet. Pick a beat in the row of bars above (or tap along with the song), and choose a chord there: it appears here.";
 }
 
 /* ----- the song in parts ----- */
@@ -674,148 +856,115 @@ function paintStrip() {
   s += `<line class="cursor" id="strip-cursor" x1="0" x2="0" y1="0" y2="34"/>`;
   $("strip").innerHTML = s;
 }
+function loopChip(loop, k) {   // a bar of a loop: the chords most rounds have there, or the note the bass stands on
+  const bar = loop.loop[k], line = loop.bass[k], first = bar[0];
+  const name = bar.length ? bar.map(c => L.flat(c.name)).join(" ") : loop.stands[k] ? L.flat(loop.stands[k]) : "–";
+  const under = bar.length ? bar.map(c => L.flat(c.numeral)).join(" ") : loop.stands[k] ? "bass" : "";
+  return `<button type="button" class="chip ${first ? first.job : "bare"}" data-k="${k}" title="${bar.length ? "Your chord here" : "No chord yet: the note the bass stands on in this bar"}"><b>${L.esc(name)}</b><i>${L.esc(under)}</i><u>${L.esc(line.notes.map(n => L.flat(n.said)).join(" "))}</u></button>`;
+}
 function paintLoops() {
   const by = {};
   H.parts.forEach(p => { (by[p.letter] = by[p.letter] || []).push(p); });
-  const cur = H.parts[S.part];
-  const order = [...new Set(H.parts.map(p => p.letter))];
+  const cur = H.parts[S.part], order = [...new Set(H.parts.map(p => p.letter))];
   $("loops").innerHTML = [...H.loops].sort((a, b) => order.indexOf(a.letter) - order.indexOf(b.letter)).map(loop => {
     const mine = by[loop.letter], rounds = Math.round(loop.rounds * 10) / 10;
     const what = loop.size === loop.bars ? `${loop.bars} bar${loop.bars > 1 ? "s" : ""}, once through` : `${loop.size} bar${loop.size > 1 ? "s" : ""}, ${rounds} times round`;
     return `<div class="verb${cur && cur.letter === loop.letter ? " on" : ""}" data-letter="${loop.letter}">
       <div class="verb-h"><span class="mark">${loop.letter}</span><span>${what} · ${L.spans(mine)}</span><span class="grow"></span><button type="button" class="btn mini" data-play="${loop.letter}">▶ Play it</button></div>
-      <div class="opts">${loop.loop.map((bar, k) => chip(bar, loop.bass[k], k, again(loop.loop, k))).join("")}</div>
-      ${loop.same ? '<p class="small muted said">The bass plays the same shape over every chord of this part.</p>' : ""}
+      <div class="opts">${loop.loop.map((_, k) => loopChip(loop, k)).join("")}</div>
+      ${loop.same ? '<p class="small muted said">The bass plays the same shape in every bar of this part.</p>' : ""}
     </div>`;
   }).join("");
   $("loops").querySelectorAll("[data-play]").forEach(b => {
     b.onclick = () => { const p = by[b.dataset.play].find(q => q.start > au.currentTime) || by[b.dataset.play][0]; seek(p.start + 0.01, true); };
   });
   $("loops").querySelectorAll(".verb").forEach(v => v.querySelectorAll(".chip").forEach(b => {
-    b.onclick = () => { const p = by[v.dataset.letter][0]; seek(H.bars[L.barOf(p, 1, +b.dataset.k)].time + 0.01, true); };
+    b.onclick = () => { const p = by[v.dataset.letter].find(q => q.skip === 0) || by[v.dataset.letter][0]; select(16 * L.barOf(p, p.skip ? 2 : 1, +b.dataset.k)); };
   }));
   const loops = H.loops.filter(l => l.size < l.bars), inLoops = loops.reduce((n, l) => n + l.bars, 0);
   $("parts-note").textContent = H.bars.length
-    ? `${H.loops.length} different part${H.loops.length > 1 ? "s" : ""}. ${Math.round(100 * inLoops / H.bars.length)}% of the song's bars go round a loop. Under each chord: what the bass plays in that bar, as steps of the chord (R is its root).`
+    ? `${H.loops.length} different part${H.loops.length > 1 ? "s" : ""}, found from the notes the bass line stands on; ${Math.round(100 * inLoops / H.bars.length)}% of the song's bars go round a loop. Each box is a bar: your chord, or the note the bass stands on where you wrote none, and under it what the bass plays (1 is home; where the bar has a chord, R is its root). A click on a bar goes there.`
     : "";
 }
 
 /* ----- the profile, and the bass ----- */
 function paintProfile() {
+  $("profile-card").hidden = !H.chords.length;
+  if (!H.chords.length) return;
   const top = Math.max(4.4, ...H.chords.map(c => c.far)), Y = v => 176 - v * (140 / top);
   let s = `<line class="grid-l" x1="0" x2="600" y1="${Y(0)}" y2="${Y(0)}"/><text class="t-sm" x="2" y="${Y(0) + 13}" style="text-anchor:start">home</text><text class="t-sm" x="2" y="31" style="text-anchor:start">far from rest</text>`;
   H.parts.forEach(p => {
     const x = X600(p.start), w = X600(p.end) - x;
     s += `<line class="grid-l" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="18" y2="${Y(0)}"/>${w > 13 ? `<text class="t-mark" x="${(x + w / 2).toFixed(1)}" y="13">${p.letter}</text>` : ""}`;
   });
-  if (H.chords.length) {
-    const d = L.steps(H.chords, X600, Y), a = H.chords[0], z = H.chords[H.chords.length - 1];
-    s += `<path d="${d}L${X600(z.end).toFixed(1)},${Y(0)}L${X600(a.start).toFixed(1)},${Y(0)}Z" fill="var(--ink-soft)"/><path d="${d}" fill="none" stroke="var(--text)" stroke-width="1.2"/>`;
-    H.chords.forEach(c => { s += `<circle class="f-${c.job}" cx="${X600(c.start).toFixed(1)}" cy="${Y(c.far).toFixed(1)}" r="2.4"><title>${L.esc(L.flat(c.name))} · ${L.esc(L.flat(c.numeral))} · bar ${c.bar}</title></circle>`; });
-  }
+  H.chords.forEach(c => {   // each chord holds its distance from rest for as long as it lasts; where there is none, nothing
+    const x0 = X600(c.start), x1 = X600(c.end), y = Y(c.far);
+    s += `<path d="M${x0.toFixed(1)},${Y(0)}L${x0.toFixed(1)},${y.toFixed(1)}L${x1.toFixed(1)},${y.toFixed(1)}L${x1.toFixed(1)},${Y(0)}Z" fill="var(--ink-soft)" stroke="var(--text)" stroke-width="1"/><circle class="f-${c.job}" cx="${x0.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4"><title>${L.esc(L.flat(c.name))} · ${L.esc(L.flat(c.numeral))} · bar ${c.bar}</title></circle>`;
+  });
   s += `<line class="cursor" id="profile-cursor" x1="0" x2="0" y1="18" y2="${Y(0)}"/>`;
   $("profile").innerHTML = s;
   const time = { rest: 0, drift: 0, pull: 0 };
   H.places.forEach(p => { time[p.job] += p.share; });
   const peak = H.chords.reduce((a, c) => (!a || c.far > a.far ? c : a), null);
-  $("profile-note").textContent = peak
-    ? `The song spends ${Math.round(100 * time.rest)}% of its time at rest, ${Math.round(100 * time.drift)}% away and ${Math.round(100 * time.pull)}% in tension. Its furthest point is ${L.flat(peak.name)} (${L.flat(peak.numeral)}), first in bar ${peak.bar}. Click anywhere to go there.`
-    : "The tool heard no chords in this song.";
+  $("profile-note").textContent = `Of the time your chords cover (${Math.round(100 * H.covered)}% of the song), ${Math.round(100 * time.rest)}% is at rest, ${Math.round(100 * time.drift)}% away and ${Math.round(100 * time.pull)}% in tension. The furthest point is ${L.flat(peak.name)} (${L.flat(peak.numeral)}), first in bar ${peak.bar}. Click anywhere to go there.`;
 }
 function paintBass() {
+  const row = (name, share) => `<div class="role"><span>${name}</span><span class="bar"><i style="width:${(100 * share).toFixed(1)}%"></i></span><b>${Math.round(100 * share)}%</b></div>`;
   const NAMES = { root: "Root", fifth: "Fifth", third: "Third", seventh: "Seventh", other: "Passing notes" };
-  $("roles").innerHTML = Object.entries(H.roles).map(([r, share]) => `<div class="role"><span>${NAMES[r]}</span><span class="bar"><i style="width:${(100 * share).toFixed(1)}%"></i></span><b>${Math.round(100 * share)}%</b></div>`).join("");
-  const moves = H.motions.slice(0, 3).map(m => `${m.name} (${m.times})`).join(", ");
-  $("bass-note").textContent = `How long the bass spends on each note of the chord it plays under. It starts ${Math.round(100 * H.on_root)}% of the chords on their root.` + (moves ? ` From one chord to the next the root moves most often ${moves}.` : "");
-}
-
-/* ----- changing a chord: hear the bar with another one, then put it there ----- */
-const sameHolds = (a, b) => JSON.stringify(a.holds.map(c => [c.root, c.quality])) === JSON.stringify(b.holds.map(c => [c.root, c.quality]));
-const named = c => H.palette[c.root + "," + c.quality];
-function alike(bar) {   // the bars of the parts with this part's letter that are at the same place in the loop and hold the same
-  const i = H.parts.findIndex(p => bar >= p.bar && bar < p.bar + p.bars);
-  if (i < 0) return [bar];
-  const p = H.parts[i], k = (bar - p.bar + p.skip) % p.size;
-  return L.rounds(H.parts, p.letter, k).filter(b => sameHolds(H.bars[b - 1], H.bars[bar - 1]));
-}
-function tryBar(chord) {   // the bar from the record, with a chord in the keyboard sound: the one given, or what the bar holds
-  const bar = H.bars[E.bar - 1], lead = Math.min(0.6, (bar.end - bar.time) / 4);
-  S.trying = { from: Math.max(0, bar.time - lead), at: bar.time, to: bar.end, chord: chord ? { root: chord.root, tones: named(chord).tones } : null };
-  S.looping = null;
-  Keys.stop();
-  au.currentTime = S.trying.from;
-  au.play();
-}
-function openEdit(bar) {
-  if (!H || bar < 1 || bar > H.bars.length) return;
-  au.pause();
-  E.bar = bar;
-  E.pick = null;
-  paintEdit();
-  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
-}
-function closeEdit() {
-  E.bar = 0;
-  S.trying = null;
-  $("edit").hidden = true;
-  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
-}
-function paintEdit() {
-  const el = $("edit");
-  el.hidden = !E.bar;
-  if (!E.bar) return;
-  const bar = H.bars[E.bar - 1], part = H.parts.find(p => E.bar >= p.bar && E.bar < p.bar + p.bars);
-  const say = list => list.map(c => L.flat(c.name)).join(" and ") || "no chord";
-  $("edit-where").textContent = `Bar ${E.bar}${part ? " · part " + part.letter : ""}`;
-  $("edit-heard").textContent = bar.yours ? `You put ${say(bar.holds)} here. The tool heard ${say(bar.heard)}.` : bar.implied ? `No chord is heard in this bar: ${say(bar.holds)} is where the bass line is.` : `The tool heard ${say(bar.heard)}${bar.unsure ? ", and is not sure of it" : ""}.`;
-  const offers = L.offers(bar.heard, H.places, H.home);
-  $("edit-offers").innerHTML = offers.map((c, i) => {
-    const n = named(c), on = E.pick && E.pick.root === c.root && E.pick.quality === c.quality;
-    return `<button type="button" class="chip ${n.job}${on ? " pick" : ""}" data-i="${i}"><b>${L.esc(L.flat(n.name))}</b><i>${L.esc(L.flat(n.numeral))}</i></button>`;
-  }).join("");
-  $("edit-offers").querySelectorAll(".chip").forEach(b => { b.onclick = () => { E.pick = offers[+b.dataset.i]; paintEdit(); tryBar(E.pick); }; });
-  $("edit-root").innerHTML = H.names.map((n, r) => `<option value="${r}">${L.esc(L.flat(n))}</option>`).join("");
-  $("edit-quality").innerHTML = H.qualities.map(q => `<option value="${L.esc(q)}">${KINDS[q] || q}</option>`).join("");
-  const now = E.pick || bar.holds[0] || bar.heard[0];
-  if (now) { $("edit-root").value = now.root; $("edit-quality").value = now.quality; }
-  const differs = E.pick && !(bar.holds.length === 1 && bar.holds[0].root === E.pick.root && bar.holds[0].quality === E.pick.quality);
-  const like = alike(E.bar);
-  $("edit-here").disabled = !differs;
-  $("edit-here").textContent = E.pick ? `Change this bar to ${L.flat(named(E.pick).name)}` : "Change this bar";
-  $("edit-all").hidden = !(differs && like.length > 1);
-  $("edit-all").textContent = `Change all ${like.length} bars like it${part ? " in part " + part.letter : ""}`;
-  $("edit-all").title = "The bars at this place in every round of this part that hold the same chord: bars " + like.join(", ");
-  $("edit-back").hidden = !bar.yours;
-  $("edit-note").textContent = E.pick ? "" : "Click a chord to hear this bar with it. Nothing changes until you say so.";
-}
-async function setChords(bars, chord) {
-  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, chords: { bars, chord: chord ? [chord.root, chord.quality] : null } }) });
-  const data = await r.json();
-  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
-  H = data;
-  E.pick = null;
-  paintAll();
-  paintEdit();
+  let s = H.steps.slice(0, 6).map(x => row("Step " + L.flat(x.step), x.share)).join("");
+  let said = "How long the bass spends on each step of the key (1 is home).";
+  if (H.roles) {
+    s += '<h3 style="margin:var(--s3) 0 var(--s2)">Under your chords</h3>' + Object.entries(H.roles).map(([r, share]) => row(NAMES[r], share)).join("");
+    const moves = H.motions.slice(0, 3).map(m => `${m.name} (${m.times})`).join(", ");
+    said += ` Under the chords you wrote it starts ${Math.round(100 * H.on_root)}% of them on their root.` + (moves ? ` From one chord to the next the root moves most often ${moves}.` : "");
+  }
+  $("roles").innerHTML = s;
+  $("bass-note").textContent = said;
 }
 
 /* ----- home ----- */
 function paintHomes() {
   const el = $("homes"), names = H.names;
-  el.innerHTML = H.homes.map(h => `<button type="button" class="btn" data-root="${h.root}" data-major="${h.major ? 1 : 0}" aria-pressed="${h.root === H.home.root && h.major === H.home.major}">${L.esc(L.flat(h.name))}${h.found ? ' <span class="small" style="opacity:.7">found</span>' : ""}</button>`).join("")
+  el.innerHTML = H.homes.map(h => `<button type="button" class="btn" data-root="${h.root}" data-major="${h.major ? 1 : 0}" aria-pressed="${h.root === H.home.root && h.major === H.home.major}">${L.esc(L.flat(h.name))}${h.guess ? ' <span class="small" style="opacity:.7">the tool\'s guess</span>' : ""}</button>`).join("")
     + `<select id="other-home" aria-label="Another home"><option value="">another…</option>${[1, 0].map(major => Array.from({ length: 12 }, (_, r) => `<option value="${r},${major}">${L.esc(L.flat(names[r]))} ${major ? "major" : "minor"}</option>`).join("")).join("")}</select>`;
   el.querySelectorAll("button").forEach(b => { b.onclick = () => setHome([+b.dataset.root, b.dataset.major === "1"]); });
-  const changes = H.keys.filter((k, i) => i === 0 || k.name !== H.keys[i - 1].name);
-  $("keys-note").hidden = changes.length < 2;
-  $("keys-note").textContent = "The tool hears the song change key: " + changes.map((k, i) => (i ? `${L.flat(k.name)} from ${L.clock(k.start)}` : L.flat(k.name))).join(", then ") + ". Every step on this page is counted from the one home you pick.";
   $("other-home").onchange = e => { if (e.target.value) { const [r, m] = e.target.value.split(","); setHome([+r, m === "1"]); } };
 }
 async function setHome(home) {
-  const found = H.homes.find(h => h.found), same = found && found.root === home[0] && found.major === home[1];
-  const r = await fetch("/api/harmony", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song, home: same ? null : home }) });
-  const data = await r.json();
-  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
-  H = data;
-  paintAll();
+  const guess = H.homes.find(h => h.guess), same = guess && guess.root === home[0] && guess.major === home[1];
+  if (await post({ home: same ? null : home })) { paintAll(); loadOffers(); }
+}
+
+/* ----- the song in a few lines ----- */
+function paintShort() {
+  // the loops that carry the song: the ones that go round, the longest first, until four fifths of the song is said
+  const loops = H.loops.filter(l => l.size < l.bars).sort((a, b) => b.bars - a.bars), all = H.bars.length || 1;
+  let said = 0;
+  const lines = [];
+  for (const loop of loops) {
+    if (lines.length >= 4 || (said / all >= 0.8 && lines.length)) break;
+    const written = loop.loop.every(bar => bar.length);
+    let what;
+    if (written) {
+      const { runs, each } = L.said(loop.loop);
+      what = `<span class="loop">${runs.map(r => `${L.esc(L.flat(r.key))}${each ? "" : `<i> (${r.bars})</i>`}`).join(" – ")}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars in brackets · "}`;
+    } else {
+      const { runs, each } = L.said(loop.stands.map(n => [{ numeral: n || "–", job: "none" }]));
+      what = `<span class="muted small">the bass on</span><span class="loop">${runs.map(r => `${L.esc(L.flat(r.key))}${each ? "" : `<i> (${r.bars})</i>`}`).join(" · ")}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars in brackets · "}`;
+    }
+    lines.push(`<span class="line"><span class="mark">${loop.letter}</span>${what}${Math.round(100 * loop.bars / all)}% of the song</span></span>`);
+    said += loop.bars;
+  }
+  const yours = H.written ? `${H.written} chord${H.written > 1 ? "s" : ""} written, over ${Math.round(100 * H.covered)}% of the song.` : "No chords written yet.";
+  const open = H.to_choose ? ` <button class="btn mini" type="button" id="short-next">${H.to_choose} change${H.to_choose > 1 ? "s" : ""} marked without a chord: choose ›</button>` : "";
+  $("short").hidden = false;
+  $("short").innerHTML = `<span class="muted small">In ${L.esc(L.flat(H.home.name))}${H.home.yours ? "" : " (the tool's guess)"}. ${yours}</span>${open}` + lines.join("");
+  if ($("short-next")) $("short-next").onclick = nextOpen;
+}
+function nextOpen() {   // the next change that has no chord yet, from the beat that is selected on, round to the first
+  const open = H.marks.filter(m => m.open), from = E.at === null ? -1 : E.at;
+  const m = open.find(x => x.at > from) || open[0];
+  if (m) select(m.at);
 }
 
 /* ----- time ----- */
@@ -825,21 +974,20 @@ function tick(force) {
   const chord = L.at(H.chords, t), part = L.at(H.parts, t), note = L.at(H.bass, t);
   let bar = S.bar;
   if (H.bars.length) { bar = 0; while (bar + 1 < H.bars.length && H.bars[bar + 1].time <= t) bar++; }
-  if (S.trying) {   // a bar is being tried: the record plays it, the keyboard holds the chord, then it stops
+  let beat = 0;
+  if (H.bars[bar]) while (beat + 1 < 4 && H.bars[bar].beats[beat + 1] <= t) beat++;
+  if (S.trying) {   // a stretch is being tried: the record plays it with your chords in the keyboard sound, then stops
     if (t >= S.trying.to - 0.02 || au.paused) { const done = S.trying; S.trying = null; Keys.stop(); if (!au.paused) au.pause(); au.currentTime = done.at + 0.01; return; }
-    if (t >= S.trying.at - 0.01) {
-      if (S.trying.chord) Keys.play(S.trying.chord, "try");
-      else if (chord >= 0) Keys.play(H.chords[chord], "c" + chord);
-    }
-  } else if (S.chords && !au.paused && chord >= 0) Keys.play(H.chords[chord], "c" + chord);
+    if (chord >= 0) Keys.play(H.chords[chord], "c" + chord + ":" + H.chords[chord].root + H.chords[chord].quality); else Keys.stop();
+  } else if (S.chords && !au.paused && chord >= 0) Keys.play(H.chords[chord], "c" + chord + ":" + H.chords[chord].root + H.chords[chord].quality);
   else Keys.stop();
   if (!S.trying && S.loop && S.looping && !au.paused && t >= S.looping.end - 0.02) { au.currentTime = S.looping.start; return tick(true); }
   if (part >= 0 && (!S.looping || au.paused || !S.loop)) S.looping = H.parts[part];
-  const moved = force || chord !== S.chord || part !== S.part;
-  const barMoved = force || bar !== S.bar || part !== S.part, noteMoved = barMoved || note !== S.note || chord !== S.chord;
-  Object.assign(S, { chord, part, note, bar });
+  const moved = force || chord !== S.chord || part !== S.part || bar !== S.bar;
+  const beatMoved = force || bar !== S.bar || beat !== S.beat || part !== S.part, noteMoved = beatMoved || note !== S.note || chord !== S.chord;
+  Object.assign(S, { chord, part, note, bar, beat });
   if (moved) { paintHere(); paintMap(); }
-  if (barMoved) paintPath();
+  if (beatMoved) paintPath();
   if (noteMoved) paintNeck();
   if (force || moved) {
     document.querySelectorAll("#strip .part").forEach((r, i) => r.classList.toggle("on", i === part));
@@ -851,50 +999,21 @@ function tick(force) {
 }
 function run() { tick(false); if (!au.paused) requestAnimationFrame(run); }
 
-function paintShort() {
-  // the loops that carry the song: the ones that go round, the longest first, until four fifths of the song is said
-  const loops = H.loops.filter(l => l.size < l.bars).sort((a, b) => b.bars - a.bars), all = H.bars.length || 1;
-  let said = 0;
-  const lines = [];
-  for (const loop of loops) {
-    if (lines.length >= 4 || (said / all >= 0.8 && lines.length)) break;
-    const { runs, each } = L.said(loop.loop);
-    const chords = runs.map(r => `<span class="f-text">${L.esc(L.flat(r.key))}${each ? "" : `<i> (${r.bars})</i>`}</span>`).join(" – ");
-    lines.push(`<span class="line"><span class="mark">${loop.letter}</span><span class="loop">${chords}</span><span class="muted small">${each > 1 ? each + " bars each · " : each === 1 ? "a bar each · " : "bars in brackets · "}${Math.round(100 * loop.bars / all)}% of the song</span></span>`);
-    said += loop.bars;
-  }
-  $("short").hidden = !lines.length;
-  $("short").innerHTML = `<span class="muted small">In ${L.esc(L.flat(H.home.name))}:</span>` + lines.join("");
-}
-
 function paintAll() {
   document.title = `${H.title} · harmony · bass2sheet`;
   $("title").textContent = H.title + (H.artist ? " · " + H.artist : "");
   $("to-notes").href = "/song#" + encodeURIComponent(H.id);
   $("to-score").href = "/score#" + encodeURIComponent(H.id);
-  $("reading-row").hidden = H.readings.length < 2;
-  $("readings").querySelectorAll("button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.reading === H.reading); b.onclick = () => setReading(b.dataset.reading); });
-  $("reading-note").textContent = H.reading === "bars" ? "The coarser reading. Eighth by eighth is right more often on songs that could be checked." : "Two readings of the same song. This one is right more often on songs that could be checked; keep the one that sounds right to you.";
-  const doubted = H.bars.filter(b => b.unsure).length, bare = H.bars.filter(b => b.implied).length;
-  $("rough").hidden = false;
-  $("rough").textContent = H.fine
-    ? [doubted ? `A ? marks a chord the tool is unsure of: ${doubted} of this song's ${H.bars.length} bars have one, and such a chord is right about half the time.` : "",
-       bare ? `In ${bare} bars no chord is heard, only bass and drums: the chord there, in slanted letters, is the one the key has on the note the bass plays.` : "",
-       `"Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`].filter(Boolean).join(" ")
-    : H.readings.length > 1
-      ? [bare ? `In ${bare} bars no chord is heard: the chord there, in slanted letters, is the one the key has on the note the bass plays.` : "",
-         `One chord a bar, major or minor. "Hear the chords" plays them over the record, and "Change this chord" puts another in a bar.`].filter(Boolean).join(" ")
-      : "For this song the tool has one chord a bar, major or minor: its separated tracks are not kept any more, so its chords cannot be heard eighth by eighth. Adding the song again hears them.";
-  paintShort(); paintHomes(); paintTabs(); paintStrip(); paintLoops(); paintProfile(); paintBass();
+  paintShort(); paintHomes(); paintTabs(); paintStrip(); paintLoops(); paintProfile(); paintBass(); paintEdit();
   tick(true);
   document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
 }
 
 async function start() {
-  if (!song) { $("error").hidden = false; $("error").textContent = "No song was named. Pick one from the list of songs."; return; }
+  if (!song) return fail("No song was named. Pick one from the list of songs.");
   const r = await fetch("/api/harmony?id=" + encodeURIComponent(song));
   const data = await r.json();
-  if (data.error) { $("error").hidden = false; $("error").textContent = data.error; return; }
+  if (data.error) return fail(data.error);
   H = data;
   au.src = H.audio[S.hear];
   paintAll();
@@ -903,15 +1022,21 @@ $("play").onclick = toggle;
 au.addEventListener("play", () => { $("play").textContent = "■ Stop"; $("map").dataset.live = "1"; run(); });
 au.addEventListener("pause", () => { $("play").textContent = "▶ Play"; $("map").dataset.live = "0"; tick(true); });
 au.addEventListener("seeked", () => tick(true));
-$("chords").onclick = () => { S.chords = !S.chords; $("chords").setAttribute("aria-pressed", S.chords); if (S.chords) Keys.ready(); tick(true); };
-$("change").onclick = () => openEdit(S.bar + 1);
-$("edit-close").onclick = closeEdit;
-$("edit-hear").onclick = () => tryBar(null);
-$("edit-try").onclick = () => { E.pick = { root: +$("edit-root").value, quality: $("edit-quality").value }; paintEdit(); tryBar(E.pick); };
-$("edit-here").onclick = () => setChords([E.bar], E.pick);
-$("edit-all").onclick = () => setChords(alike(E.bar), E.pick);
-$("edit-back").onclick = () => setChords([E.bar], null);
 $("loop").onclick = () => { S.loop = !S.loop; $("loop").setAttribute("aria-pressed", S.loop); S.looping = H && H.parts[S.part] || null; };
+$("chords").onclick = () => { S.chords = !S.chords; $("chords").setAttribute("aria-pressed", S.chords); if (S.chords) Keys.ready(); tick(true); };
+$("tapmode").onclick = () => {
+  S.tap = !S.tap;
+  $("tapmode").setAttribute("aria-pressed", S.tap);
+  $("tapbar").hidden = !S.tap;
+  document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px");
+};
+$("tap").onclick = tap;
+$("edit-close").onclick = closeEdit;
+$("edit-next").onclick = nextOpen;
+$("edit-hear").onclick = () => audition(E.at);
+$("edit-put").onclick = () => put([+$("edit-root").value, $("edit-quality").value]);
+$("edit-none").onclick = () => put("none");
+$("edit-remove").onclick = () => put("remove");
 $("hear").querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     const t = au.currentTime, playing = !au.paused;
@@ -928,7 +1053,9 @@ const jump = svg => e => { const box = svg.getBoundingClientRect(); seek(H.lengt
 $("strip").onclick = jump($("strip"));
 $("profile").onclick = jump($("profile"));
 document.addEventListener("keydown", e => {
-  if (e.key === " " && !/^(BUTTON|SELECT|INPUT|SUMMARY)$/.test(e.target.tagName)) { e.preventDefault(); toggle(); }
+  if (/^(SELECT|INPUT)$/.test(e.target.tagName)) return;
+  if (e.key === " " && !/^(BUTTON|SUMMARY)$/.test(e.target.tagName)) { e.preventDefault(); toggle(); }
+  if ((e.key === "t" || e.key === "T") && S.tap) { e.preventDefault(); tap(); }
 });
 window.addEventListener("resize", () => document.documentElement.style.setProperty("--nowh", $("now").offsetHeight + "px"));
 start();

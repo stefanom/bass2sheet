@@ -215,6 +215,10 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/harmony":  # the song's chords against a home, for the harmony page
                 with self.desks.lock:
                     self.send_json(copilot_harmony.view(self.desks.get(q.get("id", ""))))
+            elif url.path == "/api/offers":  # the chords to try on a beat, and the same place in the other rounds
+                with self.desks.lock:
+                    desk = self.desks.get(q.get("id", ""))
+                    self.send_json(copilot_harmony.offers(desk, int(q.get("at", "-1"))))
             elif url.path == "/api/guesses":
                 with self.desks.lock:
                     self.send_json(dict(guesses=self.desks.get(q.get("song", "")).guesses(q.get("id", ""))))
@@ -293,15 +297,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(testsongs.rate_request(self.workdir, data))
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
-                if path == "/api/harmony":  # the person's home, or their chord for some bars; no note changes
-                    if "tab" in data:  # how the song is put on the neck: its score follows
+                if path == "/api/harmony":  # what the person sets on a song's harmony page; no note changes
+                    if "marks" in data:  # their chords: marks on beats
+                        copilot_harmony.set_marks(desk.folder, data["marks"])
+                        desk.log(dict(kind="chord", song=desk.song_id, marks=data["marks"]))
+                    elif "copy" in data:  # the chords of one round, into the rounds that have none
+                        filled = copilot_harmony.copy_round(desk, data["copy"])
+                        desk.log(dict(kind="chords copied", song=desk.song_id, at=data["copy"], rounds=filled))
+                    elif "tab" in data:  # how the song is put on the neck: its score follows
                         copilot_harmony.set_tab(desk.folder, data["tab"])
-                    elif "reading" in data:  # which reading of its chords: eighth by eighth, or one a bar
-                        copilot_harmony.set_reading(desk.folder, data["reading"])
-                    elif "chords" in data:
-                        bars, chord = data["chords"].get("bars"), data["chords"].get("chord")
-                        copilot_harmony.set_chords(desk.folder, bars, None if chord is None else (chord[0], chord[1]))
-                        desk.log(dict(kind="chord", song=desk.song_id, bars=bars, chord=chord))
                     else:
                         home = data.get("home")
                         copilot_harmony.set_home(desk.folder, None if home is None else (home[0], home[1]))

@@ -46,7 +46,7 @@ from xml.etree import ElementTree
 import numpy as np
 import soundfile as sf
 
-from . import copilot, harmony, score
+from . import copilot, score
 from .common import DEFAULTS, SR, Bass2SheetError, atomic_write_text, cache_home, sha1_file
 
 PAGE_PATH = os.path.join(os.path.dirname(__file__), "playalong_page.html")
@@ -268,11 +268,12 @@ def written(machine, notes):
     return simplify(out) if settings["rhythm"] == "simple" else out
 
 
-def score_xml(machine, notes, bars, tab=None, chords=None):
+def score_xml(machine, notes, bars, tab=None, chords=None, key=None):
     """The score to engrave for the page: (MusicXML with every line of `bars` bars on a page of its own and no
     title, the number of its first bar, the sixteenths counted from bar 1 where a note starts, those where one
     sounds). `tab` is how the notes are put on the neck (copilot.tab_style); `chords` is what is written over
-    the bars (copilot.sheet_chords), by default the chords of the song's finest reading."""
+    the bars (copilot.sheet_chords; by default nothing), and `key` the key it is written in (copilot.sheet_key;
+    by default the key the song was given)."""
     tab = tab or copilot.TAB
     if not notes:
         raise Bass2SheetError("there are no notes to play along with")
@@ -280,8 +281,8 @@ def score_xml(machine, notes, bars, tab=None, chords=None):
     enters = max(1, min(n["grid_start"] // 16 + 1 for n in quantized))  # lines are counted from where the bass enters
     xml = score.musicxml(
         quantized,
-        chords if chords is not None else harmony.for_sheet(machine),
-        tuple(machine["key"]),
+        chords or {},
+        key or tuple(machine["key"]),
         machine["tempo"],
         grid_time(machine["grid"], machine["origin"]),
         "",
@@ -467,8 +468,8 @@ def lines(workdir, song_id, bars=3, mscore=None):
     if machine is None or mine is None:
         raise Bass2SheetError(f"{song_id} is not prepared")
     tab = copilot.tab_style(folder)
-    chords = copilot.sheet_chords(folder, machine)
-    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab, chords)
+    chords, home = copilot.sheet_chords(folder, machine, mine["notes"]), copilot.sheet_key(folder, machine)
+    xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab, chords, home)
     grid = json.dumps([machine["origin"], machine["grid"]])  # the same score on another grid is played at other times
     key = hashlib.sha1("\n".join([ENGRAVING, str(DPI), style(), grid, xml]).encode()).hexdigest()[:10]
     out_dir = os.path.join(folder, "play", f"b{bars}")
@@ -487,7 +488,7 @@ def lines(workdir, song_id, bars=3, mscore=None):
         os.makedirs(out_dir, exist_ok=True)
         for fit in range(bars, 0, -1):
             if fit < bars:
-                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit, tab, chords)
+                xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], fit, tab, chords, home)
             made = engrave(xml, first_bar, machine["grid"], machine["origin"], starts, sounding, out_dir, ms, key)
             meant = xml.count('<print new-page="yes"/>') + 1
             if len(made["lines"]) - meant <= 0.1 * meant:
