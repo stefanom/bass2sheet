@@ -596,8 +596,13 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     places = page.evaluate(f"new Set({in_bar}.map(n => S.neck[n.id].slice(0, 2).join(':'))).size")
     assert page.is_visible("#neckbar") and page.locator("#neck .tone").count() == places >= 3
     assert page.locator("#neck .sound").count() == 1 and page.locator("#neck polyline").count() == 1
-    assert page.inner_text("#neckSays").startswith("Bar 2 · E") and "string" in page.inner_text("#neckSays")
-    assert set(page.locator("#neck .tone text").all_text_contents()) == {"6", "3", "2"}  # steps of G major
+    assert page.inner_text("#neckSays").startswith("Bar 2 · E1: the open E string")
+    # a circle has the note's name; what the note is to the key is said in words beside the neck, and under the pointer
+    assert set(page.locator("#neck .tone text").all_text_contents()) == {"E", "B", "A"}
+    assert page.locator("#neck .sound text").text_content() == "E" and " · step 6 of G major" in page.inner_text(
+        "#neckSays"
+    )
+    assert "E1: step 6 of G major" in page.locator("#neck .tone title").all_text_contents()
     # the neck is put away and taken out again; the timeline has the room meanwhile
     tall = page.evaluate("document.getElementById('rollwrap').clientHeight")
     page.click("#neckBtn")
@@ -616,7 +621,13 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     page.select_option("#homeSel", "4,0")
     page.wait_for_function("S.home.name === 'E minor' && S.home.yours")
     assert copilot_harmony.read_home(folder) == (4, False) and page.evaluate("S.chords[0].numeral") == "i"
-    assert set(page.locator("#neck .tone text").all_text_contents()) == {"1", "5", "4"}
+    assert set(page.locator("#neck .tone text").all_text_contents()) == {"E", "B", "A"}  # the names stay
+    assert " · step 1 of E minor" in page.inner_text("#neckSays")
+    # the notes are named as the sheet spells them in the key: with flats in a key that has flats
+    assert page.evaluate("[name(42), name(46), name(40)]") == ["F#2", "A#2", "E2"]
+    page.select_option("#homeSel", "5,1")
+    page.wait_for_function("S.home.name === 'F major'")
+    assert page.evaluate("[name(42), name(46), name(40)]") == ["Gb2", "Bb2", "E2"]
     page.select_option("#homeSel", "7,1")  # the tool's guess again
     page.wait_for_function("S.home.name === 'G major' && !S.home.yours")
     assert copilot_harmony.read_home(folder) is None
@@ -682,6 +693,7 @@ def test_the_harmony_page_shows_how_the_song_moves_and_changes_nothing(browse, s
     places = page.evaluate("new Set(H.bass.filter(b => b.bar === S.bar + 1).map(b => b.string + ':' + b.fret)).size")
     assert page.locator("#neck .tone").count() == places >= 4 and page.locator("#neck .shape").count() == 1
     assert set(page.locator("#neck .tone text").all_text_contents()) == {"♭3", "♭7", "♭6"}  # C, G and F over A minor
+    assert "steps, not fingers" in page.inner_text("#circles")
     assert "The bass plays" in page.inner_text("#lead") and "string" in page.inner_text("#lead")
     page.wait_for_function("H.chords[S.chord].name === 'G'", timeout=20000)  # the song moves on, and the page with it
     assert page.inner_text("#here-name") == "G" and float(page.get_attribute("#strip-cursor", "x1")) > 0
