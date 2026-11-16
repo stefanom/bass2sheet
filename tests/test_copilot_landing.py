@@ -530,7 +530,9 @@ def test_a_song_being_prepared_is_cancelled_and_nothing_of_it_is_left(served):
         not os.path.exists(os.path.join(workdir, "given-up")) and "given-up" not in copilot.load_songs(workdir)
     )
     _until(lambda: _json(url + "/api/adding")["jobs"] == [] and os.listdir(os.path.join(workdir, "uploads")) == [])
-    assert gone() and [s["id"] for s in _json(url + "/api/songs")] == ["mix"]
+    left = lambda: (sorted(os.listdir(workdir)), sorted(copilot.load_songs(workdir)))  # said when it fails
+    assert gone(), left()
+    assert [s["id"] for s in _json(url + "/api/songs")] == ["mix"]
     assert _upload(url, "Given Up.wav", open(mix, "rb").read(2000))[0] != 409  # it is not "already being prepared"
 
 
