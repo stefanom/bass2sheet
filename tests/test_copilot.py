@@ -143,7 +143,7 @@ def test_a_song_added_again_gets_its_harmony_from_the_stems_it_has_and_the_perso
     fixed = d.notes[5]
     d.act(dict(kind="pitch", id=fixed["id"], pitch=fixed["pitch"] + 2, how="key"))
     old_sheet = open(copilot.sheet(work, "mix", mscore="/nonexistent/mscore")["musicxml"]).read()
-    assert "<harmony>" not in old_sheet  # the score has the chords the person wrote, and they wrote none
+    assert "<harmony>" in old_sheet  # its chord per bar still gives the sheet its symbols
     judge._song.cache_clear()
     copilot.add([mix], work, opts, say=lambda _: 0)
     again = copilot.read_json(os.path.join(folder, "machine.json"))

@@ -73,29 +73,13 @@ same([L.voicing(4, [4, 7, 11]), L.voicing(0, [0, 4, 7, 10]), L.voicing(11, [11, 
 // the bars where the parts with one letter play a bar of their loop: here the second bar of a loop of four
 const song = [{ letter: "A", bar: 1, bars: 8, size: 4, skip: 0 }, { letter: "B", bar: 9, bars: 4, size: 2, skip: 0 }, { letter: "A", bar: 13, bars: 6, size: 4, skip: 3 }];
 same([L.rounds(song, "A", 1), L.rounds(song, "A", 3), L.rounds(song, "B", 0), L.rounds(song, "C", 0)], [[2, 6, 15], [4, 8, 13, 17], [9, 11], []]);
-// the beat nearest to a time, as sixteenths from the start of bar 1: where a tap puts a mark
-const beats = bars.map(bar => ({ ...bar, beats: [0, 0.5, 1, 1.5].map(x => bar.time + x) }));
-same([L.beatAt(beats, 0), L.beatAt(beats, 0.2), L.beatAt(beats, 0.3), L.beatAt(beats, 1.9), L.beatAt(beats, 5.6), L.beatAt(beats, 99), L.beatAt(beats, -3)], [0, 0, 4, 16, 44, 188, 0]);
-// what a bar shows of the person's chords: stretches of beats, with what comes into the bar from before
-const Bm = { name: "Bm", job: "rest" }, A7 = { name: "A7", job: "pull" };
-const marks = [{ at: 16, chord: Bm, open: false }, { at: 40, chord: null, open: true }, { at: 44, chord: null, open: false }, { at: 64, chord: A7, open: false }];
-same(L.barCells(marks, 1, null), [{ beat: 0, beats: 4, kind: "chord", chord: Bm }]);
-same(L.barCells(marks, 2, Bm), [{ beat: 0, beats: 2, kind: "goes on", chord: Bm }, { beat: 2, beats: 1, kind: "open", chord: null }, { beat: 3, beats: 1, kind: "none", chord: null }]);
-same(L.barCells(marks, 3, null), [{ beat: 0, beats: 4, kind: "empty", chord: null }]);
-same(L.barCells(marks, 0, null).map(c => c.kind), ["empty"]);
-same(L.barCells([], 5, A7), [{ beat: 0, beats: 4, kind: "goes on", chord: A7 }]);
+// what a bar shows of its chords: stretches of its four beats, empty before its first chord and where it has none
+const Bm = { name: "Bm", job: "rest", beat: 1 }, A7 = { name: "A7", job: "pull", beat: 3 };
+same(L.barCells([Bm]), [{ beat: 0, beats: 4, chord: Bm }]);
+same(L.barCells([Bm, A7]), [{ beat: 0, beats: 2, chord: Bm }, { beat: 2, beats: 2, chord: A7 }]);
+same(L.barCells([A7]), [{ beat: 0, beats: 2, chord: null }, { beat: 2, beats: 2, chord: A7 }]);
+same(L.barCells([]), [{ beat: 0, beats: 4, chord: null }]);
 // the bars shown in a row around a bar: its round; for a loop of one or two bars, four bars; inside the part
 same([L.window(part, 2), L.window(part, 5), L.window(part, 6), L.window(late, 2), L.window(late, 3), L.window(late, 7)], [[2, 3, 4, 5], [2, 3, 4, 5], [6, 7, 8, 9], [2], [3, 4, 5, 6], [7]]);
 same([L.window({ bar: 3, bars: 7, size: 1 }, 2), L.window({ bar: 3, bars: 7, size: 1 }, 7), L.window({ bar: 3, bars: 7, size: 2, skip: 1 }, 2), L.window({ bar: 1, bars: 9, size: 3 }, 7)], [[2, 3, 4, 5], [6, 7, 8], [2, 3, 4], [6, 7, 8]]);
-// the rounds of the parts with one letter, as sixteenths: a part that comes in on its loop's last bar has a
-// first round of one bar, and a round cut short at the end of its part is a round too
-same(L.roundsOf(song, "A"), [[0, 64, 0], [64, 128, 64], [192, 208, 144], [208, 272, 208], [272, 288, 272]]);
-same(L.roundsOf(song, "B"), [[128, 160, 128], [160, 192, 160]]);
-same(L.roundsOf(song, "C"), []);
-// the round a beat is in, how many marks it has, and how many other rounds of its part have none
-const at = n => ({ at: n });
-same(L.emptyRounds(song, [at(0), at(32)], 20), { round: [0, 64, 0], marked: 2, empty: 4 });
-same(L.emptyRounds(song, [at(0), at(32), at(64), at(280)], 20), { round: [0, 64, 0], marked: 2, empty: 2 });
-same(L.emptyRounds(song, [at(0)], 100), { round: [64, 128, 64], marked: 0, empty: 3 });
-same(L.emptyRounds(song, [], 16 * 40), { round: null, marked: 0, empty: 0 });
 console.log("ok");

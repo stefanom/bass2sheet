@@ -1,4 +1,5 @@
-"""How often the chord a person would want is among the first few the copilot offers for a beat
+"""How good the chords are that the copilot starts a song with (copilot_harmony.guessed: its best guess for every
+bar), and how often the chord a person would want is among the first few it offers in place of one
 (copilot_harmony.suggest), on songs whose chords are known.
 
     python dev/chord_offers_eval.py --rwc AUDIO_DIR ANNOTATIONS_DIR
@@ -8,10 +9,14 @@
 --song takes a song of a copilot working directory with one or more transcriptions of it (MIDI files of the
 whole arrangement, lined up with the recording as chords_against_midi.py does); nothing is written there.
 
-A stretch is what the person marks on the harmony page: from where a chord starts to where the next one starts,
-a bar at most. The chord wanted is the annotated one as a major or minor triad, which is all the copilot offers
-(a seventh is made from the triad on the page); other chords are left out. For each of four ways of ranking,
-the share of stretches whose chord is in the first 1, 2, 3, 4, 5, 6 and 8 offered:
+The best guess is scored as chords are: the share of the time its root is right, and its root with major or
+minor. Beside what the copilot uses (the chord the finder hears most in each half of a bar) are the same finder
+with one chord a bar, and the first of the offers for each bar.
+
+For the offers, a stretch runs from where a chord starts to where the next one starts, a bar at most. The chord
+wanted is the annotated one as a major or minor triad, which is all the copilot offers (a seventh is made from
+the triad on the page); other chords are left out. For each of four ways of ranking, the share of stretches whose
+chord is in the first 1, 2, 3, 4, 5, 6 and 8 offered:
 
     bass notes only             what the bass line plays in the stretch
     bass notes + key            and how common each chord is in the key
@@ -84,6 +89,42 @@ def places(stretches, notes, home, heard, grid):
     return out
 
 
+GUESSES = ("the copilot's: the finder, by half bars", "the finder, a chord a bar", "the first of the offers, a bar")
+MINOR = ("m", "m7", "m6", "dim", "m7b5", "dim7")
+
+
+def guesses(notes, home, found, grid, origin):
+    """Three ways to start a song with a chord in every bar, each as [(start, end, root, whether minor)]."""
+    grid = np.asarray(grid, float)
+    n_bars = (len(grid) - 1 - origin) // 16
+    when = lambda g: float(grid[origin + g])  # noqa: E731
+    out = {name: [] for name in GUESSES}
+    used = H.guessed(dict(harmony=found, origin=origin))
+    heard = what_was_heard(found)
+    for k in range(n_bars):
+        chords = used.get(k, [])
+        for i, (beat, root, quality) in enumerate(chords):
+            end = 16 * k + (4 * chords[i + 1][0] if i + 1 < len(chords) else 16)
+            out[GUESSES[0]].append((when(16 * k + 4 * beat), when(end), root, quality in MINOR))
+        held = {}
+        for c in found["chords"]:
+            both = min(c["until"] - origin, 16 * k + 16) - max(c["at"] - origin, 16 * k)
+            if both > 0:
+                held[(c["root"], c["quality"] in MINOR)] = held.get((c["root"], c["quality"] in MINOR), 0) + both
+        if held:
+            out[GUESSES[1]].append((when(16 * k), when(16 * k + 16), *max(held, key=held.get)))
+        root, quality = H.suggest(notes, when(16 * k), when(16 * k + 16), home, heard=heard, most=1)[0]
+        out[GUESSES[2]].append((when(16 * k), when(16 * k + 16), root, quality == "m"))
+    return out
+
+
+def guess_table(title, rows):
+    print(f"\n{title}")
+    for name in GUESSES:
+        got = np.array(rows[name])
+        print(f"  {name:42s} root {got[:, 0].mean():.2f}   root and major or minor {got[:, 1].mean():.2f}")
+
+
 def table(title, found):
     print(f"\n{title}")
     for way in WAYS:
@@ -102,7 +143,7 @@ def what_was_heard(found):
 
 def rwc(audio, annotations):
     cache = cache_home()
-    total, by_song = {way: [] for way in WAYS}, []
+    total, by_song, started = {way: [] for way in WAYS}, [], {name: [] for name in GUESSES}
     for rid in CE.CHECK:
         keep = os.path.join(cache, "chords-eval")
         song = CE.prepare(rid, os.path.join(audio, rid + ".wav"), cache, keep, False, "cpu")
@@ -114,6 +155,11 @@ def rwc(audio, annotations):
         for way in WAYS:
             total[way] += got[way]
         by_song.append((rid, float(np.mean(np.array(got["all of it"]) <= 3))))
+        for name, spans in guesses(song["notes"], (key[1], key[2]), found, song["grid"], song["origin"]).items():
+            labelled = [(a, b, CE.FLATS[root] + (":min" if minor else ":maj")) for a, b, root, minor in spans]
+            scored = CE.score(song["ref"], labelled)
+            started[name].append((scored["root"], scored["majmin"]))
+    guess_table(f"RWC Popular, {len(CE.CHECK)} songs: the chords a song starts with (mean of the songs):", started)
     table(f"RWC Popular, {len(CE.CHECK)} songs (annotated chords):", total)
     worst = sorted(by_song, key=lambda row: row[1])[:4]
     print("  the songs it is worst on (in the first three):", ", ".join(f"{rid} {share:.0%}" for rid, share in worst))
@@ -125,14 +171,28 @@ def one_song(workdir, song_id, files):
     found = harmony.read(frames, len(mono) / SR)
     key = harmony.main_key(found, machine["notes"])
     total = {way: [] for way in WAYS}
+    mids, dur = (frames["edges"][:-1] + frames["edges"][1:]) / 2, np.diff(frames["edges"])
+    started = guesses(notes, (key[1], key[2]), found, machine["grid"], machine["origin"])
+    right = {name: np.zeros(3) for name in GUESSES}  # seconds with the root right, with root and third right, in all
     for path in files:
         chord, *_ = CM.transcribed(path, mono, frames)
+        there = chord[:, 0] >= 0
+        for name, spans in started.items():
+            mine = np.full((len(mids), 2), -1)
+            for a, b, root, minor in spans:
+                mine[(mids >= a) & (mids < b)] = (root, int(minor))
+            same = there & (mine[:, 0] == chord[:, 0])
+            right[name] += ((dur * same).sum(), (dur * same * (mine[:, 1] == chord[:, 1])).sum(), dur[there].sum())
         got = places(
             transcribed(chord, frames["edges"]), notes, (key[1], key[2]), what_was_heard(found), machine["grid"]
         )
         for way in WAYS:
             total[way] += got[way]
     plural = "s" if len(files) > 1 else ""
+    guess_table(
+        f"{song_id} ({len(files)} transcription{plural}): the chords it starts with:",
+        {name: [(r / max(1e-9, d), m / max(1e-9, d))] for name, (r, m, d) in right.items()},
+    )
     table(f"{song_id} ({len(files)} transcription{plural}; key taken as {key[0]}):", total)
 
 

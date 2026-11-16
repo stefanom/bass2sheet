@@ -77,6 +77,24 @@ After every change the passage plays again, so you hear the result.
 
 **After a fix** in a bar that repeats, the tool offers the same fix for the repeats (see below). In a bar that does not, it looks for the other notes that carry the label you just changed and sound like the note you fixed, and offers to change those. It never changes a note you have touched or worked through. Of what it offers that way, less than half needs the fix unless the mistake is one the tool made all through the song, so listen to a few before taking them.
 
+## Chords, key and fingering
+
+The song's page is where everything that goes on the sheet is changed: the notes, and with them the chords, the key and the fingering.
+
+**The row of chords** over the notes has a chord for every bar, and two where the chord changes inside the bar. They start as the tool's best guess, drawn grey; a chord you chose is blue. A guess is a starting point and is often wrong: on the pop test songs its root is right 85% of the time, on the commercial recordings that could be checked between 49% and 81% ([evaluation.md](evaluation.md#chords-in-the-copilot)).
+
+- **Click a chord** and the bar plays with its chords in a plain keyboard sound. If it sounds wrong, the buttons under the timeline have six other chords to try, ranked from the bass notes of that bar, the key and what the tool hears there.
+- **Try one on**: a click on a chord plays the bar with it in place of the one written. Nothing changes. Any other chord is in the two boxes beside them (its root and its kind: seventh, suspended, diminished and the rest), with "Try it".
+- **"Use … here"** writes the chord you tried. Beside it, "…and in the N bars like it in this part" and "…and in all N like it" write it as well in the other bars where the bass stands on the same note and the same chord is written. That is an offer: nothing is changed in another bar unless you press it.
+- **"Another chord from beat 3"** gives the bar a second chord; "One chord for the bar" takes it away again. "No chord" says the bar has none. "Back to the tool's guess" forgets what you chose for the bar.
+- **"Chords" in Hear** plays the chords while the song plays, over whatever else you hear.
+
+**The neck** at the bottom shows where the notes of the bar are played: ringed and joined in the order they come, the note that sounds (or the one you selected) filled, and a box for where the fretting hand is. Each note is named as a step of the key (1 is home), or of the chord where you chose the bar's chord (R is its root). "Neck" in the bar of buttons puts it away; under a low window, or while repeats are lined up under the timeline, it gives way by itself.
+
+**Key**, beside the neck, is the key the sheet is written in; every chord and every step is named by it. It is the tool's guess until you pick one. A major key and a minor key share the same notes, and which of the two is home is heard, not counted: if the steps read oddly, pick the other.
+
+**Fingering** is how the notes are put on the neck. A pitch can be played in up to four places, and the choice decides how hard the line is to play. "Fewest hand moves" is what every song gets: the hand stays where it is for as long as the notes allow, a move is made where there is time for it, strings are skipped as little as possible, and an open string is used where it saves a move. "No open strings" gives shapes you can move along the neck; "Lowest frets" puts every note near the nut. Each says how many hand moves it asks for over the whole song. The neck and the tab of the sheet follow your choice.
+
 ## Repeats
 
 Music repeats itself, and the tool does not hear every repeat the same way. So the tool looks for the bars that sound alike, in the bass track itself and not in its own notes, which are the part that may be wrong. Two bars are compared sixteenth by sixteenth: where they sound the same, they should be written the same.
@@ -104,7 +122,7 @@ The bars are the tool's bars. Where its beat grid slips (an odd bar, a missed be
 
 ## The sheet
 
-"Make the sheet" writes the PDF, the MusicXML and a MIDI file from your notes, with the bars and the rhythm as the tool writes them (those pieces get their own steps later) and the tab in the song's fingering, which you choose on its harmony page. The line under the title says how much of the song you have worked through.
+"Make the sheet" writes the PDF, the MusicXML and a MIDI file from your notes, with the bars and the rhythm as the tool writes them (those pieces get their own steps later) and the chords, the key and the fingering as they stand on the song's page. Where chord symbols are still the tool's guess, the foot of the page says so. The line under the title says how much of the song you have worked through.
 
 The score then opens in a panel over the song's page: its pages one under the other, as MuseScore draws them, with buttons to download the PDF, the MusicXML and the MIDI file, and "Make it again" after more fixes. "Close", Esc or a click beside the panel goes back to the notes, which are as you left them. The same view has an address of its own, `/score#SONG_ID`.
 
@@ -196,31 +214,23 @@ The score is the one "Make the sheet" writes, from your notes as they stand when
 
 ## The harmony of a song
 
-"Harmony" on a song's card, or at the top of its page, opens `http://localhost:8770/harmony#SONG`: the song as its bass line and the chords you write over it. The page is for understanding a song before you play it, and for remembering it.
+"Harmony" on a song's card, or at the top of its page, opens `http://localhost:8770/harmony#SONG`: how the song moves. The page is for understanding a song before you play it, and for remembering it. It changes nothing: the chords, the key and the fingering are set on the song's page, and each of them has a link back there.
 
-The tool writes no chord. A bass player needs the notes, where they sit on the neck and how the song is built; the chords help where you know them, and the tool's guesses at them are wrong too often to print as the song's (see [evaluation.md](evaluation.md#chords-the-copilot-offers)). So you say where the chords change and what they are, and the tool offers a few to try on each beat.
-
-- **The song in short**, under its title: the few loops that carry it. Before you write any chord a loop is said by the notes the bass stands on, `the bass on B · A · G · F♯, 2 bars each, 30% of the song`; once its bars have your chords it is said by them, as steps above home: `i – ♭VII – ♭VI – V`.
-- **Home** is the note the song comes back to: step 1. The tool guesses a key; a major key and a minor key share the same notes, and which of the two is home is heard, not counted. Pick the other one, or any key, and every name on the page follows.
-- **The bar that stays at the top** has the round of the part that is playing, a box for each bar: your chords over its four beats, and under them what the bass plays in the bar. Beside it are the chord that sounds, Play, "Loop this part", and what you hear (the record, the record without its bass, the bass alone). Under it is **the bass neck**, which shows only what the bass plays: the places of this bar's notes, ringed and joined in the order they are played; the note that sounds, filled; faintly, the other places this part of the song uses; and a box for where the fretting hand is.
-- **Putting a chord on a beat.** Click a beat of a bar (1 to 4). A row opens with the chords to try there, the likeliest first. A click on one puts it on the beat and plays that stretch of the record with it in a plain keyboard sound, coming in from the chord before: a wrong chord is heard at once, and a click on another replaces it. Any other chord is two boxes away (its root and its kind: seventh, suspended, diminished and the rest). A chord lasts until the next one you put, or the end of its part. "No chord from here" ends it earlier; "Remove" takes the mark away.
-- **Tap the changes** is the other way to say where the chords change: play the song and press the button (or T) each time you hear a change. Each press marks the nearest beat with a `?`; you choose the chords afterwards, one after the other with "Next to choose".
-- **The other rounds.** A song goes round the same few bars many times. When a round has your chords, "Copy this round's chords to the N rounds that have none" writes them into the other rounds of the part; a round you wrote yourself is never written over. "Also in the N other rounds" puts the one chord you just chose on the same beat of the other rounds. Both are offers: nothing is copied by itself, because rounds differ on purpose.
-- **The map** shows every chord by the job it does in the key: it rests (Home), drifts (Away) or pulls (Tension). Inside a region the darker, flatter chords are on the left and the brighter ones on the right; the row facing the middle is in the key, the next is one step outside it, the rim is far outside. Filled circles are the chords you wrote, and the arrows are the steps they take, bolder where the song takes them often. While a beat is waiting for its chord, the dashed circles are the tool's offers and a click on any chord of the map puts it there. Two more views, the circle of fifths and a circle of semitones, show the same chords by how they are related.
-- **Hear the chords** plays your chords in the keyboard sound over whatever you are hearing. With "Without bass" it is also a backing to play over.
-- **Fingering**, beside the neck, is how the notes are put on it. A pitch can be played in up to four places, and the choice decides how hard the line is to play. "Fewest hand moves" is what every song gets: the hand stays where it is for as long as the notes allow, a move is made where there is time for it, strings are skipped as little as possible, and an open string is used where it saves a move. "No open strings" gives shapes you can move along the neck; "Lowest frets" puts every note near the nut. The page says what each asks of the hand over the whole song, and the score's tab follows your choice.
-- **The song in parts** cuts the song into the loops it goes round and the passages between them. A part is boxed like a rehearsal mark, so that part A is not read as the chord A. Each loop is shown once, with how often it goes round and where; each of its bars shows your chord, or the note the bass stands on where you wrote none, and under it what the bass plays: steps of the key (`1 5 ♭7 1`: 1 is home), or steps of the chord once the bar has one (`R R 5 8 5 4`: root, root, fifth, octave, fifth, fourth). A click on a bar goes to it, ready for a chord.
-- **The profile** appears once you have written chords: how far from rest the song is from start to end. **What the bass plays** says how long the bass spends on each step of the key and, under your chords, on roots, fifths, thirds, sevenths and passing notes.
+- **The song in short**, under its title: the few loops that carry it, as steps above home: `i – ♭VII – ♭VI – V, 2 bars each, 30% of the song`. It also says how many bars' chords you chose and how many are still the tool's guess.
+- **The bar that stays at the top** has the round of the part that is playing, a box for each bar: its chords over its four beats (the tool's guesses in grey italics) and under them what the bass plays in the bar. Beside it are the chord that sounds with its step and its job, Play, "Loop this part", "Hear the chords" (the chords in a plain keyboard sound over what you hear), and what you hear (the record, the record without its bass, the bass alone). Under it is **the bass neck**, as on the song's page, with faintly the other places this part of the song uses.
+- **The map** shows every chord by the job it does in the key: it rests (Home), drifts (Away) or pulls (Tension). Inside a region the darker, flatter chords are on the left and the brighter ones on the right; the row facing the middle is in the key, the next is one step outside it, the rim is far outside. Filled circles are the chords of this song, and the arrows are the steps it takes, bolder where the song takes them often. A click on a chord goes to where the song is on it next. Two more views, the circle of fifths and a circle of semitones, show the same chords by how they are related.
+- **The song in parts** cuts the song into the loops it goes round and the passages between them. A part is boxed like a rehearsal mark, so that part A is not read as the chord A. Each loop is shown once, with how often it goes round and where; each of its bars shows the chord most rounds have there, and under it what the bass plays: steps of the key (`1 5 ♭7 1`: 1 is home), or steps of the chord where you chose it (`R R 5 8 5 4`: root, root, fifth, octave, fifth, fourth). A click on a bar goes there and plays.
+- **The profile** draws how far from rest the song is from start to end. **What the bass plays** says how long the bass spends on each step of the key and, under the chords you chose, on roots, fifths, thirds, sevenths and passing notes.
 
 What the tool decides, and how:
 
 - **The parts** come from the bass line alone: from the note the line stands on in each bar (the note the bar starts on, unless another is held far longer). A line comes back with other fills each round and still stands on the same notes, so this finds the loops where comparing the bars note for note does not. A loop may be come into part of the way round, by a bar that leads in. Where a loop could start on one bar as well as on another, it starts on the bar that stands on home.
-- **The chords it offers** for a beat are major and minor triads, ranked by four things: the bass notes of the stretch (the note it starts on most of all, then the notes held, then a fifth or a third above a root), how common the chord is in the key, the chords the tool itself hears there, and the chords you put at the same place in other rounds, which come first. Six are shown. On songs whose chords are known the chord wanted is among the first six for 98% of the changes on the pop test songs, and for 75% to 97% on the three commercial recordings that could be checked.
-- **The key** is read from the chords the tool hears. It is a guess until you pick one.
+- **The chords** are the ones the song's page has: yours where you chose, the tool's best guess elsewhere. The guess is a major or minor triad for each half of a bar, the chord the tool hears most in it. A bass note is named by its chord only where the chord is yours: a guess has not been agreed to, and a note named against a wrong chord teaches the wrong thing.
+- **The key** is read from the chords the tool hears. It is a guess until you pick one on the song's page.
 
 The map's rules are rules of thumb from functional harmony, written down in `copilot_harmony.py` (`job`, `ring`, `bright`); they are not measured from anything. The look and the map come from the author's "Where next?", a map of harmony for improvising.
 
-The score and the play-along page carry the chords you wrote and no others, in the key you chose. A song prepared before the tool heard chords eighth by eighth has them heard the first time its harmony page is opened (a few seconds, from its separated tracks in the cache), for the key and the offers only; none of your work changes. What you set is kept in `harmony.json` beside the song: its home, your chords as marks on beats, its fingering.
+A song prepared before the tool heard chords eighth by eighth has them heard the first time its page or its harmony page is opened (a few seconds, from its separated tracks in the cache); none of your work changes. Where the separated tracks are gone, the song keeps the chord a bar and the key it was given. What you set is kept in `harmony.json` beside the song: its key, the chords you chose by bar, its fingering.
 
 ## The working directory
 
@@ -232,7 +242,7 @@ scores/
   <song>/notes.json     your version, what you have played through, and the undo history
   <song>/log.jsonl      every fix, offer and play-through, appended
   <song>/reference/     answer keys: somebody's transcription of the song, lined up with the recording
-  <song>/harmony.json   what you set on the song's harmony page: its home, your chords as marks on beats, its fingering
+  <song>/harmony.json   what goes on the sheet besides the notes: the key, the chords you chose by bar, the fingering
   tests.json, ratings.json, ratings.jsonl   in a directory of test songs: what they are, and your answers
   <song>/audio/         the record, the isolated bass and the record without the bass, and their slowed versions once used
   <song>/picture.bin, pitch.bin, desk.npz   the pitch picture, the tracked pitch, what the guesses need

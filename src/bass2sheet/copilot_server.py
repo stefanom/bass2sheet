@@ -210,15 +210,15 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/song":
                 with self.desks.lock:
                     desk = self.desks.get(q.get("id", ""))
-                    self.send_json(desk.public())
+                    self.send_json(dict(desk.public(), **copilot_harmony.for_notes(desk)))
                 threading.Thread(target=self.warm, args=(desk,), daemon=True).start()
             elif url.path == "/api/harmony":  # the song's chords against a home, for the harmony page
                 with self.desks.lock:
                     self.send_json(copilot_harmony.view(self.desks.get(q.get("id", ""))))
-            elif url.path == "/api/offers":  # the chords to try on a beat, and the same place in the other rounds
+            elif url.path == "/api/offers":  # the chords to try in place of one a bar has, and the bars like it
                 with self.desks.lock:
                     desk = self.desks.get(q.get("id", ""))
-                    self.send_json(copilot_harmony.offers(desk, int(q.get("at", "-1"))))
+                    self.send_json(copilot_harmony.offers(desk, int(q.get("bar", "-1")), int(q.get("beat", "0"))))
             elif url.path == "/api/guesses":
                 with self.desks.lock:
                     self.send_json(dict(guesses=self.desks.get(q.get("song", "")).guesses(q.get("id", ""))))
@@ -297,19 +297,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(testsongs.rate_request(self.workdir, data))
             with self.desks.lock:
                 desk = self.desks.get(data.get("song", ""))
-                if path == "/api/harmony":  # what the person sets on a song's harmony page; no note changes
-                    if "marks" in data:  # their chords: marks on beats
-                        copilot_harmony.set_marks(desk.folder, data["marks"])
-                        desk.log(dict(kind="chord", song=desk.song_id, marks=data["marks"]))
-                    elif "copy" in data:  # the chords of one round, into the rounds that have none
-                        filled = copilot_harmony.copy_round(desk, data["copy"])
-                        desk.log(dict(kind="chords copied", song=desk.song_id, at=data["copy"], rounds=filled))
-                    elif "tab" in data:  # how the song is put on the neck: its score follows
+                if path == "/api/chords":  # what goes on the sheet besides the notes, set on the song's page
+                    if "bars" in data:  # the chords the person chooses for some bars
+                        copilot_harmony.set_bars(desk.folder, data["bars"])
+                        desk.log(dict(kind="chord", song=desk.song_id, bars=data["bars"]))
+                    elif "tab" in data:  # how the song is put on the neck
                         copilot_harmony.set_tab(desk.folder, data["tab"])
-                    else:
+                    else:  # its key
                         home = data.get("home")
                         copilot_harmony.set_home(desk.folder, None if home is None else (home[0], home[1]))
-                    return self.send_json(copilot_harmony.view(desk))
+                    return self.send_json(copilot_harmony.for_notes(desk))
                 if path == "/api/act":
                     result = desk.act(data.get("action") or {})
                 elif path == "/api/checked":
@@ -326,8 +323,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     return self.send_json(dict(error="not found"), 404)
                 state = desk.public()
+                neck = copilot_harmony.on_the_neck(desk)
             fields = {k: state[k] for k in ("notes", "checked", "worked", "undo", "fixes", "taken")}
-            self.send_json(dict(result=result, differences=state["repeats"]["differences"], **fields))
+            self.send_json(dict(result=result, differences=state["repeats"]["differences"], neck=neck, **fields))
         except copilot_adding.Refused as e:
             self.send_json(dict(error=str(e)), e.status)
         except (ValueError, KeyError, TypeError, StopIteration, Bass2SheetError) as e:

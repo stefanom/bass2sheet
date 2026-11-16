@@ -1108,13 +1108,22 @@ def hear_harmony(workdir, song_id, cache_dir=None):
     return machine["harmony"]
 
 
-def sheet_chords(folder, machine, notes):
-    """What a song's score writes over its bars: the chords the person wrote on its harmony page, and nothing
-    where they wrote none (copilot_harmony.for_sheet; `notes` are the song's notes, which say where its parts
-    end). The tool's own guesses at the chords are not printed."""
+def sheet_chords(folder, machine):
+    """What a song's score writes over its bars: its chords as they stand, the person's where they chose on the
+    song's page and the tool's best guess elsewhere (copilot_harmony.for_sheet)."""
     from . import copilot_harmony
 
-    return copilot_harmony.for_sheet(folder, machine, notes)
+    return copilot_harmony.for_sheet(folder, machine)
+
+
+def chord_note(folder, machine):
+    """What the foot of a song's score says of its chord symbols: how many bars' chords the person chose."""
+    from . import copilot_harmony
+
+    mine, bars = copilot_harmony.chosen_share(folder, machine)
+    if mine >= bars:
+        return ""
+    return "Chord symbols: the tool's guess" + (f", except in the {mine} bars you chose them for" if mine else "")
 
 
 def sheet_key(folder, machine):
@@ -1131,7 +1140,7 @@ TAB = "easy"  # how a song is fingered unless the person chose otherwise for it 
 
 def tab_style(folder):
     """How a song's notes are put on the neck, on its pages and in its score: for playing (`easy`), unless the
-    person chose another way for this song on its harmony page (kept in harmony.json)."""
+    person chose another way for this song on its page (kept in harmony.json)."""
     return (read_json(os.path.join(folder, "harmony.json")) or {}).get("tab") or TAB
 
 
@@ -1170,7 +1179,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
     )
     xml = score.musicxml(
         notes,
-        sheet_chords(desk.folder, m, desk.notes),
+        sheet_chords(desk.folder, m),
         sheet_key(desk.folder, m),
         m["tempo"],
         float(grid[m["origin"]]),
@@ -1181,7 +1190,7 @@ def sheet(workdir, song_id, mscore=None, tab=None, rhythm=None):
         tab_style=tab or tab_style(desk.folder),
         bar_times=bar_times(grid, m["origin"]),
         subtitle=subtitle,
-        chord_note="",  # the chords are the person's own
+        chord_note=chord_note(desk.folder, m),
     )
     files = dict(musicxml=os.path.join(out, "bass.musicxml"), midi=os.path.join(out, "bass_as_played.mid"))
     atomic_write_text(files["musicxml"], xml)

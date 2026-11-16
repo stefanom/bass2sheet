@@ -468,7 +468,7 @@ def lines(workdir, song_id, bars=3, mscore=None):
     if machine is None or mine is None:
         raise Bass2SheetError(f"{song_id} is not prepared")
     tab = copilot.tab_style(folder)
-    chords, home = copilot.sheet_chords(folder, machine, mine["notes"]), copilot.sheet_key(folder, machine)
+    chords, home = copilot.sheet_chords(folder, machine), copilot.sheet_key(folder, machine)
     xml, first_bar, starts, sounding = score_xml(machine, mine["notes"], bars, tab, chords, home)
     grid = json.dumps([machine["origin"], machine["grid"]])  # the same score on another grid is played at other times
     key = hashlib.sha1("\n".join([ENGRAVING, str(DPI), style(), grid, xml]).encode()).hexdigest()[:10]
