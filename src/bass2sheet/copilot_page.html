@@ -127,7 +127,6 @@
   <div id="sheetside">
     <label title="The key the sheet is written in. Notes, chords and steps are named by it. It is the tool's guess until you pick one"><span class="soft">Key</span> <select id="homeSel"></select></label>
     <label title="How the notes are put on the neck: the neck here and the tab of the sheet follow"><span class="soft">Fingering</span> <select id="tabSel"></select></label>
-    <span class="soft" id="neckSays"></span>
   </div>
 </div>
 <aside id="help" class="hidden">
@@ -144,7 +143,7 @@
     <tr><td>Two notes played together</td><td>are drawn one above the other, joined at the left. Click the one you mean: "Delete" then has a button for each, and ⌫ takes out only the one you clicked. Drag the upper one up or down to change it alone.</td></tr>
     <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
     <tr><td>A chord</td><td>in the row over the notes is what that bar holds: blue where you chose it, grey where it is the tool's guess. Click one to hear the bar with it. Under the timeline are other chords to try: a click plays the bar with that chord and changes nothing, until you press "Use it". The same change is then offered for the bars like it. "Chords" in Hear plays them while the song plays.</td></tr>
-    <tr><td>The neck</td><td>at the bottom shows where the notes of the bar are played: a circle for each with its name, joined in the order they come, and the note that sounds filled in. The line beside it says what that note is: its step in the key (1 is home) or, where you chose the bar's chord, its part of the chord. The key and the fingering beside it go on the sheet.</td></tr>
+    <tr><td>The neck</td><td>at the bottom shows where the notes of the bar are played: a circle for each with its name, joined in the order they come, and the note that sounds filled in. Hold the pointer over a circle for where the note is played and what it is: its step in the key (1 is home) or, where you chose the bar's chord, its part of the chord. The key and the fingering beside it go on the sheet.</td></tr>
     <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
     <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
     <tr><td>A letter</td><td>over the timeline names the bars that sound alike. Click it and the other bars that sound like that one line up under the timeline, each with its own piece of the picture and its notes, orange where it is written unlike the bar you clicked. Hear each one as it is written and with the change, then change it there or leave it: nothing changes in a bar until you say so for that bar, and "Undo this one" takes it back.</td></tr>
@@ -1525,6 +1524,10 @@ function layNeck() {
   }
   return on;
 }
+function whereItIs(n) {  // where a note is played, in words
+  const [string, fret] = S.neck[n.id];
+  return fret === 0 ? `the open ${"EADG"[string]} string` : `fret ${fret} of the ${"EADG"[string]} string`;
+}
 function whatItIs(n) {  // a note in words: its part of the chord you chose there, else its step in the key
   const [, , , said, role] = S.neck[n.id];
   if (!role) return `step ${pretty(String(said).replace(/[↑↓]/, ""))} of ${pretty(S.home.name)}`;
@@ -1532,7 +1535,10 @@ function whatItIs(n) {  // a note in words: its part of the chord you chose ther
   return role === "other" ? `a passing note over ${of}` : `the ${role} of ${of}`;
 }
 const letter = n => pretty(S.spelled[n.pitch % 12]);  // a note's name without its octave: where it is on the neck says which
-function paintNeck() {  // where the notes of the bar are played: ringed and joined in the order they come; filled, the note that sounds or is chosen
+// Where the notes of the bar are played: a circle each with the note's name, joined in the order they come; filled,
+// the note that sounds or is chosen. What a note is and where it is played are under the pointer, not beside the
+// neck: words that change with every note changed the height of the bar and moved the neck about.
+function paintNeck() {
   if (!S || $("neckbar").classList.contains("hidden")) return;
   const chosen = A.playing ? null : note(sel);  // while the song stands still: the chosen note's bar, or the chosen chord's
   const t = chosen ? chosen.start + 0.031 : A.playing ? position() : selChord ? barSpan(selChord.bar)[0] + 0.031 : playhead;
@@ -1564,15 +1570,13 @@ function paintNeck() {  // where the notes of the bar are played: ringed and joi
     const [string, fret, , , role] = place(n), at = string + ":" + fret;
     if (seen.has(at)) continue;
     seen.add(at);
-    s += `<g class="tone"><title>${pretty(name(n.pitch))}: ${whatItIs(n)}</title><circle cx="${X(fret).toFixed(1)}" cy="${Y(string)}" r="10.5" fill="#fff" stroke="${role === "root" ? "#0969da" : "#1f2328"}" stroke-width="${role === "root" ? 2.4 : 1.4}"/><text x="${X(fret).toFixed(1)}" y="${Y(string) + 4}" font-size="10.5" font-weight="600" fill="#1f2328" text-anchor="middle">${letter(n)}</text></g>`;
+    s += `<g class="tone"><title>${pretty(name(n.pitch))}: ${whereItIs(n)} · ${whatItIs(n)}</title><circle cx="${X(fret).toFixed(1)}" cy="${Y(string)}" r="10.5" fill="#fff" stroke="${role === "root" ? "#0969da" : "#1f2328"}" stroke-width="${role === "root" ? 2.4 : 1.4}"/><text x="${X(fret).toFixed(1)}" y="${Y(string) + 4}" font-size="10.5" font-weight="600" fill="#1f2328" text-anchor="middle">${letter(n)}</text></g>`;
   }
   if (now && place(now)) {
     const [string, fret] = place(now);
-    s += `<g class="sound"><title>${pretty(name(now.pitch))}: ${whatItIs(now)}</title><circle cx="${X(fret).toFixed(1)}" cy="${Y(string)}" r="12.5" fill="#0969da"/><text x="${X(fret).toFixed(1)}" y="${Y(string) + 4}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">${letter(now)}</text></g>`;
+    s += `<g class="sound"><title>${pretty(name(now.pitch))}: ${whereItIs(now)} · ${whatItIs(now)}</title><circle cx="${X(fret).toFixed(1)}" cy="${Y(string)}" r="12.5" fill="#0969da"/><text x="${X(fret).toFixed(1)}" y="${Y(string) + 4}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">${letter(now)}</text></g>`;
   }
   $("neck").innerHTML = s;
-  const where = now && place(now) ? `${pretty(name(now.pitch))}: ${place(now)[1] === 0 ? "the open " + "EADG"[place(now)[0]] + " string" : "fret " + place(now)[1] + " of the " + "EADG"[place(now)[0]] + " string"} · ${whatItIs(now)}` : inBar.length ? "In the circles: the notes of this bar by name, joined in the order they are played" : "No notes in this bar";
-  $("neckSays").textContent = `Bar ${bar + 1} · ${where}${hand ? " · hand at fret " + hand : ""}`;
 }
 function selectDiff(id) { stop(); sel = null; many = []; selBar = null; selChord = null; tryOn = null; selDiff = id; refresh(); }
 function selectBar(i, show) {

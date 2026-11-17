@@ -45,7 +45,7 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .seg .btn.mini{min-height:26px}
 /* the bar that stays in view: the chord that sounds, the part it is in, the neck */
 .now{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--line);margin:var(--s3) calc(-1*var(--s4)) 0;padding:6px var(--s4);display:flex;flex-wrap:wrap;gap:6px var(--s3);align-items:center;min-width:0}
-.here{display:flex;align-items:baseline;gap:var(--s2);flex:none;min-width:150px}
+.here{display:flex;align-items:baseline;gap:var(--s2);flex:none;min-width:150px;min-height:32px}
 .here-name{font-family:var(--serif);font-size:1.9rem;line-height:1}
 .here-num{font-family:var(--serif);font-style:italic;color:var(--text-2)}
 .job{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:2px 8px;border-radius:10px;color:#fff;white-space:nowrap}
@@ -67,7 +67,8 @@ select{min-height:36px;border-radius:18px;border:1px solid var(--line);backgroun
 .chip.bare{border-style:dotted;border-bottom-style:solid}
 .chip.bare b{font-family:var(--sans);font-size:.9375rem;color:var(--text-2)}
 .kbd{flex:1 1 100%;display:flex;align-items:center;gap:var(--s4);min-width:0}
-.kside{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
+.partmark{flex:none;display:grid;justify-items:center;gap:3px;min-width:2.9em}
+.partmark small{font-size:.625rem;line-height:1;min-height:1em;color:var(--text-2);white-space:nowrap}
 .v-tag{font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--text-2)}
 #neck{display:block;flex:0 1 700px;min-width:0;height:auto}
 #lead{min-height:1.4em;margin:0}
@@ -218,12 +219,6 @@ svg text{font-family:var(--sans);fill:var(--text)}
     </div>
     <div class="kbd">
       <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: where the notes of this bar are played, and the note that sounds"></svg>
-      <div class="kside">
-        <p class="small muted" id="effort" style="margin:0"></p>
-        <div class="v-tag" id="where">&nbsp;</div>
-        <p class="small" id="lead"></p>
-        <p class="small muted" id="circles" style="margin:0">The numbers in the circles are steps, not fingers: a note's step in the key (1 is home, 5 the fifth above it) or, under a chord you chose, in that chord (R is its root).</p>
-      </div>
     </div>
   </div>
 
@@ -246,9 +241,10 @@ svg text{font-family:var(--sans);fill:var(--text)}
     </div>
     <div class="rightcol">
       <div class="card">
-        <h3>Home</h3>
+        <h3>Home and fingering</h3>
         <p id="homes" style="margin:0"></p>
         <p class="small muted" style="margin:var(--s2) 0 0">Home is the note the song comes back to: step 1. Two keys share the same notes, a major one and a minor one; if the steps read oddly, pick the other on the song's page.</p>
+        <p class="small" id="effort" style="margin:var(--s2) 0 0"></p>
       </div>
       <div class="card">
         <h3>The song in parts</h3>
@@ -521,21 +517,26 @@ function barBox(k, playing) {   // a bar of the round: its chords over its four 
 }
 function paintPath() {
   const p = H.parts[S.part], el = $("path");
-  if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; $("where").innerHTML = "&nbsp;"; return; }
+  if (!p) { el.innerHTML = '<span class="muted small">Press Play, or click a part of the song.</span>'; return; }
   const [round, , bar] = L.round(p, H.bars, au.currentTime), rounds = Math.ceil((p.bars + p.skip) / p.size);
-  let s = `<span class="mark" title="The part that is playing">${p.letter}</span>`;
+  const said = `Part ${p.letter}${rounds > 1 ? `, round ${round} of ${rounds}` : ""}`;   // the letter, and under it which round this is
+  let s = `<span class="partmark" title="${said}"><span class="mark">${p.letter}</span><small id="where">${rounds > 1 ? `${round} of ${rounds}` : ""}</small></span>`;
   for (const k of L.window(p, bar)) if (k < H.bars.length) s += barBox(k, k === bar);
   el.innerHTML = s;
   el.querySelectorAll(".barbox").forEach(b => { b.onclick = () => seek(H.bars[+b.dataset.bar].time + 0.01, false); });
   const cur = el.querySelector(".barbox.playing");
   if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest", inline: "nearest" });
-  $("where").textContent = `Part ${p.letter} · ${rounds > 1 ? `round ${round} of ${rounds} · ` : ""}bar ${S.bar + 1}`;
 }
 function paintNeck() {
   const c = H.chords[S.chord], n = H.bass[S.note], p = H.parts[S.part];
   const last = Math.min(24, Math.max(12, ...H.bass.map(b => b.fret))), W = (724 - 48) / last;
   const X = f => (f === 0 ? 24 : 48 + (f - 0.5) * W), Y = s => 22 + (3 - s) * 26;   // the G string on top, as in tab
-  const said = q => L.flat((q.degree || q.step || "·").replace(/[↑↓]/, ""));
+  const called = b => L.flat(H.names[b.pitch % 12]);
+  const tip = b => {   // a note in words, for the pointer: what it is, and where it is played
+    const under = b.role && b.chord !== null ? H.chords[b.chord] : null;
+    const is = !under ? `step ${L.flat(b.step)} of ${L.flat(H.home.name)}` : b.role === "other" ? `a passing note over ${L.flat(under.name)}` : `the ${b.role} of ${L.flat(under.name)}`;
+    return `${called(b)}: ${is} · ${L.fretName(b.string, b.fret)}`;
+  };
   let s = `<line class="nut" x1="48" x2="48" y1="14" y2="108"/>`;
   for (let f = 1; f <= last; f++) s += `<line class="fret" x1="${(48 + f * W).toFixed(1)}" x2="${(48 + f * W).toFixed(1)}" y1="16" y2="106"/>`;
   const single = [3, 5, 7, 9, 15, 17, 19, 21].filter(f => f <= last), double = [12, 24].filter(f => f <= last);
@@ -543,33 +544,29 @@ function paintNeck() {
   double.forEach(f => { s += `<circle class="inlay" cx="${X(f).toFixed(1)}" cy="35" r="5"/><circle class="inlay" cx="${X(f).toFixed(1)}" cy="87" r="5"/>`; });
   [0, 1, 2, 3].forEach(i => { s += `<line class="string" x1="10" x2="724" y1="${Y(i)}" y2="${Y(i)}" stroke-width="${3.4 - i * 0.6}"/><text class="t-sm" x="742" y="${Y(i) + 4}" style="font-size:11px">${L.STRING_NAMES[i]}</text>`; });
   single.concat(double).forEach(f => { s += `<text class="t-sm" x="${X(f).toFixed(1)}" y="126">${f}</text>`; });
-  // only what is played: faintly, every place this part of the song uses; ringed and joined in the order they
-  // are played, the notes of this bar; filled, the note that sounds; and where the hand is: four frets from the
-  // first finger
-  const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [], bar = L.shape(inBar.map(b => ({ ...b, degree: b.degree || b.step })));
+  // only what is played: faintly, every place this part of the song uses; in circles, by name and joined in the
+  // order they are played, the notes of this bar; filled, the note that sounds; and where the hand is: four frets
+  // from the first finger. Nothing is written beside the neck: words that change with every note moved it about.
+  const inBar = S.bar >= 0 ? H.bass.filter(b => b.bar === S.bar + 1) : [];
   const at = n && n.hand ? n.hand : (inBar.find(b => b.hand) || {}).hand;
   if (at) {
     const x0 = 48 + (at - 1) * W, x1 = 48 + Math.min(last, at + 3) * W;
     s += `<rect class="handbox" x="${x0.toFixed(1)}" y="11" width="${(x1 - x0).toFixed(1)}" height="100" rx="9"><title>The hand: first finger at fret ${at}</title></rect><text class="t-sm" x="${(x0 + 4).toFixed(1)}" y="8" style="text-anchor:start;font-size:9.5px">hand</text>`;
   }
-  const here = new Set(bar.map(q => q.string + ":" + q.fret));
+  const here = new Set(inBar.map(b => b.string + ":" + b.fret));
   if (p) L.shape(H.bass.filter(b => b.start >= p.start && b.start < p.end)).forEach(q => {
     if (!here.has(q.string + ":" + q.fret)) s += `<circle class="ghost" cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="6.5"><title>Played ${q.times} time${q.times > 1 ? "s" : ""} in this part</title></circle>`;
   });
   if (inBar.length > 1) s += `<polyline class="shape" points="${inBar.map(b => X(b.fret).toFixed(1) + "," + Y(b.string)).join(" ")}"/>`;
-  bar.forEach(q => {
-    const tone = q.role && q.role !== "other" && c ? c.job : "none";
-    s += `<g class="tone ${tone}${q.role === "root" ? " root" : ""}"><circle cx="${X(q.fret).toFixed(1)}" cy="${Y(q.string)}" r="10.5"/><text x="${X(q.fret).toFixed(1)}" y="${Y(q.string) + 4}">${said(q)}</text></g>`;
-  });
-  if (n) s += `<g class="sound"><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret).toFixed(1)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret).toFixed(1)}" y="${Y(n.string) + 4}">${said(n)}</text></g>`;
+  const drawn = new Set();
+  for (const b of inBar) {
+    const place = b.string + ":" + b.fret, tone = b.role && b.role !== "other" && c ? c.job : "none";
+    if (drawn.has(place)) continue;
+    drawn.add(place);
+    s += `<g class="tone ${tone}${b.role === "root" ? " root" : ""}"><title>${L.esc(tip(b))}</title><circle cx="${X(b.fret).toFixed(1)}" cy="${Y(b.string)}" r="10.5"/><text x="${X(b.fret).toFixed(1)}" y="${Y(b.string) + 4}">${L.esc(called(b))}</text></g>`;
+  }
+  if (n) s += `<g class="sound"><title>${L.esc(tip(n))}</title><circle class="${n.role && n.role !== "other" && c ? "f-" + c.job : "f-none"}" cx="${X(n.fret).toFixed(1)}" cy="${Y(n.string)}" r="12.5"/><text x="${X(n.fret).toFixed(1)}" y="${Y(n.string) + 4}">${L.esc(called(n))}</text></g>`;
   $("neck").innerHTML = s;
-  const what = { root: "the root", third: "the third", fifth: "the fifth", seventh: "the seventh", other: "a passing note" };
-  const frets = bar.map(q => q.fret), span = frets.length ? (Math.min(...frets) === Math.max(...frets) ? `fret ${frets[0]}` : `frets ${Math.min(...frets)} to ${Math.max(...frets)}`) : "";
-  const name = n ? H.names[n.pitch % 12].replace("b", "♭").replace("#", "♯") : "";
-  $("lead").textContent = n
-    ? `The bass plays ${name}, ${n.role && c ? `${what[n.role]} of ${L.flat(c.name)}` : `step ${L.flat(n.step)} of the key`}: ${L.fretName(n.string, n.fret)}.${n.hand ? ` The hand is at fret ${n.hand}.` : ""}`
-    : bar.length ? `This bar is played on ${span}. Ringed: its notes, joined in the order they are played. Faint: the other places this part uses.`
-    : "The neck shows only what the bass plays: the shape of the bar that sounds, and faintly the other places this part of the song uses.";
 }
 
 /* ----- how the notes are put on the neck: chosen on the song's page ----- */

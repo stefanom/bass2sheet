@@ -587,22 +587,42 @@ def test_a_chord_is_heard_tried_on_and_used_on_the_songs_page(browse, site, song
     assert page.evaluate("A.chorded") == before  # and not when the box is clear
 
 
+# The playhead is put on every note of the song and after it: every place the neck is found in, and every height of
+# the bar that holds it. One of each means the neck stays put while the song plays.
+NECK_STAYS_ON_THE_SONGS_PAGE = """() => {
+  const seen = new Set();
+  for (const n of Logic.sorted(S.notes)) for (const t of [n.start + 0.01, n.end + 0.005]) {
+    playhead = t; refresh();
+    const r = document.getElementById("neck").getBoundingClientRect();
+    seen.add([r.top.toFixed(1), r.height.toFixed(1), document.getElementById("neckbar").offsetHeight].join(" "));
+  }
+  return [...seen];
+}"""
+
+
 def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, song):
     page = _song_page(browse, site, song)
     folder = os.path.join(site.workdir, song)
+    # the neck does not move as the song goes from note to note, in a wide window or a narrow one
+    for width in (1280, 1000, 820):
+        page.set_viewport_size(dict(width=width, height=800))
+        page.wait_for_function("__quiet(100)")
+        assert len(page.evaluate(NECK_STAYS_ON_THE_SONGS_PAGE)) == 1, width
+    page.set_viewport_size(dict(width=1280, height=720))
+    page.wait_for_function("__quiet(100)")
     # the neck under the timeline: the notes of the bar at the playhead, and the one that sounds there
     page.evaluate("playhead = S.bars[1].time + 0.1; refresh()")
     in_bar = "S.notes.filter(n => n.start + 0.03 >= S.bars[1].time && n.start + 0.03 < S.bars[2].time)"
     places = page.evaluate(f"new Set({in_bar}.map(n => S.neck[n.id].slice(0, 2).join(':'))).size")
     assert page.is_visible("#neckbar") and page.locator("#neck .tone").count() == places >= 3
     assert page.locator("#neck .sound").count() == 1 and page.locator("#neck polyline").count() == 1
-    assert page.inner_text("#neckSays").startswith("Bar 2 · E1: the open E string")
-    # a circle has the note's name; what the note is to the key is said in words beside the neck, and under the pointer
+    # a circle has the note's name; where the note is played and what it is to the key are under the pointer, and
+    # no words stand beside the neck
     assert set(page.locator("#neck .tone text").all_text_contents()) == {"E", "B", "A"}
-    assert page.locator("#neck .sound text").text_content() == "E" and " · step 6 of G major" in page.inner_text(
-        "#neckSays"
-    )
-    assert "E1: step 6 of G major" in page.locator("#neck .tone title").all_text_contents()
+    assert page.locator("#neck .sound text").text_content() == "E"
+    assert page.locator("#neck .sound title").text_content() == "E1: the open E string · step 6 of G major"
+    assert "E1: the open E string · step 6 of G major" in page.locator("#neck .tone title").all_text_contents()
+    assert page.locator("#neckSays").count() == 0 and page.locator("#sheetside > *").count() == 2  # the two pickers
     # the neck is put away and taken out again; the timeline has the room meanwhile
     tall = page.evaluate("document.getElementById('rollwrap').clientHeight")
     page.click("#neckBtn")
@@ -612,7 +632,9 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     n = page.evaluate(IN_VIEW, "!(n.also || []).length && n.end - n.start > 0.2")
     _click_note(page, n["id"])  # a note that is chosen is the one filled in
     assert page.locator("#neck .sound").count() == 1
-    assert page.inner_text("#neckSays").split(" · ")[1].startswith(page.evaluate("p => name(p)", n["pitch"]) + ":")
+    assert (
+        page.locator("#neck .sound title").text_content().startswith(page.evaluate("p => name(p)", n["pitch"]) + ": ")
+    )
 
     # the key: the tool's guess until another is picked; the steps and the chords are named by it, and it is kept
     assert "the tool's guess" in page.locator("#homeSel option:checked").inner_text()
@@ -622,7 +644,7 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     page.wait_for_function("S.home.name === 'E minor' && S.home.yours")
     assert copilot_harmony.read_home(folder) == (4, False) and page.evaluate("S.chords[0].numeral") == "i"
     assert set(page.locator("#neck .tone text").all_text_contents()) == {"E", "B", "A"}  # the names stay
-    assert " · step 1 of E minor" in page.inner_text("#neckSays")
+    assert page.locator("#neck .sound title").text_content() == "E1: the open E string · step 1 of E minor"
     # the notes are named as the sheet spells them in the key: with flats in a key that has flats
     assert page.evaluate("[name(42), name(46), name(40)]") == ["F#2", "A#2", "E2"]
     page.select_option("#homeSel", "5,1")
@@ -653,6 +675,18 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
 
 
 HARMONY_READY = "H !== null && document.querySelectorAll('#map .st').length > 20"
+# The song is gone through a tenth of a second at a time, the bars without bass or chord too: every place the neck
+# is found in, and every height of the bar that holds it. One of each means the neck stays put while the song plays.
+NECK_STAYS = """() => {
+  const au = document.getElementById("au"), seen = new Set();
+  for (let t = 0; t < H.length - 0.2; t += 0.11) {
+    au.currentTime = t; tick(true);
+    const r = document.getElementById("neck").getBoundingClientRect();
+    seen.add([r.top.toFixed(1), r.height.toFixed(1), document.getElementById("now").offsetHeight].join(" "));
+  }
+  au.currentTime = 0; tick(true);
+  return [...seen];
+}"""
 
 
 def test_the_harmony_page_shows_how_the_song_moves_and_changes_nothing(browse, site, song):
@@ -669,18 +703,25 @@ def test_the_harmony_page_shows_how_the_song_moves_and_changes_nothing(browse, s
     assert page.get_attribute("#to-change", "href") == there and page.get_attribute("#homes a", "href") == there
     assert page.inner_text("#homes").startswith("G major · the tool's guess")
     assert "the fewest hand moves" in page.inner_text("#effort") and page.get_attribute("#effort a", "href") == there
+    assert page.evaluate("document.getElementById('effort').closest('.card') !== null")  # in a card, not by the neck
     assert "You chose the chords of 1 of 12 bars" in page.inner_text("#short")
     assert "the tool's best guess" in page.inner_text("#map-hint")
     loop = page.evaluate("H.parts.find(p => p.size === 4)")
     chips = page.locator(f"#loops .verb[data-letter='{loop['letter']}'] .chip")
     assert chips.locator("b").all_inner_texts() == ["Em", "C", "G", "D"]  # what most rounds have in each bar
+    # the neck does not move as the song goes from note to note, in a wide window or a narrow one
+    for width in (1280, 1000, 820):
+        page.set_viewport_size(dict(width=width, height=800))
+        assert len(page.evaluate(NECK_STAYS)) == 1, width
+    page.set_viewport_size(dict(width=1280, height=720))
 
     # the part is played: the chord, its job, the bar, the neck and the map follow the song
     page.click(f"#loops [data-play='{loop['letter']}']")
     page.wait_for_function("!document.getElementById('au').paused && S.chord >= 0 && H.chords[S.chord].name === 'Am'")
     assert page.inner_text("#play") == "■ Stop" and page.inner_text("#here-name") == "Am"
     assert page.inner_text("#here-num") == page.evaluate("Harmony.flat(H.chords[S.chord].numeral)")
-    assert "bar" in page.inner_text("#where").lower() and page.locator("#path .barbox").count() == 4
+    assert page.inner_text("#where") == "1 of 3" and page.locator("#path .barbox").count() == 4  # the round, of three
+    assert page.get_attribute("#path .partmark", "title") == f"Part {loop['letter']}, round 1 of 3"
     playing = page.locator("#path .barbox.playing .cell")
     assert playing.inner_text() == "Am" and "guess" not in playing.get_attribute("class")  # the person's: not a guess
     assert (
@@ -689,15 +730,30 @@ def test_the_harmony_page_shows_how_the_song_moves_and_changes_nothing(browse, s
     assert page.locator("#map .st.cur").count() == 1
     assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
     page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
-    # the neck shows what is played and nothing else; under the person's chord the notes are named by it
+    # the neck shows what is played and nothing else: a circle for each place, with the note's name. What the note
+    # is (under the person's chord, its part of the chord) and where it is played are under the pointer; no words
+    # stand beside the neck
     places = page.evaluate("new Set(H.bass.filter(b => b.bar === S.bar + 1).map(b => b.string + ':' + b.fret)).size")
     assert page.locator("#neck .tone").count() == places >= 4 and page.locator("#neck .shape").count() == 1
-    assert set(page.locator("#neck .tone text").all_text_contents()) == {"♭3", "♭7", "♭6"}  # C, G and F over A minor
-    assert "steps, not fingers" in page.inner_text("#circles")
-    assert "The bass plays" in page.inner_text("#lead") and "string" in page.inner_text("#lead")
+    assert set(page.locator("#neck .tone text").all_text_contents()) == {"C", "G", "F"}
+    tips = page.locator("#neck .tone title").all_text_contents()
+    assert {tip.split(" · ")[0] for tip in tips} == {
+        "C: the third of Am",
+        "G: the seventh of Am",
+        "F: a passing note over Am",
+    }
+    assert all(tip.endswith(" string") for tip in tips)
+    for gone in ("#lead", "#circles", ".kside"):
+        assert page.locator(gone).count() == 0
+    assert page.evaluate("document.querySelector('.kbd').children.length") == 1  # the neck, and nothing else
     page.wait_for_function("H.chords[S.chord].name === 'G'", timeout=20000)  # the song moves on, and the page with it
     assert page.inner_text("#here-name") == "G" and float(page.get_attribute("#strip-cursor", "x1")) > 0
-    assert set(page.locator("#neck .tone text").all_text_contents()) <= {"1", "5", "4"}  # a guess: steps of the key
+    assert set(page.locator("#neck .tone text").all_text_contents()) <= {"G", "D", "C"}
+    assert page.locator("#neck .sound title").text_content().split(" · ")[0] in (  # a guess: steps of the key
+        "G: step 1 of G major",
+        "D: step 5 of G major",
+        "C: step 4 of G major",
+    )
     page.click("#play")
     page.wait_for_function(
         "document.getElementById('au').paused && document.getElementById('play').textContent === '▶ Play'"
