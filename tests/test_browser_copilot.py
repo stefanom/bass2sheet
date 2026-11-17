@@ -570,21 +570,158 @@ def test_a_chord_is_heard_tried_on_and_used_on_the_songs_page(browse, site, song
     _chord(page, "close").click()
     assert page.evaluate("selChord") is None and "Click a note to select it" in _panel(page)
 
-    # "Chords" in Hear: they sound while the song plays
+    # the chords' slider: up, they sound while the song plays, as loud as it says
     before = page.evaluate("A.chorded")
-    page.check("#hearChords")
+    _slide(page, "volChords", 50)
     page.evaluate("playhead = S.bars[5].time - 0.2")
     page.click("#play")
-    page.wait_for_function(f"A.playing && A.chorded > {before}")
+    page.wait_for_function(f"A.playing && A.chorded > {before} && Math.abs(A.bus.chords.gain.value - 0.25) < 0.01")
     page.click("#play")
     page.wait_for_function("!A.playing")
-    page.uncheck("#hearChords")
+    _slide(page, "volChords", 0)
     before = page.evaluate("A.chorded")
     page.evaluate("playhead = S.bars[5].time - 0.2")
     page.click("#play")
     page.wait_for_function("A.playing && position() > S.bars[5].time + 0.3")
     page.click("#play")
-    assert page.evaluate("A.chorded") == before  # and not when the box is clear
+    assert page.evaluate("A.chorded") == before  # and not when it is all the way down
+    # all the way down, a chord that is clicked is still heard, at the level a click has
+    page.wait_for_function(STILL)
+    at = page.evaluate(CHORD_AT, 3)
+    page.mouse.click(at["x"], at["y"])
+    page.wait_for_function(f"A.playing && A.chords !== null && A.chorded > {before}")
+    page.wait_for_function("Math.abs(A.bus.chords.gain.value - Logic.gainAt(Logic.CHORDS_ASKED)) < 0.01")
+    assert page.evaluate("[hear.chords, +document.getElementById('volChords').value]") == [0, 0]  # the slider stays
+
+
+def _slide(page, slider, to):
+    """Put a slider somewhere, as dragging it does."""
+    page.evaluate(
+        """([id, to]) => {
+          const e = document.getElementById(id);
+          e.value = to;
+          e.dispatchEvent(new Event("input", {bubbles: true}));
+          e.dispatchEvent(new Event("change", {bubbles: true}));
+        }""",
+        [slider, to],
+    )
+
+
+# What comes out of the page's sound, worked out without playing it: the page's own chain of sounds (buildAudio) and
+# its own chord (chordVoice) in a context that renders to numbers. Levels are in dB below full scale.
+RENDERED = """async () => {
+  const sr = 44100, db = v => 20 * Math.log10(Math.max(v, 1e-9));
+  const level = (buf, t0, t1) => {
+    let ss = 0, n = 0, peak = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = Math.floor(t0 * sr); i < Math.min(d.length, Math.floor(t1 * sr)); i++) {
+        ss += d[i] * d[i]; n++; peak = Math.max(peak, Math.abs(d[i]));
+      }
+    }
+    return {rms: db(Math.sqrt(ss / Math.max(1, n))), peak: db(peak)};
+  };
+  const render = async (len, fill) => {
+    const off = new OfflineAudioContext(2, Math.ceil(sr * len), sr), G = buildAudio(off);
+    fill(off, G);
+    return off.startRendering();
+  };
+  const from = (G, off, k, gain) => {
+    const src = off.createBufferSource();
+    src.buffer = A[k]; G.bus[k].gain.value = gain; src.connect(G.bus[k]); src.start(0, 2);
+  };
+  const chord = S.chords[0], out = {};
+  const alone = await render(2.4, (off, G) => chordVoice(chord, 0.1, 2, G));
+  out.struck = level(alone, 0.12, 0.3).rms; out.held = level(alone, 1.0, 1.6).rms;
+  out.at_its_end = level(alone, 1.7, 2.0).rms;
+  out.after = level(alone, 2.2, 2.4).rms; out.chord_peak = level(alone, 0, 2.4).peak;
+  const asked = await render(2.4, (off, G) => {
+    G.bus.chords.gain.value = Logic.gainAt(Logic.CHORDS_ASKED);
+    chordVoice(chord, 0.1, 2, G);
+  });
+  out.asked = level(asked, 1.0, 1.6).rms;
+  out.record = level(A.record, 2, 10);
+  out.record_through = level(await render(8, (off, G) => from(G, off, "record", 1)), 0, 8);
+  const all = await render(8, (off, G) => {
+    for (const k of ["record", "bass"]) from(G, off, k, 1);
+    for (let t = 0; t < 8; t += 2) chordVoice({root: 9, tones: [9, 0, 4, 7]}, t, 2, G);
+  });
+  out.everything = level(all, 0, 8);
+  return out;
+}"""
+
+
+def test_each_sound_has_a_slider_beside_the_neck_and_the_chords_are_loud_enough_to_hear(browse, site, song):
+    page = _song_page(browse, site, song)
+    # a slider for each sound at the bottom right, beside the neck; no boxes to tick for them
+    for gone in ("#hearRecord", "#hearBass", "#hearNotes", "#hearChords"):
+        assert page.locator(gone).count() == 0
+    where = page.evaluate("""() => {
+      const box = id => document.getElementById(id).getBoundingClientRect(), neck = box("neck"), mixer = box("mixer");
+      return {right_of_the_neck: mixer.left >= neck.right,
+        beside_it: mixer.top < neck.bottom && mixer.bottom > neck.top,
+        at_the_bottom: innerHeight - box("neckbar").bottom < 2, in_the_window: mixer.right <= innerWidth,
+        sliders: [...document.querySelectorAll("#mixer input[type=range]")].map(e => [e.id, +e.value])};
+    }""")
+    assert where == dict(
+        right_of_the_neck=True,
+        beside_it=True,
+        at_the_bottom=True,
+        in_the_window=True,
+        sliders=[["volRecord", 100], ["volNotes", 100], ["volBass", 0], ["volChords", 0]],  # the record and the notes
+    )
+    assert page.is_visible("#hearSplit") and not page.is_checked("#hearSplit")
+    # a slider sets how loud its sound is, at once and for the next visit
+    page.evaluate("playhead = S.bars[2].time")
+    page.click("#play")
+    page.wait_for_function("A.playing && Math.abs(A.bus.record.gain.value - 1) < 0.01 && A.bus.bass.gain.value < 0.01")
+    _slide(page, "volRecord", 50)
+    _slide(page, "volBass", 100)
+    _slide(page, "volNotes", 0)
+    page.wait_for_function(
+        "Math.abs(A.bus.record.gain.value - 0.25) < 0.01 && Math.abs(A.bus.bass.gain.value - 1) < 0.01"
+        " && A.bus.notes.gain.value < 0.01"
+    )
+    page.click("#play")
+    page.wait_for_function("!A.playing")
+    assert json.loads(page.evaluate("localStorage.getItem('copilot.hear')")) == dict(
+        record=50, bass=100, notes=0, chords=0, split=False
+    )
+    page.check("#hearSplit")
+    assert page.evaluate("hear.split") is True
+    page.reload()
+    page.wait_for_function(SONG_READY % json.dumps(song))
+    assert page.evaluate("[volRecord.value, volBass.value, volNotes.value, volChords.value, hearSplit.checked]") == [
+        "50",
+        "100",
+        "0",
+        "0",
+        True,
+    ]
+    # what was kept from the time each sound was a box to tick is taken as sliders up or down
+    once = dict(record=True, bass=False, notes=True, split=False, chords=False)
+    page.evaluate("kept => localStorage.setItem('copilot.hear', JSON.stringify(kept))", once)
+    page.reload()
+    page.wait_for_function(SONG_READY % json.dumps(song))
+    assert page.evaluate("hear") == dict(record=100, bass=0, notes=100, chords=0, split=False)
+
+    # the neck put away: the sliders and the pickers stay, in a row
+    page.click("#neckBtn")
+    assert page.is_hidden("#neck") and page.is_visible("#volChords") and page.is_visible("#homeSel")
+    page.click("#neckBtn")
+    assert page.is_visible("#neck")
+
+    # what comes out. A chord holds to its end: it is struck a little louder, then stays, and is gone after
+    got = page.evaluate(RENDERED)
+    assert got["struck"] - 3 < got["held"] < got["struck"] and abs(got["at_its_end"] - got["held"]) < 0.5, got
+    assert got["after"] < got["held"] - 40, got
+    # with its slider at 100 a chord is about as loud as a loud record, and alone it fits the output; a chord that is
+    # clicked with the slider down is 4 dB under that
+    assert -13 < got["held"] < -9 and got["chord_peak"] < 0 and 3.5 < got["held"] - got["asked"] < 4.5, got
+    # the record alone comes out as it is; everything at once, at 100, is held under what the output can carry
+    assert abs(got["record_through"]["rms"] - got["record"]["rms"]) < 0.3, got
+    assert got["record_through"]["peak"] <= got["record"]["peak"] + 0.1, got
+    assert got["everything"]["peak"] < 1.0 and got["everything"]["rms"] > got["record"]["rms"], got
 
 
 # The playhead is put on every note of the song and after it: every place the neck is found in, and every height of
@@ -614,7 +751,7 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     page.evaluate("playhead = S.bars[1].time + 0.1; refresh()")
     in_bar = "S.notes.filter(n => n.start + 0.03 >= S.bars[1].time && n.start + 0.03 < S.bars[2].time)"
     places = page.evaluate(f"new Set({in_bar}.map(n => S.neck[n.id].slice(0, 2).join(':'))).size")
-    assert page.is_visible("#neckbar") and page.locator("#neck .tone").count() == places >= 3
+    assert page.is_visible("#neck") and page.locator("#neck .tone").count() == places >= 3
     assert page.locator("#neck .sound").count() == 1 and page.locator("#neck polyline").count() == 1
     # a circle has the note's name; where the note is played and what it is to the key are under the pointer, and
     # no words stand beside the neck
@@ -622,13 +759,20 @@ def test_the_key_the_fingering_and_the_neck_are_on_the_songs_page(browse, site, 
     assert page.locator("#neck .sound text").text_content() == "E"
     assert page.locator("#neck .sound title").text_content() == "E1: the open E string · step 6 of G major"
     assert "E1: the open E string · step 6 of G major" in page.locator("#neck .tone title").all_text_contents()
-    assert page.locator("#neckSays").count() == 0 and page.locator("#sheetside > *").count() == 2  # the two pickers
+    assert page.locator("#neckSays").count() == 0
+    assert page.evaluate(
+        "[...document.getElementById('sheetside').children].map(e => e.id || e.htmlFor || e.tagName)"
+    ) == [
+        "mixer",  # the sliders, then the two pickers
+        "LABEL",
+        "LABEL",
+    ]
     # the neck is put away and taken out again; the timeline has the room meanwhile
     tall = page.evaluate("document.getElementById('rollwrap').clientHeight")
     page.click("#neckBtn")
-    assert page.is_hidden("#neckbar") and page.evaluate("document.getElementById('rollwrap').clientHeight") > tall + 80
+    assert page.is_hidden("#neck") and page.evaluate("document.getElementById('rollwrap').clientHeight") > tall + 60
     page.click("#neckBtn")
-    assert page.is_visible("#neckbar") and page.evaluate("document.getElementById('rollwrap').clientHeight") == tall
+    assert page.is_visible("#neck") and page.evaluate("document.getElementById('rollwrap').clientHeight") == tall
     n = page.evaluate(IN_VIEW, "!(n.also || []).length && n.end - n.start > 0.2")
     _click_note(page, n["id"])  # a note that is chosen is the one filled in
     assert page.locator("#neck .sound").count() == 1

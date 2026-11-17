@@ -151,4 +151,18 @@ same(L.moveTone(duo, 43, 42), {kind: "also", id: "n7", also: []});              
 assert.strictEqual(L.moveTone(duo, 43, 43), null);
 assert.strictEqual(L.moveTone(duo, 42, 45), null);                                // the note itself moves as any note does
 
+// what is heard and how loud: a slider for each sound. At first the record and the notes as they are, the rest off
+same(L.heard(null), {record: 100, bass: 0, notes: 100, chords: 0, split: false});
+same(L.heard({record: 40, bass: 100, notes: 0, chords: 65.4, split: true}), {record: 40, bass: 100, notes: 0, chords: 65, split: true});
+// what was kept when each sound was a box to tick: ticked is up, clear is down
+same(L.heard({record: true, bass: true, notes: false, split: false, chords: false}), {record: 100, bass: 100, notes: 0, chords: 0, split: false});
+same(L.heard({chords: true}).chords, 80);
+same(L.heard({record: 140, bass: -3, notes: "loud", chords: null}), {record: 100, bass: 0, notes: 100, chords: 0, split: false});  // nonsense: as at first
+// a slider's position as a gain: its square, so that half way is a quarter; 100 is the sound as it is
+same([L.gainAt(100), L.gainAt(50), L.gainAt(0), L.gainAt(200), L.gainAt(-5)], [1, 0.25, 0, 1, 0]);
+assert.ok(Math.abs(L.gainAt(80) - 0.64) < 1e-9);
+// the chords' slider all the way down: not with the song, but a chord that is asked for is still heard
+same([L.chordsAt(0, false), L.chordsAt(0, true), L.chordsAt(30, true), L.chordsAt(30, false), L.chordsAt(100, true)], [0, L.CHORDS_ASKED, 30, 30, 100]);
+assert.ok(L.CHORDS_ASKED >= 60 && L.CHORDS_ASKED <= 100);
+
 console.log("ok");

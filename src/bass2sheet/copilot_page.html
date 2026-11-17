@@ -36,10 +36,20 @@
   #roll { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: default; }
   #panel { border-bottom: 0; border-top: 1px solid var(--line); min-height: 50px; }
   #neckbar { border-bottom: 0; border-top: 1px solid var(--line); flex-wrap: nowrap; align-items: flex-start; gap: 16px; padding-top: 4px; padding-bottom: 4px; }
-  #neck { flex: 1 1 560px; min-width: 320px; max-width: 800px; height: auto; max-height: 136px; }
-  #sheetside { flex: 1 1 240px; display: grid; gap: 5px; padding-top: 6px; font-size: 13px; }
+  #neck { flex: 3 1 520px; min-width: 300px; max-width: 800px; height: auto; max-height: 136px; }
+  #sheetside { flex: 1 1 340px; min-width: 0; display: grid; gap: 4px; padding-top: 4px; font-size: 13px; align-content: start; }
   #sheetside label { display: flex; align-items: center; gap: 6px; }
-  #sheetside select { max-width: 290px; }
+  #sheetside select { max-width: 290px; min-width: 0; }
+  /* what is heard and how loud: a slider for each sound, two in a row */
+  #mixer { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; max-width: 460px; }
+  #mixer label { display: grid; grid-template-columns: 82px minmax(36px, 1fr); min-height: 20px; }
+  #mixer label.wide { grid-column: 1 / -1; display: flex; }
+  #mixer input[type=range] { width: 100%; min-width: 0; }
+  /* without the neck (put away, or no room for it): the sliders and the pickers in a row */
+  #neckbar.noneck { align-items: center; }
+  #neckbar.noneck #neck { display: none; }
+  #neckbar.noneck #sheetside, #neckbar.noneck #mixer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding-top: 0; max-width: none; }
+  #neckbar.noneck #mixer label { grid-template-columns: auto 64px; }
   #panel b { font-size: 15px; }
   #offer { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); max-width: calc(100% - 80px); border: 1px solid #bf8700; border-radius: 8px; background: #fff8c5; box-shadow: 0 4px 16px rgba(31,35,40,.25); z-index: 3; }
   .hidden { display: none !important; }
@@ -96,13 +106,6 @@
 <div class="bar" id="tools">
   <button id="play" class="main">▶ Play</button>
   <span id="clock">0:00.0</span>
-  <span class="group"><span class="soft">Hear</span>
-    <label><input type="checkbox" id="hearRecord"> Record</label>
-    <label><input type="checkbox" id="hearBass"> Isolated bass</label>
-    <label><input type="checkbox" id="hearNotes"> My notes</label>
-    <label title="The chords over the timeline, in a plain keyboard sound"><input type="checkbox" id="hearChords"> Chords</label>
-    <label title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
-  </span>
   <span class="group"><span class="soft">Speed</span><select id="speed" title="Slower, at the same pitch ([ and ])">
     <option value="100">100%</option><option value="90">90%</option><option value="80">80%</option><option value="70">70%</option><option value="60">60%</option><option value="50">50%</option></select></span>
   <span class="group" title="Zoom in time: the mouse wheel or a pinch on the trackpad, around the pointer (or + and -)"><span class="soft">Zoom</span><button id="zoomOut" class="sq">−</button><button id="zoomIn" class="sq">+</button></span>
@@ -112,7 +115,7 @@
     <label title="How strongly the faint tones show: to the left only the strongest, to the right everything"><span class="soft">faint tones</span> <input type="range" id="faint" min="0" max="100" step="1"></label>
     <label title="How solid the note boxes are: to the left outlines only, so the picture shows through"><span class="soft">notes</span> <input type="range" id="solid" min="0" max="100" step="1"></label>
   </span>
-  <button id="neckBtn" title="Show or hide the bass neck under the timeline: where the notes of the bar are played">Neck</button>
+  <button id="neckBtn" title="Show or put away the bass neck under the timeline: where the notes of the bar are played. The sliders and the pickers beside it stay">Neck</button>
   <span id="status"></span>
 </div>
 <div id="mapwrap" title="The whole song. Click or drag to go there"><canvas id="map"></canvas></div>
@@ -125,6 +128,13 @@
 <div class="bar" id="neckbar">
   <svg id="neck" viewBox="0 0 780 132" role="img" aria-label="The bass neck: where the notes of the bar are played"></svg>
   <div id="sheetside">
+    <div id="mixer">
+      <label title="How loud the record is"><span class="soft">Record</span><input type="range" id="volRecord" min="0" max="100" step="1"></label>
+      <label title="How loud your notes are, played in the bass's own sound"><span class="soft">My notes</span><input type="range" id="volNotes" min="0" max="100" step="1"></label>
+      <label title="How loud the bass is that was taken out of the record"><span class="soft">Isolated bass</span><input type="range" id="volBass" min="0" max="100" step="1"></label>
+      <label title="How loud the chords are while the song plays, in a plain keyboard sound. All the way down, they are not played with the song; a chord you click to hear or to try on is still heard"><span class="soft">Chords</span><input type="range" id="volChords" min="0" max="100" step="1"></label>
+      <label class="wide" title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
+    </div>
     <label title="The key the sheet is written in. Notes, chords and steps are named by it. It is the tool's guess until you pick one"><span class="soft">Key</span> <select id="homeSel"></select></label>
     <label title="How the notes are put on the neck: the neck here and the tab of the sheet follow"><span class="soft">Fingering</span> <select id="tabSel"></select></label>
   </div>
@@ -142,7 +152,8 @@
     <tr><td>Shift-click</td><td>another note selects all the notes in between.</td></tr>
     <tr><td>Two notes played together</td><td>are drawn one above the other, joined at the left. Click the one you mean: "Delete" then has a button for each, and ⌫ takes out only the one you clicked. Drag the upper one up or down to change it alone.</td></tr>
     <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
-    <tr><td>A chord</td><td>in the row over the notes is what that bar holds: blue where you chose it, grey where it is the tool's guess. Click one to hear the bar with it. Under the timeline are other chords to try: a click plays the bar with that chord and changes nothing, until you press "Use it". The same change is then offered for the bars like it. "Chords" in Hear plays them while the song plays.</td></tr>
+    <tr><td>A chord</td><td>in the row over the notes is what that bar holds: blue where you chose it, grey where it is the tool's guess. Click one to hear the bar with it. Under the timeline are other chords to try: a click plays the bar with that chord and changes nothing, until you press "Use it". The same change is then offered for the bars like it. Turn the Chords slider up to have them played while the song plays.</td></tr>
+    <tr><td>The sliders</td><td>at the bottom right set how loud each sound is: the record, your notes (played in the bass's own sound), the isolated bass, and the chords. All the way down, a sound is off. A chord you click is heard even with the chords' slider down.</td></tr>
     <tr><td>The neck</td><td>at the bottom shows where the notes of the bar are played: a circle for each with its name, joined in the order they come, and the note that sounds filled in. Hold the pointer over a circle for where the note is played and what it is: its step in the key (1 is home) or, where you chose the bar's chord, its part of the chord. The key and the fingering beside it go on the sheet.</td></tr>
     <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
     <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
@@ -248,6 +259,28 @@ const Logic = (() => {
     for (const b of bars) { if (b.time <= t + 1e-6) at = b; else break; }
     return at ? [at.bar, t - at.time] : [0, t];
   }
+  // --- what is heard, and how loud
+  // Each of the four sounds has a slider, from 0 to 100. HEARD is where the sliders stand at first: the record and
+  // the notes as they are, the isolated bass and the chords not at all. ONCE_ON is where a sound that was ticked
+  // stands, from the time each sound was a box to tick. CHORDS_ASKED is how loud a chord is that the person asks
+  // to hear while the chords' slider is all the way down: down means "not with the song", not "never".
+  const HEARD = {record: 100, bass: 0, notes: 100, chords: 0}, ONCE_ON = {record: 100, bass: 100, notes: 100, chords: 80};
+  const CHORDS_ASKED = 80;
+  function heard(kept) {  // what was kept from the last visit, as slider positions
+    const out = {...HEARD, split: !!(kept && kept.split)};
+    for (const k of Object.keys(HEARD)) {
+      const v = kept ? kept[k] : undefined;
+      if (typeof v === "boolean") out[k] = v ? ONCE_ON[k] : 0;
+      else if (typeof v === "number" && v >= 0 && v <= 100) out[k] = Math.round(v);
+    }
+    return out;
+  }
+  // A slider's position as a gain: its square, so that the lower half of the slider is of use (half way is a
+  // quarter of the sound, 12 dB down). At 100 a sound is as it is.
+  const gainAt = pos => (Math.max(0, Math.min(100, pos)) / 100) ** 2;
+  // Where the chords' slider counts as standing: where it is; or, all the way down, at CHORDS_ASKED for a chord
+  // the person asked to hear (`asked`).
+  const chordsAt = (pos, asked) => (pos > 0 ? pos : asked ? CHORDS_ASKED : 0);
   // --- the mouse
   // Where the pointer is on a note drawn from x = left, `width` wide: its "start" or "end" (grabbed from up to
   // `reach` outside the note, and from its outer quarter inside, 8 at most), or its body ("move"). `off` is how far
@@ -324,7 +357,7 @@ const Logic = (() => {
     const rest = also.filter(p => p !== q);
     return {kind: "also", id: n.id, also: to === n.pitch || rest.includes(to) ? rest : [...rest, to].sort((a, b) => a - b)};
   }
-  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX, dockHeight, dropTone, moveTone};
+  return {indexNotes, sampleFor, inside, total, resumeAt, neighbour, between, clock, barAt, sorted, zone, shifted, resized, zoomAbout, gammaOf, palette, pitchRange, alignX, dockHeight, dropTone, moveTone, heard, gainAt, chordsAt, HEARD, CHORDS_ASKED};
 })();
 if (typeof module !== "undefined") module.exports = Logic;
 </script>
@@ -358,6 +391,7 @@ const ink = () => SCHEMES[look.scheme].dark ? INK.dark : INK.light;
 const cssOf = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 const STRIP_HEAD = 28, STRIP_GAP = 6;  // a repeat's line of buttons, and the space under its rows
 const ROLL_LEAST = 140;  // the timeline is never lower than this (#rollwrap's min-height)
+const ROLL_KEPT = 184;  // what the timeline keeps, where the window has it, when the repeats are lined up under it
 // dock: the repeats of a bar lined up under the timeline. kind "bar": a bar that was chosen; "offer": after a fix.
 // strips: one per bar, from the server; done: bar -> {state: "taken" (with the fix's name) or "left"}
 let dock = null, dockAsk = 0, mapDrag = false;
@@ -381,7 +415,9 @@ let playhead = 0, drag = null, pan = null, dirty = true;  // drag: a note being 
 // A.record and A.bass are what plays: the song as it is, or slowed down (A.speed below 1); a moment of the song is
 // at that moment divided by A.speed in them
 const A = {alt: null, speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
-const hear = Object.assign({record: true, bass: false, notes: true, split: false, chords: false}, JSON.parse(localStorage.getItem("copilot.hear") || "{}"));
+// how loud each sound is, as the position of its slider (0 to 100), and whether bass and notes are an ear each
+const hear = Logic.heard(stored("copilot.hear", null));
+const SOUNDS = ["record", "bass", "notes", "chords"], volOf = k => $("vol" + k[0].toUpperCase() + k.slice(1));
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
@@ -767,7 +803,8 @@ function refresh() {
   $("undo").disabled = !S.undo;
   $("clock").textContent = Logic.clock(playhead);
   $("play").textContent = A.playing ? "■ Stop" : "▶ Play";
-  for (const k of ["record", "bass", "notes", "split", "chords"]) $("hear" + k[0].toUpperCase() + k.slice(1)).checked = hear[k];
+  for (const k of SOUNDS) if (+volOf(k).value !== hear[k]) volOf(k).value = hear[k];
+  $("hearSplit").checked = hear.split;
   const n = note(sel), panel = $("panel");
   many = many.filter(id => note(id));
   const diff = S.repeats.differences.find(d => d.id === selDiff);
@@ -1014,7 +1051,7 @@ const stripRow = () => { const rows = dock.hi - dock.lo + 1; return rows <= 16 ?
 const stripBlock = () => STRIP_HEAD + (dock.hi - dock.lo + 1) * stripRow() + STRIP_GAP;
 function sizeDock() {  // how tall the strips are: what the window has left, so that the note's panel under them stays in it
   const total = dock.strips.length * stripBlock();
-  const room = window.innerHeight - $("rollwrap").getBoundingClientRect().top - ROLL_LEAST - $("dockHead").offsetHeight - $("panel").offsetHeight - $("neckbar").offsetHeight - 2;
+  const room = window.innerHeight - $("rollwrap").getBoundingClientRect().top - ROLL_KEPT - $("dockHead").offsetHeight - $("panel").offsetHeight - $("neckbar").offsetHeight - 2;
   const h = Logic.dockHeight(total, stripBlock(), window.innerHeight, room);
   if ($("dockScroll").style.height !== h + "px") dirty = true;
   $("dockScroll").style.height = h + "px";
@@ -1057,6 +1094,7 @@ function layDock() {  // the line over the strips, each strip's own line of butt
       : `<span class="soft">written the same as bar ${ref + 1}</span><span class="sep"></span><button data-s="hear" data-k="${k}">▶ Hear it</button>`;
     return `<div class="strip" style="top:${k * stripBlock()}px">${where}${body}</div>`;
   }).join("");
+  layNeck();
   sizeDock();
   markHearing();
   dirty = true;
@@ -1078,7 +1116,7 @@ function hearStrip(s, withChange) {  // a repeat against the record: as it is wr
   const h = dock.hearing;
   if (A.playing && h && h.bar === s.bar && h.with === withChange) return stop();  // the same button again: stop
   stop();
-  if (!hear.notes) say('tick "My notes" to hear what is written');
+  if (!hear.notes) say('turn up "My notes" to hear what is written');
   const [a, z] = barSpan(s.bar);
   dock.hearing = {bar: s.bar, with: withChange, back: playhead};  // the timeline stays where it is, and so does the playhead afterwards
   play(Math.max(0, a - 0.6), Math.min(S.length, z + 0.4), withChange ? s.after : null, true);
@@ -1211,22 +1249,37 @@ async function makeSheet() {
 }
 
 // ---------------------------------------------------------------------------------------------------- sound
-function setupAudio() {
-  const ctx = A.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 44100});
+// The sounds and the way out, in an audio context: a gain for each sound (its slider), the record, the bass and the
+// notes each with a place between the ears, the chords softened; and all of them through one limiter. The limiter
+// does nothing to a sound that fits (the record alone is as it is); where the sounds together are louder than the
+// output can carry, it turns them down together for that moment, where the output would crackle.
+const LIMIT = {threshold: -1, knee: 0, ratio: 20, attack: 0, release: 0.1};
+function buildAudio(ctx) {
+  const G = {ctx, bus: {}, pan: {}, out: ctx.createDynamicsCompressor()}, trim = ctx.createGain();
+  for (const [k, v] of Object.entries(LIMIT)) G.out[k].value = v;
+  // the limiter makes everything a little louder to make up for what it takes off the top: taken back here
+  const top = LIMIT.threshold - LIMIT.threshold / LIMIT.ratio;  // what full scale comes out as, in dB
+  trim.gain.value = Math.pow(10, 0.6 * top / 20);
+  G.out.connect(trim).connect(ctx.destination);
   for (const k of ["record", "bass", "notes"]) {
-    A.bus[k] = ctx.createGain(); A.pan[k] = ctx.createStereoPanner();
-    A.bus[k].connect(A.pan[k]).connect(ctx.destination);
+    G.bus[k] = ctx.createGain(); G.pan[k] = ctx.createStereoPanner();
+    G.bus[k].connect(G.pan[k]).connect(G.out);
   }
-  A.bus.chords = ctx.createGain();  // the chords, in a plain keyboard sound: softened, so that they sit under the record
+  G.bus.chords = ctx.createGain();  // the chords, in a plain keyboard sound, softened
   const soft = ctx.createBiquadFilter();
   soft.type = "lowpass"; soft.frequency.value = 1500;
-  A.bus.chords.connect(soft).connect(ctx.destination);
+  G.bus.chords.connect(soft).connect(G.out);
+  return G;
+}
+function setupAudio() {
+  Object.assign(A, buildAudio(new (window.AudioContext || window.webkitAudioContext)({sampleRate: 44100})));
   mix();
 }
-function mix() {
+function mix() {  // each sound as loud as its slider says
   if (!A.ctx) return;
   const now = A.ctx.currentTime;
-  for (const k of ["record", "bass", "notes"]) A.bus[k].gain.setTargetAtTime(hear[k] ? 1 : 0, now, 0.01);
+  for (const k of ["record", "bass", "notes"]) A.bus[k].gain.setTargetAtTime(Logic.gainAt(hear[k]), now, 0.01);
+  A.bus.chords.gain.setTargetAtTime(Logic.gainAt(Logic.chordsAt(hear.chords, !!A.chords)), now, 0.01);
   A.pan.bass.pan.setTargetAtTime(hear.split ? -1 : 0, now, 0.01);
   A.pan.notes.pan.setTargetAtTime(hear.split ? 1 : 0, now, 0.01);
   localStorage.setItem("copilot.hear", JSON.stringify(hear));
@@ -1257,27 +1310,32 @@ function voice(n, pitch, when, parts) {  // one pitch of a note, in the sound of
   src.start(when, Math.max(0, m.start / A.speed - 0.004), out * s.rate + 0.03);
   A.live.push(src);
 }
-function chordVoice(c, when, dur) {  // a chord for as long as it lasts: its root below middle C, its other notes above the root
-  const ctx = A.ctx, out = Math.max(0.12, dur), level = 0.13;
+// A chord for as long as it lasts, in `G` (the page's sound, or another context's: buildAudio): its root below
+// middle C, its other notes above the root. It is struck, settles a little, and then holds to its end: a chord that
+// dies away is not heard against the bar it is tried on. CHORD is how loud each of its notes is struck with the
+// chords' slider at 100: set so that the chord is then about as loud as a loud record (docs/copilot.md).
+const CHORD = 0.25, CHORD_HELD = 0.8;
+function chordVoice(c, when, dur, G = A) {
+  const ctx = G.ctx, out = Math.max(0.12, dur), settled = Math.min(0.5, out * 0.4), let_go = Math.min(0.08, out * 0.3);
   for (const pc of c.tones) {
     const midi = 48 + c.root + ((pc - c.root) % 12 + 12) % 12, g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(level, when + 0.03);
-    g.gain.exponentialRampToValueAtTime(level / 2, when + Math.max(0.05, Math.min(0.7, out * 0.6)));
-    g.gain.linearRampToValueAtTime(0.0001, when + out);
-    g.connect(A.bus.chords);
+    g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(CHORD, when + 0.03);
+    g.gain.exponentialRampToValueAtTime(CHORD * CHORD_HELD, when + 0.03 + settled);
+    g.gain.setValueAtTime(CHORD * CHORD_HELD, when + out - let_go); g.gain.linearRampToValueAtTime(0.0001, when + out);
+    g.connect(G.bus.chords);
     for (const cents of [-3, 3]) {
       const o = ctx.createOscillator();
       o.type = "triangle"; o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12); o.detune.value = cents;
       o.connect(g); o.start(when); o.stop(when + out + 0.05);
-      A.live.push(o);
+      if (G.live) G.live.push(o);
     }
   }
-  A.chorded = (A.chorded || 0) + 1;  // how many chords were given a sound, for what looks at the page without ears
+  G.chorded = (G.chorded || 0) + 1;  // how many chords were given a sound, for what looks at the page without ears
 }
 function schedule() {
   if (!A.playing) return;
   const pos = position(), to = pos + 0.4;
-  if (hear.chords || A.chords) {  // the chords of the row; where one is being tried on, that one in its place
+  if (hear.chords > 0 || A.chords) {  // the chords of the row; where one is being tried on, that one in its place
     const alt = A.chords && A.chords.alt, has = alt && S.chords.some(c => c.bar === alt.bar && c.beat === alt.beat);
     for (const c of alt && !has ? [...S.chords, alt] : S.chords) {
       const inside = A.first && c.start < A.from && c.end > A.from + 0.05;  // the chord the playing starts in
@@ -1511,14 +1569,19 @@ function paintSide() {  // the key and the fingering, beside the neck
   $("tabSel").innerHTML = Object.keys(TABS).map(id => `<option value="${id}"${id === S.tab ? " selected" : ""}>${TABS[id]} · ${of(id).moves} hand ${of(id).moves === 1 ? "move" : "moves"}</option>`).join("");
 }
 // The neck is shown when it is wanted and the window has the room: under a low window, or while the repeats are
-// lined up under the timeline, it gives way, so that the timeline keeps NECK_ROOM pixels at least.
-const NECK_HEIGHT = 146, NECK_ROOM = 230;
+// lined up under the timeline, it gives way, so that the timeline keeps NECK_ROOM pixels at least. The sliders and
+// the pickers beside it stay, in a row.
+const NECK_HEIGHT = 100, NECK_ROOM = 230;  // what the neck takes over the row that stays
 function layNeck() {
-  const rest = $("rollwrap").getBoundingClientRect().top + $("panel").offsetHeight + (dock ? $("dockHead").offsetHeight + Math.round(window.innerHeight * 0.3) : 0);
-  const on = showNeck && window.innerHeight - rest - NECK_HEIGHT >= NECK_ROOM;
+  const bar = $("neckbar"), had = !bar.classList.contains("noneck");
+  const row = had ? Math.max(40, bar.offsetHeight - NECK_HEIGHT) : bar.offsetHeight;  // the bar without the neck
+  // what the repeats take when they are given their room: their line, and their strips up to 42% of the window
+  const strips = dock && dock.loaded ? Math.min(dock.strips.length * stripBlock(), Math.round(window.innerHeight * 0.42)) : 0;
+  const under = $("panel").offsetHeight + row + (dock ? $("dockHead").offsetHeight + strips : 0);
+  const on = showNeck && window.innerHeight - $("rollwrap").getBoundingClientRect().top - under - NECK_HEIGHT >= NECK_ROOM;
   $("neckBtn").classList.toggle("picked", showNeck);
-  if ($("neckbar").classList.contains("hidden") === on) {  // it comes or goes: the timeline is laid out for the room it has now
-    $("neckbar").classList.toggle("hidden", !on); neckKey = null;
+  if (had !== on) {  // it comes or goes: the timeline is laid out for the room it has now
+    bar.classList.toggle("noneck", !on); neckKey = null;
     if (dock) sizeDock();
     resize();
   }
@@ -1539,7 +1602,7 @@ const letter = n => pretty(S.spelled[n.pitch % 12]);  // a note's name without i
 // the note that sounds or is chosen. What a note is and where it is played are under the pointer, not beside the
 // neck: words that change with every note changed the height of the bar and moved the neck about.
 function paintNeck() {
-  if (!S || $("neckbar").classList.contains("hidden")) return;
+  if (!S || $("neckbar").classList.contains("noneck")) return;
   const chosen = A.playing ? null : note(sel);  // while the song stands still: the chosen note's bar, or the chosen chord's
   const t = chosen ? chosen.start + 0.031 : A.playing ? position() : selChord ? barSpan(selChord.bar)[0] + 0.031 : playhead;
   let bar = 0;
@@ -1748,9 +1811,10 @@ function wire() {
   $("helpBtn").onclick = () => showHelp(); $("helpClose").onclick = () => showHelp(false);
   $("song").onchange = () => load($("song").value);
   $("speed").onchange = () => { $("speed").blur(); setSpeed(+$("speed").value); };
-  for (const k of ["record", "bass", "notes", "split", "chords"]) $("hear" + k[0].toUpperCase() + k.slice(1)).onchange = e => { hear[k] = e.target.checked; mix(); e.target.blur(); };
+  for (const k of SOUNDS) { volOf(k).oninput = e => { hear[k] = +e.target.value; mix(); }; volOf(k).onchange = e => e.target.blur(); }
+  $("hearSplit").onchange = e => { hear.split = e.target.checked; mix(); e.target.blur(); };
   $("neckBtn").onclick = () => { showNeck = !showNeck; localStorage.setItem("copilot.neck", JSON.stringify(showNeck)); refresh(); };
-  $("neckbar").classList.toggle("hidden", !showNeck); $("neckBtn").classList.toggle("picked", showNeck);
+  $("neckbar").classList.toggle("noneck", !showNeck); $("neckBtn").classList.toggle("picked", showNeck);
   $("homeSel").onchange = e => { const [r, m] = e.target.value.split(","); const guess = S.homes[0]; e.target.blur(); setSide({home: guess && guess.root === +r && guess.major === (m === "1") ? null : [+r, m === "1"]}).then(sided); };
   $("tabSel").onchange = e => { e.target.blur(); setSide({tab: e.target.value}).then(sided); };
   document.addEventListener("keydown", keys);
