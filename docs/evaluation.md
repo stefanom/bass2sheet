@@ -382,7 +382,7 @@ On a song's page every bar has a chord: the tool's best guess to start with, and
 
 **The best guess.** The share of the time the root is right, and the root with major or minor:
 
-| The chords a song starts with | RWC Popular (24 songs) | Under the Bridge | I Will Survive, a cover | Billie Jean |
+| The chords a song starts with | RWC Popular (24 songs) | A band song | A cover | A bass-riff song |
 |---|---|---|---|---|
 | the finder, by half bars (what the copilot uses) | **0.85 / 0.85** | **0.81 / 0.73** | **0.72 / 0.54** | **0.49 / 0.45** |
 | the finder, one chord a bar | 0.77 / 0.77 | 0.64 / 0.56 | 0.56 / 0.46 | 0.50 / 0.48 |
@@ -392,7 +392,7 @@ The guess is the chords heard eighth by eighth ([Chords and key](#chords-and-key
 
 **The offers.** A stretch runs from where an annotated chord starts to where the next starts, a bar at most. The chord wanted is the annotated one as a major or minor triad: that is what is offered, and any other kind is two boxes away on the page. The table has the share of stretches whose chord is in the first 1, 3 and 6 of the ranking, for the ranking the page uses and for parts of it. The page shows the chord that is written and six others, so the chord wanted is in sight at least as often as the last figure says.
 
-| Ranked by | RWC Popular (24 songs, 3,105 chords) | Under the Bridge (100) | I Will Survive, a cover (243) | Billie Jean (497) |
+| Ranked by | RWC Popular (24 songs, 3,105 chords) | A band song (100) | A cover (243) | A bass-riff song (497) |
 |---|---|---|---|---|
 | the bass notes of the stretch | 50% / 85% / 91% | 36% / 46% / 62% | 40% / 76% / 82% | 12% / 49% / 66% |
 | the bass notes and the key | 69% / 88% / 95% | 55% / 74% / 94% | 54% / 76% / 85% | 40% / 53% / 73% |
@@ -400,7 +400,7 @@ The guess is the chords heard eighth by eighth ([Chords and key](#chords-and-key
 | all of it (the page) | **81% / 94% / 98%** | **85% / 85% / 97%** | **62% / 81% / 87%** | **42% / 55% / 75%** |
 
 - **RWC Popular** has annotated chords and the tool's own notes and bar lines.
-- **The three commercial recordings** are the author's songs held against MIDI transcriptions lined up with the record (as in [Chords and key](#chords-and-key)): one transcription, three, and four. The transcriptions are other people's hearing of the song, and of Billie Jean they agree with each other on the root only 0.61 of the time, so its figures are as much a measure of them as of the tool. No result of these three songs was used to set a weight.
+- **The three commercial recordings** are the author's songs held against MIDI transcriptions lined up with the record, the same three as in [Chords and key](#chords-and-key): a song a band plays the chords of (one transcription), a cover held against three transcriptions of the original, and a song whose chords are a quiet keyboard figure over a bass riff (four). The transcriptions are other people's hearing of the song, and of the bass-riff song they agree with each other on the root only 0.61 of the time, so its figures are as much a measure of them as of the tool. No result of these three songs was used to set a weight.
 - **The weights** of the ranking (`OFFER` in `copilot_harmony.py`) were set by hand on the 24 RWC songs, which are therefore not a held-out test of them; they are not fitted to anything and no data ships with them.
 - **What it is not**: a measure of the chords a person ends up with, or of anything on a song with no bass.
 
