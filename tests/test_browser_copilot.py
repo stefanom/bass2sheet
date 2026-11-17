@@ -647,6 +647,28 @@ RENDERED = """async () => {
     for (let t = 0; t < 8; t += 2) chordVoice({root: 9, tones: [9, 0, 4, 7]}, t, 2, G);
   });
   out.everything = level(all, 0, 8);
+  // a note in the synthesized bass, an A of a second and a half: how loud it is when plucked, later, and after its
+  // end; how much of it eight harmonics of the A explain, against eight of the note a semitone above; and how loud
+  // each of two notes played together is, against one alone
+  const a1 = 33, hz = p => 440 * Math.pow(2, (p - 69) / 12);
+  const note = await render(2.2, (off, G) => synthVoice({start: 0, end: 1.5}, a1, 0.1, 1, G));
+  const fits = f => {
+    const d = note.getChannelData(0);
+    let e = 0;
+    for (let k = 1; k <= 8; k++) {
+      let re = 0, im = 0;
+      for (let i = Math.floor(0.2 * sr); i < Math.floor(1.4 * sr); i++) {
+        const ph = 2 * Math.PI * k * f * i / sr;
+        re += d[i] * Math.cos(ph); im += d[i] * Math.sin(ph);
+      }
+      e += re * re + im * im;
+    }
+    return e;
+  };
+  const pair = await render(1, (off, G) => synthVoice({start: 0, end: 0.8}, a1, 0.1, 2, G));
+  out.synth = {plucked: level(note, 0.105, 0.4).rms, later: level(note, 1.2, 1.5).rms, after: level(note, 1.7, 2.1).rms,
+    peak: level(note, 0, 2.2).peak, a_semitone_off: 10 * Math.log10(fits(hz(a1 + 1)) / fits(hz(a1))),
+    of_two: level(pair, 0.105, 0.4).rms - level(note, 0.105, 0.4).rms};
   return out;
 }"""
 
@@ -656,6 +678,13 @@ def test_each_sound_has_a_slider_beside_the_neck_and_the_chords_are_loud_enough_
     # a slider for each sound at the bottom right, beside the neck; no boxes to tick for them
     for gone in ("#hearRecord", "#hearBass", "#hearNotes", "#hearChords"):
         assert page.locator(gone).count() == 0
+    assert page.locator("#mixer label span.soft").all_inner_texts() == [
+        "Record",
+        "Isolated bass",
+        "Notes: sampled",
+        "Notes: synth",
+        "Chords",
+    ]
     where = page.evaluate("""() => {
       const box = id => document.getElementById(id).getBoundingClientRect(), neck = box("neck"), mixer = box("mixer");
       return {right_of_the_neck: mixer.left >= neck.right,
@@ -668,7 +697,8 @@ def test_each_sound_has_a_slider_beside_the_neck_and_the_chords_are_loud_enough_
         beside_it=True,
         at_the_bottom=True,
         in_the_window=True,
-        sliders=[["volRecord", 100], ["volNotes", 100], ["volBass", 0], ["volChords", 0]],  # the record and the notes
+        # the two recordings, the notes in two sounds, the chords: the record and the notes in the song's sound are up
+        sliders=[["volRecord", 100], ["volBass", 0], ["volNotes", 100], ["volSynth", 0], ["volChords", 0]],
     )
     assert page.is_visible("#hearSplit") and not page.is_checked("#hearSplit")
     # a slider sets how loud its sound is, at once and for the next visit
@@ -685,25 +715,32 @@ def test_each_sound_has_a_slider_beside_the_neck_and_the_chords_are_loud_enough_
     page.click("#play")
     page.wait_for_function("!A.playing")
     assert json.loads(page.evaluate("localStorage.getItem('copilot.hear')")) == dict(
-        record=50, bass=100, notes=0, chords=0, split=False
+        record=50, bass=100, notes=0, synth=0, chords=0, split=False
     )
-    page.check("#hearSplit")
-    assert page.evaluate("hear.split") is True
+    # the notes have two sounds, each with its slider: the song's own bass, and a synthesized one. The synthesized
+    # one is made only while its slider is up
+    assert page.evaluate("A.synthed || 0") == 0
+    _slide(page, "volSynth", 80)
+    page.evaluate("playhead = S.bars[2].time")
+    page.click("#play")
+    page.wait_for_function("A.playing && A.synthed >= 3 && Math.abs(A.bus.synth.gain.value - 0.64) < 0.01")
+    assert page.evaluate("A.pan.synth.pan.value") == 0
+    page.check("#hearSplit")  # the bass in one ear, the notes in the other, in whichever sound
+    page.wait_for_function(
+        "A.pan.synth.pan.value > 0.99 && A.pan.notes.pan.value > 0.99 && A.pan.bass.pan.value < -0.99"
+    )
+    page.click("#play")
+    page.wait_for_function("!A.playing")
+    assert page.evaluate("hear.split") is True and page.evaluate("hear.synth") == 80
     page.reload()
     page.wait_for_function(SONG_READY % json.dumps(song))
-    assert page.evaluate("[volRecord.value, volBass.value, volNotes.value, volChords.value, hearSplit.checked]") == [
-        "50",
-        "100",
-        "0",
-        "0",
-        True,
-    ]
+    assert page.evaluate("[...SOUNDS.map(k => +volOf(k).value), hearSplit.checked]") == [50, 100, 0, 80, 0, True]
     # what was kept from the time each sound was a box to tick is taken as sliders up or down
     once = dict(record=True, bass=False, notes=True, split=False, chords=False)
     page.evaluate("kept => localStorage.setItem('copilot.hear', JSON.stringify(kept))", once)
     page.reload()
     page.wait_for_function(SONG_READY % json.dumps(song))
-    assert page.evaluate("hear") == dict(record=100, bass=0, notes=100, chords=0, split=False)
+    assert page.evaluate("hear") == dict(record=100, bass=0, notes=100, synth=0, chords=0, split=False)
 
     # the neck put away: the sliders and the pickers stay, in a row
     page.click("#neckBtn")
@@ -722,6 +759,12 @@ def test_each_sound_has_a_slider_beside_the_neck_and_the_chords_are_loud_enough_
     assert abs(got["record_through"]["rms"] - got["record"]["rms"]) < 0.3, got
     assert got["record_through"]["peak"] <= got["record"]["peak"] + 0.1, got
     assert got["everything"]["peak"] < 1.0 and got["everything"]["rms"] > got["record"]["rms"], got
+    # a note in the synthesized bass is plucked and dies away slowly, is gone after its end, and is the note asked for
+    synth = got["synth"]
+    assert -14 < synth["plucked"] < -10 and synth["peak"] < -3, synth  # about as loud as a chord, with room over it
+    assert synth["plucked"] - 12 < synth["later"] < synth["plucked"] - 3 and synth["after"] < -100, synth
+    assert synth["a_semitone_off"] < -15, synth
+    assert -3.3 < synth["of_two"] < -2.7, synth  # each of two notes played together: 3 dB under one alone
 
 
 # The playhead is put on every note of the song and after it: every place the neck is found in, and every height of

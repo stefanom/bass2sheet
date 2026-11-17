@@ -42,8 +42,9 @@
   #sheetside select { max-width: 290px; min-width: 0; }
   /* what is heard and how loud: a slider for each sound, two in a row */
   #mixer { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; max-width: 460px; }
-  #mixer label { display: grid; grid-template-columns: 82px minmax(36px, 1fr); min-height: 20px; }
-  #mixer label.wide { grid-column: 1 / -1; display: flex; }
+  #mixer label { display: grid; grid-template-columns: 94px minmax(36px, 1fr); min-height: 20px; min-width: 0; }
+  #mixer label.tick { display: flex; }
+  #mixer label.tick span { overflow: hidden; text-overflow: ellipsis; }
   #mixer input[type=range] { width: 100%; min-width: 0; }
   /* without the neck (put away, or no room for it): the sliders and the pickers in a row */
   #neckbar.noneck { align-items: center; }
@@ -130,10 +131,11 @@
   <div id="sheetside">
     <div id="mixer">
       <label title="How loud the record is"><span class="soft">Record</span><input type="range" id="volRecord" min="0" max="100" step="1"></label>
-      <label title="How loud your notes are, played in the bass's own sound"><span class="soft">My notes</span><input type="range" id="volNotes" min="0" max="100" step="1"></label>
       <label title="How loud the bass is that was taken out of the record"><span class="soft">Isolated bass</span><input type="range" id="volBass" min="0" max="100" step="1"></label>
+      <label title="How loud your notes are, played in the sound of the song's own bass: each note by a piece of the isolated bass, cut from another note of the same pitch"><span class="soft">Notes: sampled</span><input type="range" id="volNotes" min="0" max="100" step="1"></label>
+      <label title="How loud your notes are, played by a plain synthesized bass: the same clear tone for every note, however the record's bass sounds there"><span class="soft">Notes: synth</span><input type="range" id="volSynth" min="0" max="100" step="1"></label>
       <label title="How loud the chords are while the song plays, in a plain keyboard sound. All the way down, they are not played with the song; a chord you click to hear or to try on is still heard"><span class="soft">Chords</span><input type="range" id="volChords" min="0" max="100" step="1"></label>
-      <label class="wide" title="With headphones: the isolated bass in the left ear, the notes in the right"><input type="checkbox" id="hearSplit"> Bass left, notes right</label>
+      <label class="tick" title="With headphones: the isolated bass in the left ear, your notes in the right"><input type="checkbox" id="hearSplit"> <span>Bass left, notes right</span></label>
     </div>
     <label title="The key the sheet is written in. Notes, chords and steps are named by it. It is the tool's guess until you pick one"><span class="soft">Key</span> <select id="homeSel"></select></label>
     <label title="How the notes are put on the neck: the neck here and the tab of the sheet follow"><span class="soft">Fingering</span> <select id="tabSel"></select></label>
@@ -153,7 +155,7 @@
     <tr><td>Two notes played together</td><td>are drawn one above the other, joined at the left. Click the one you mean: "Delete" then has a button for each, and ⌫ takes out only the one you clicked. Drag the upper one up or down to change it alone.</td></tr>
     <tr><td>Double-click</td><td>an empty spot adds a note there.</td></tr>
     <tr><td>A chord</td><td>in the row over the notes is what that bar holds: blue where you chose it, grey where it is the tool's guess. Click one to hear the bar with it. Under the timeline are other chords to try: a click plays the bar with that chord and changes nothing, until you press "Use it". The same change is then offered for the bars like it. Turn the Chords slider up to have them played while the song plays.</td></tr>
-    <tr><td>The sliders</td><td>at the bottom right set how loud each sound is: the record, your notes (played in the bass's own sound), the isolated bass, and the chords. All the way down, a sound is off. A chord you click is heard even with the chords' slider down.</td></tr>
+    <tr><td>The sliders</td><td>at the bottom right set how loud each sound is: the record; the isolated bass; your notes in two sounds, "sampled" (each note played by a piece of the song's own bass) and "synth" (a plain synthesized bass, the same clear tone for every note); and the chords. All the way down, a sound is off. A chord you click is heard even with the chords' slider down.</td></tr>
     <tr><td>The neck</td><td>at the bottom shows where the notes of the bar are played: a circle for each with its name, joined in the order they come, and the note that sounds filled in. Hold the pointer over a circle for where the note is played and what it is: its step in the key (1 is home) or, where you chose the bar's chord, its part of the chord. The key and the fingering beside it go on the sheet.</td></tr>
     <tr><td>Rows − + Fit</td><td>makes the pitch rows shorter or taller, or fits them all in the window.</td></tr>
     <tr><td>Picture</td><td>its colours, how strongly the faint tones show, and how solid the note boxes are. The page remembers them.</td></tr>
@@ -260,11 +262,13 @@ const Logic = (() => {
     return at ? [at.bar, t - at.time] : [0, t];
   }
   // --- what is heard, and how loud
-  // Each of the four sounds has a slider, from 0 to 100. HEARD is where the sliders stand at first: the record and
-  // the notes as they are, the isolated bass and the chords not at all. ONCE_ON is where a sound that was ticked
+  // Each sound has a slider, from 0 to 100: the record, the isolated bass, the notes in the song's own bass sound
+  // (`notes`), the notes in a synthesized bass (`synth`), and the chords. HEARD is where the sliders stand at first:
+  // the record and the notes in the song's sound as they are, the rest not at all. ONCE_ON is where a sound that was ticked
   // stands, from the time each sound was a box to tick. CHORDS_ASKED is how loud a chord is that the person asks
   // to hear while the chords' slider is all the way down: down means "not with the song", not "never".
-  const HEARD = {record: 100, bass: 0, notes: 100, chords: 0}, ONCE_ON = {record: 100, bass: 100, notes: 100, chords: 80};
+  const HEARD = {record: 100, bass: 0, notes: 100, synth: 0, chords: 0};
+  const ONCE_ON = {record: 100, bass: 100, notes: 100, synth: 100, chords: 80};
   const CHORDS_ASKED = 80;
   function heard(kept) {  // what was kept from the last visit, as slider positions
     const out = {...HEARD, split: !!(kept && kept.split)};
@@ -417,7 +421,7 @@ let playhead = 0, drag = null, pan = null, dirty = true;  // drag: a note being 
 const A = {alt: null, speed: 1, full: null, slow: {}, ctx: null, record: null, bass: null, bus: {}, pan: {}, playing: false, from: 0, at: 0, until: 0, stopAt: null, counts: false, seg: 0, live: [], timer: null, rms: new Map(), typical: 0};
 // how loud each sound is, as the position of its slider (0 to 100), and whether bass and notes are an ear each
 const hear = Logic.heard(stored("copilot.hear", null));
-const SOUNDS = ["record", "bass", "notes", "chords"], volOf = k => $("vol" + k[0].toUpperCase() + k.slice(1));
+const SOUNDS = ["record", "bass", "notes", "synth", "chords"], volOf = k => $("vol" + k[0].toUpperCase() + k.slice(1));
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
@@ -1116,7 +1120,7 @@ function hearStrip(s, withChange) {  // a repeat against the record: as it is wr
   const h = dock.hearing;
   if (A.playing && h && h.bar === s.bar && h.with === withChange) return stop();  // the same button again: stop
   stop();
-  if (!hear.notes) say('turn up "My notes" to hear what is written');
+  if (!hear.notes && !hear.synth) say('turn up one of the two "Notes" sliders to hear what is written');
   const [a, z] = barSpan(s.bar);
   dock.hearing = {bar: s.bar, with: withChange, back: playhead};  // the timeline stays where it is, and so does the playhead afterwards
   play(Math.max(0, a - 0.6), Math.min(S.length, z + 0.4), withChange ? s.after : null, true);
@@ -1250,7 +1254,7 @@ async function makeSheet() {
 
 // ---------------------------------------------------------------------------------------------------- sound
 // The sounds and the way out, in an audio context: a gain for each sound (its slider), the record, the bass and the
-// notes each with a place between the ears, the chords softened; and all of them through one limiter. The limiter
+// notes in either sound each with a place between the ears, the chords softened; and all of them through one limiter. The limiter
 // does nothing to a sound that fits (the record alone is as it is); where the sounds together are louder than the
 // output can carry, it turns them down together for that moment, where the output would crackle.
 const LIMIT = {threshold: -1, knee: 0, ratio: 20, attack: 0, release: 0.1};
@@ -1261,7 +1265,7 @@ function buildAudio(ctx) {
   const top = LIMIT.threshold - LIMIT.threshold / LIMIT.ratio;  // what full scale comes out as, in dB
   trim.gain.value = Math.pow(10, 0.6 * top / 20);
   G.out.connect(trim).connect(ctx.destination);
-  for (const k of ["record", "bass", "notes"]) {
+  for (const k of ["record", "bass", "notes", "synth"]) {
     G.bus[k] = ctx.createGain(); G.pan[k] = ctx.createStereoPanner();
     G.bus[k].connect(G.pan[k]).connect(G.out);
   }
@@ -1278,10 +1282,10 @@ function setupAudio() {
 function mix() {  // each sound as loud as its slider says
   if (!A.ctx) return;
   const now = A.ctx.currentTime;
-  for (const k of ["record", "bass", "notes"]) A.bus[k].gain.setTargetAtTime(Logic.gainAt(hear[k]), now, 0.01);
+  for (const k of ["record", "bass", "notes", "synth"]) A.bus[k].gain.setTargetAtTime(Logic.gainAt(hear[k]), now, 0.01);
   A.bus.chords.gain.setTargetAtTime(Logic.gainAt(Logic.chordsAt(hear.chords, !!A.chords)), now, 0.01);
   A.pan.bass.pan.setTargetAtTime(hear.split ? -1 : 0, now, 0.01);
-  A.pan.notes.pan.setTargetAtTime(hear.split ? 1 : 0, now, 0.01);
+  for (const k of ["notes", "synth"]) A.pan[k].pan.setTargetAtTime(hear.split ? 1 : 0, now, 0.01);
   localStorage.setItem("copilot.hear", JSON.stringify(hear));
 }
 function rms(t0, t1) {
@@ -1309,6 +1313,28 @@ function voice(n, pitch, when, parts) {  // one pitch of a note, in the sound of
   src.connect(g).connect(A.bus.notes);
   src.start(when, Math.max(0, m.start / A.speed - 0.004), out * s.rate + 0.03);
   A.live.push(src);
+}
+// One pitch of a note in a plain synthesized bass, in `G` (the page's sound, or another context's: buildAudio):
+// SYNTH.harmonics harmonics, the k-th at 1/k of the first, each dying away from the moment the note is plucked, the
+// higher ones sooner (the k-th by e in 1 / SYNTH.dies(k) seconds); a short attack, and a release at the note's end.
+// Every note is as loud as every other, whatever the record does there: a note written where the record's bass is
+// faint or silent is heard as well as any. SYNTH.level is how loud, with the slider at 100 (docs/copilot.md).
+const SYNTH = {level: 0.5, harmonics: 8, dies: k => 0.3 + 0.35 * k, attack: 0.005, release: 0.03};
+function synthVoice(n, pitch, when, parts, G = A) {
+  const ctx = G.ctx, out = (n.end - n.start) / (G.speed || 1);  // how long it sounds
+  if (out < 0.02) return;
+  const f = 440 * Math.pow(2, (pitch - 69) / 12), level = SYNTH.level / Math.sqrt(parts), env = ctx.createGain();
+  env.gain.setValueAtTime(0, when); env.gain.linearRampToValueAtTime(level, when + SYNTH.attack);
+  env.gain.setValueAtTime(level, when + Math.max(SYNTH.attack, out - SYNTH.release)); env.gain.linearRampToValueAtTime(0, when + out);
+  env.connect(G.bus.synth);
+  for (let k = 1; k <= SYNTH.harmonics; k++) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = k * f;
+    g.gain.setValueAtTime(1 / k, when); g.gain.setTargetAtTime(0, when, 1 / SYNTH.dies(k));
+    o.connect(g).connect(env); o.start(when); o.stop(when + out + 0.02);
+    if (G.live) G.live.push(o);
+  }
+  G.synthed = (G.synthed || 0) + 1;  // how many were given a sound, for what looks at the page without ears
 }
 // A chord for as long as it lasts, in `G` (the page's sound, or another context's: buildAudio): its root below
 // middle C, its other notes above the root. It is struck, settles a little, and then holds to its end: a chord that
@@ -1347,8 +1373,9 @@ function schedule() {
   A.first = false;
   for (const n of A.alt || S.notes) {
     if (n.start < A.until || n.start >= to) continue;
-    const when = A.at + (n.start - A.from) / A.speed, tones = [n.pitch, ...(n.also || [])];
-    tones.forEach(q => voice(n, q, Math.max(when, A.ctx.currentTime), tones.length));
+    const when = Math.max(A.at + (n.start - A.from) / A.speed, A.ctx.currentTime), tones = [n.pitch, ...(n.also || [])];
+    tones.forEach(q => voice(n, q, when, tones.length));  // in the song's own bass sound
+    if (hear.synth > 0) tones.forEach(q => synthVoice(n, q, when, tones.length));  // and in the synthesized one
   }
   A.until = to;
   if (A.counts && pos - A.seg > 5) reportPlayed(pos);
@@ -1432,8 +1459,12 @@ function grain(t, len = 0.14) {  // a short piece of the song at a moment: what 
     src.connect(g).connect(A.bus[k]);
     src.start(now, Math.max(0, t / A.speed), len + 0.02);
   }
-  const n = hear.notes ? S.notes.find(n => n.start <= t && t < n.end) : null;  // the note it enters, once
-  if (n && scrub && scrub.note !== n.id) { const tones = [n.pitch, ...(n.also || [])]; tones.forEach(q => voice(n, q, now, tones.length)); }
+  const n = hear.notes || hear.synth ? S.notes.find(n => n.start <= t && t < n.end) : null;  // the note it enters, once
+  if (n && scrub && scrub.note !== n.id) {
+    const tones = [n.pitch, ...(n.also || [])];
+    if (hear.notes > 0) tones.forEach(q => voice(n, q, now, tones.length));
+    if (hear.synth > 0) tones.forEach(q => synthVoice(n, q, now, tones.length));
+  }
   if (scrub) scrub.note = n ? n.id : null;
 }
 function scrubTo(x) {  // the playhead goes where the pointer is in the ruler

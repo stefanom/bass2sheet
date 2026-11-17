@@ -861,7 +861,7 @@ def test_the_page_has_every_element_its_script_reaches_for():
     made = set(re.findall(r'id="([^"]+)"', page))
     missing = set(re.findall(r'\$\("([^"]+)"\)', script)) - made
     assert not missing, missing
-    assert {"volRecord", "volBass", "volNotes", "volChords"} <= made  # reached by a built name
+    assert {"volRecord", "volBass", "volNotes", "volSynth", "volChords"} <= made  # reached by a built name
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js to run the page's logic")
