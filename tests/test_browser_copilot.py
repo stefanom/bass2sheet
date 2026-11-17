@@ -209,6 +209,29 @@ def test_one_of_two_notes_played_together_is_deleted_by_itself(browse, site, son
     )  # no note is gone
 
 
+def test_the_note_just_fixed_stays_in_sight_when_the_repeats_come_up_in_a_low_window(browse, site, song):
+    page = _song_page(browse, site, song)
+    page.set_viewport_size(dict(width=1440, height=720))
+    page.wait_for_function("__quiet(200)")
+    n = page.evaluate(IN_VIEW, "!(n.also || []).length && n.end - n.start > 0.3")
+    _click_note(page, n["id"])
+    tall = page.evaluate("document.getElementById('rollwrap').clientHeight")
+    assert page.evaluate("rowsOf() * row <= rollHeight()")  # every pitch has its row in the window
+    page.click("#panel button[data-act='split']")
+    page.wait_for_function("note(sel) && note(sel).split_from && dock !== null && dock.loaded")
+    page.wait_for_function("__quiet(300) && !A.playing")
+    # the repeats took their room from the timeline: it is lower, and has fewer rows than there are pitches
+    assert page.evaluate("document.getElementById('rollwrap').clientHeight") < tall
+    assert page.evaluate("rowsOf() * row > rollHeight()")
+    # the two halves of the note are on the timeline still, where a click reaches them, and not under the repeats
+    for half in (n["id"], page.evaluate("sel")):
+        at = page.evaluate(BOXES, half)[0]
+        assert page.evaluate("([x, y]) => document.elementFromPoint(x, y).id", [at["x"], at["y"]]) == "roll", half
+    _click_note(page, n["id"])
+    # the neck gave way to the repeats, and the sliders and the pickers stayed
+    assert page.is_hidden("#neck") and page.is_visible("#volRecord") and page.is_visible("#tabSel")
+
+
 def test_a_note_is_split_in_two_and_the_two_are_joined_again(browse, site, song):
     page = _song_page(browse, site, song)
     count = page.evaluate("S.notes.length")

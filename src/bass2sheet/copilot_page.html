@@ -515,6 +515,10 @@ function resize() {  // the canvas is as large as the window leaves it
   const c = $("roll"), wrap = $("rollwrap"), dpr = window.devicePixelRatio || 1;
   c.width = Math.round(wrap.clientWidth * dpr); c.height = Math.round(wrap.clientHeight * dpr);
   layRows();
+  // The note that is selected stays in sight. The timeline gets lower when the repeats line up under it, as they do
+  // after a fix: without this the note just fixed could be left below what is shown of the rows.
+  const n = S && sel ? note(sel) : null;
+  if (n) showPitch(n.pitch);
 }
 function layRows() {
   row = rowPref === "fit" ? Math.max(6, Math.floor(rollHeight() / rowsOf())) : rowPref;
@@ -1600,8 +1604,8 @@ function paintSide() {  // the key and the fingering, beside the neck
   $("tabSel").innerHTML = Object.keys(TABS).map(id => `<option value="${id}"${id === S.tab ? " selected" : ""}>${TABS[id]} · ${of(id).moves} hand ${of(id).moves === 1 ? "move" : "moves"}</option>`).join("");
 }
 // The neck is shown when it is wanted and the window has the room: under a low window, or while the repeats are
-// lined up under the timeline, it gives way, so that the timeline keeps NECK_ROOM pixels at least. The sliders and
-// the pickers beside it stay, in a row.
+// lined up under the timeline, it gives way, so that the timeline keeps NECK_ROOM pixels at least, and enough to
+// show every pitch when the rows are set to fit. The sliders and the pickers beside it stay, in a row.
 const NECK_HEIGHT = 100, NECK_ROOM = 230;  // what the neck takes over the row that stays
 function layNeck() {
   const bar = $("neckbar"), had = !bar.classList.contains("noneck");
@@ -1609,7 +1613,9 @@ function layNeck() {
   // what the repeats take when they are given their room: their line, and their strips up to 42% of the window
   const strips = dock && dock.loaded ? Math.min(dock.strips.length * stripBlock(), Math.round(window.innerHeight * 0.42)) : 0;
   const under = $("panel").offsetHeight + row + (dock ? $("dockHead").offsetHeight + strips : 0);
-  const on = showNeck && window.innerHeight - $("rollwrap").getBoundingClientRect().top - under - NECK_HEIGHT >= NECK_ROOM;
+  // what the timeline must keep: NECK_ROOM, and with the rows set to fit, room for every pitch at the least a row can be
+  const kept = Math.max(NECK_ROOM, rowPref === "fit" ? TOP + rowsOf() * 6 : 0);
+  const on = showNeck && window.innerHeight - $("rollwrap").getBoundingClientRect().top - under - NECK_HEIGHT >= kept;
   $("neckBtn").classList.toggle("picked", showNeck);
   if (had !== on) {  // it comes or goes: the timeline is laid out for the room it has now
     bar.classList.toggle("noneck", !on); neckKey = null;
