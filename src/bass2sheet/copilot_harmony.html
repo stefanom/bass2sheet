@@ -126,9 +126,10 @@ svg text{font-family:var(--sans);fill:var(--text)}
 .grid-l{stroke:var(--line);stroke-width:1;fill:none}
 .f-rest{fill:var(--rest)}.f-drift{fill:var(--drift)}.f-pull{fill:var(--pull)}.f-none{fill:var(--text-2)}
 .s-rest{stroke:var(--rest)}.s-drift{stroke:var(--drift)}.s-pull{stroke:var(--pull)}
-.part{fill:var(--ink-soft);stroke:var(--paper);stroke-width:1.5}
+.part{fill:var(--ink-soft)}
 .part.alt{fill:rgba(127,127,127,.07)}
-.part.on{fill:var(--pull-soft);stroke:var(--text);stroke-width:1.2}
+.part.on{fill:var(--pull-soft)}
+.part-on{fill:none;stroke:var(--text);stroke-width:1.2;pointer-events:none}
 .cursor{stroke:var(--pull);stroke-width:2}
 .string{stroke:#8d887e;stroke-linecap:round}
 .fret{stroke:#b9b4a9;stroke-width:1.4}
@@ -637,16 +638,31 @@ function paintMap() {
 
 /* ----- the song in parts ----- */
 const X500 = t => 500 * t / H.length, X600 = t => 600 * t / H.length;
+const GAP = 1.5;   // between two parts of the strip
 function paintStrip() {
   let s = "", seen = {};
   H.parts.forEach((p, i) => {
     const x = X500(p.start), w = Math.max(2, X500(p.end) - x);
     seen[p.letter] = seen[p.letter] === undefined ? Object.keys(seen).length : seen[p.letter];
-    s += `<g data-part="${i}"><title>Part ${p.letter} · bars ${p.bar}–${p.bar + p.bars - 1}</title><rect class="part${seen[p.letter] % 2 ? " alt" : ""}${i === S.part ? " on" : ""}" x="${x.toFixed(1)}" y="3" width="${w.toFixed(1)}" height="28" rx="4"/>${w > 13 ? `<text class="t-mark" x="${(x + w / 2).toFixed(1)}" y="21">${p.letter}</text>` : ""}</g>`;
+    s += `<g data-part="${i}"><title>Part ${p.letter} · bars ${p.bar}–${p.bar + p.bars - 1}</title><rect class="part${seen[p.letter] % 2 ? " alt" : ""}" x="${(x + GAP / 2).toFixed(2)}" y="3" width="${Math.max(0.5, w - GAP).toFixed(2)}" height="28" rx="4"/>${w > 13 ? `<text class="t-mark" x="${(x + w / 2).toFixed(1)}" y="21">${p.letter}</text>` : ""}</g>`;
   });
   s += `<text class="t-sm" x="1" y="45" style="text-anchor:start">0:00</text><text class="t-sm" x="499" y="45" style="text-anchor:end">${L.clock(H.length)}</text>`;
+  s += `<rect class="part-on" id="strip-on" y="3.6" height="26.8" rx="3.4" visibility="hidden"/>`;
   s += `<line class="cursor" id="strip-cursor" x1="0" x2="0" y1="0" y2="34"/>`;
   $("strip").innerHTML = s;
+  markPart(S.part);
+}
+// The part that plays: its colour, and a line round it. The line is a shape of its own, drawn after every part and
+// kept inside the part's own box: as the border of the part's shape, the part after it covered one of its sides.
+function markPart(part) {
+  const parts = document.querySelectorAll("#strip .part"), line = $("strip-on"), on = parts[part];
+  parts.forEach((r, i) => r.classList.toggle("on", i === part));
+  if (!line) return;
+  line.setAttribute("visibility", on ? "visible" : "hidden");
+  if (on) {
+    line.setAttribute("x", (+on.getAttribute("x") + 0.6).toFixed(2));
+    line.setAttribute("width", Math.max(0.3, +on.getAttribute("width") - 1.2).toFixed(2));
+  }
 }
 function loopChip(loop, k) {   // a bar of a loop: the chords most rounds have there, or the note the bass stands on
   const bar = loop.loop[k], line = loop.bass[k], first = bar[0];
@@ -765,7 +781,7 @@ function tick(force) {
   if (beatMoved) paintPath();
   if (noteMoved) paintNeck();
   if (force || moved) {
-    document.querySelectorAll("#strip .part").forEach((r, i) => r.classList.toggle("on", i === part));
+    markPart(part);
     const p = H.parts[part];
     document.querySelectorAll("#loops .verb").forEach(v => v.classList.toggle("on", !!p && v.dataset.letter === p.letter));
   }

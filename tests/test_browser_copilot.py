@@ -729,6 +729,18 @@ def test_the_harmony_page_shows_how_the_song_moves_and_changes_nothing(browse, s
     )
     assert page.locator("#map .st.cur").count() == 1
     assert page.locator("#map .st.cur").get_attribute("data-spot") == str(page.evaluate("H.chords[S.chord].on.roads"))
+    # in the strip of parts the one that plays has a line round it: drawn over every part, so that the part after
+    # it covers none of its sides, and inside the part's own box, so that it covers nothing of its neighbours
+    line = page.evaluate("""() => {
+      const on = document.querySelectorAll("#strip .part.on"), o = document.getElementById("strip-on").getBBox();
+      const r = on[0].getBBox(), rects = [...document.querySelectorAll("#strip rect")];
+      return {parts: on.length, mine: on[0] === document.querySelectorAll("#strip .part")[S.part],
+        seen: document.getElementById("strip-on").getAttribute("visibility"), last: rects[rects.length - 1].id,
+        inside: o.x >= r.x && o.x + o.width <= r.x + r.width && o.y >= r.y && o.y + o.height <= r.y + r.height,
+        covered: (b => document.elementsFromPoint(b.right - 1, b.top + b.height / 2))(on[0].getBoundingClientRect())
+          .filter(e => e.classList.contains("part")).length};
+    }""")
+    assert line == dict(parts=1, mine=True, seen="visible", last="strip-on", inside=True, covered=1)
     page.wait_for_function("S.note >= 0 && document.querySelectorAll('#neck .sound').length === 1")
     # the neck shows what is played and nothing else: a circle for each place, with the note's name. What the note
     # is (under the person's chord, its part of the chord) and where it is played are under the pointer; no words
